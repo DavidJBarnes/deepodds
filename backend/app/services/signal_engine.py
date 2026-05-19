@@ -114,6 +114,24 @@ def _has_open_signal(session: Session, user_id, ticker: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+LOSS_COOLDOWN = timedelta(hours=2)
+
+
+def _recently_lost(session: Session, user_id, ticker: str) -> bool:
+    cutoff = datetime.now(timezone.utc) - LOSS_COOLDOWN
+    result = session.execute(
+        select(Signal.id)
+        .where(
+            Signal.user_id == user_id,
+            Signal.ticker == ticker,
+            Signal.status == "settled_loss",
+            Signal.resolved_at >= cutoff,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
 def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | None = None) -> list[Signal]:
     config = session.execute(
         select(BotConfig).where(BotConfig.user_id == user_id)
@@ -169,6 +187,8 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
                 continue
         if _has_open_signal(session, user_id, opp.ticker):
             continue
+        if _recently_lost(session, user_id, opp.ticker):
+            continue
 
         side = "yes" if edge > 0 else "no"
         if side == "yes":
@@ -177,6 +197,11 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             limit_price = int(opp.no_ask or opp.no_price or (100 - (opp.model_fair_cents or 50)))
 
         limit_price = max(1, min(99, limit_price))
+
+        # Skip mid-range entries on range contracts — 0% win rate in backtesting
+        # Cheap (<10c) = lottery payoff, expensive (>60c) = high probability
+        if opp.strike_type == "between" and 10 <= limit_price <= 30:
+            continue
 
         tier = classify_edge_tier(abs_edge)
         tier_max_position, tier_max_contracts = _tier_limits(config, tier)
@@ -345,8 +370,8 @@ def check_take_profits(session: Session) -> int:
             )
             continue
 
-        # Stop-loss check
-        if cfg.stop_loss_cents > 0 and unrealized_per_contract <= -cfg.stop_loss_cents:
+        # Stop-loss check — skip for cheap entries (binary lottery bets should ride to expiry)
+        if cfg.stop_loss_cents > 0 and sig.fill_price_cents >= 15 and unrealized_per_contract <= -cfg.stop_loss_cents:
             exit_price = int(current_bid)
             qty = sig.fill_quantity or sig.quantity
             pnl = (exit_price - sig.fill_price_cents) * qty
