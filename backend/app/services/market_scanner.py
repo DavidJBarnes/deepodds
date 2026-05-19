@@ -304,11 +304,19 @@ def _pick_best_contract(markets: list[dict], spot: float | None) -> dict | None:
 
 
 def _prune_settled(session: Session):
+    from sqlalchemy import update
+    from app.models.signal import Signal
+
     now = datetime.now(timezone.utc)
     all_opps = session.execute(select(Opportunity)).scalars().all()
     for opp in all_opps:
         expired = opp.close_time and datetime.fromisoformat(opp.close_time.replace("Z", "+00:00")) < now
         dead = opp.quality == "low" and opp.volume == 0 and opp.liquidity == 0
         if expired or dead:
+            session.execute(
+                update(Signal)
+                .where(Signal.opportunity_id == opp.id)
+                .values(opportunity_id=None)
+            )
             session.delete(opp)
     session.commit()

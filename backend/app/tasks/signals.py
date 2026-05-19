@@ -1,7 +1,6 @@
-import asyncio
 import logging
 
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery
@@ -9,7 +8,12 @@ from app.core.config import settings
 from app.models.bot_config import BotConfig
 from app.models.user import User
 from app.services.kalshi_client import KalshiClient
-from app.services.signal_engine import evaluate_opportunities, settle_signals
+from app.services.signal_engine import (
+    check_take_profits,
+    evaluate_opportunities,
+    settle_signals,
+    simulate_fills,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,20 @@ def evaluate_all_users_task(self):
             except Exception:
                 logger.exception("Signal evaluation failed for user %s", config.user_id)
 
+    engine.dispose()
+
+
+@celery.task(name="process_paper_positions", bind=True, max_retries=0)
+def process_paper_positions_task(self):
+    engine = create_engine(settings.DATABASE_URL_SYNC)
+    with Session(engine) as session:
+        try:
+            filled = simulate_fills(session)
+            exited = check_take_profits(session)
+            if filled or exited:
+                logger.info("Paper positions: %d filled, %d take-profit exits", filled, exited)
+        except Exception:
+            logger.exception("Paper position processing failed")
     engine.dispose()
 
 

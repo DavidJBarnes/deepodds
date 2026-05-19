@@ -1,5 +1,8 @@
+import logging
+
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +12,9 @@ from app.models.bot_config import BotConfig
 from app.models.user import User
 from app.schemas.bot_config import BotConfigResponse, BotConfigUpdate
 from app.schemas.settings import KalshiKeysStatus, KalshiKeysUpdate
+from app.services.kalshi_client import KalshiClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -30,11 +36,24 @@ async def get_bot_config(
 
     return BotConfigResponse(
         mode=config.mode, enabled=config.enabled,
+        max_exposure_cents=config.max_exposure_cents,
         daily_budget_cents=config.daily_budget_cents,
         min_edge_cents=config.min_edge_cents,
         min_liquidity=config.min_liquidity,
         max_position_cents=config.max_position_cents,
         max_contracts_per_signal=config.max_contracts_per_signal,
+        max_position_cents_moderate=config.max_position_cents_moderate,
+        max_contracts_moderate=config.max_contracts_moderate,
+        max_position_cents_high=config.max_position_cents_high,
+        max_contracts_high=config.max_contracts_high,
+        max_position_cents_elite=config.max_position_cents_elite,
+        max_contracts_elite=config.max_contracts_elite,
+        take_profit_cents=config.take_profit_cents,
+        stop_loss_cents=config.stop_loss_cents,
+        daily_loss_limit_cents=config.daily_loss_limit_cents,
+        max_signals_per_hour=config.max_signals_per_hour,
+        tier_budget_pct_elite=config.tier_budget_pct_elite,
+        tier_budget_pct_high=config.tier_budget_pct_high,
     )
 
 
@@ -66,11 +85,24 @@ async def update_bot_config(
 
     return BotConfigResponse(
         mode=config.mode, enabled=config.enabled,
+        max_exposure_cents=config.max_exposure_cents,
         daily_budget_cents=config.daily_budget_cents,
         min_edge_cents=config.min_edge_cents,
         min_liquidity=config.min_liquidity,
         max_position_cents=config.max_position_cents,
         max_contracts_per_signal=config.max_contracts_per_signal,
+        max_position_cents_moderate=config.max_position_cents_moderate,
+        max_contracts_moderate=config.max_contracts_moderate,
+        max_position_cents_high=config.max_position_cents_high,
+        max_contracts_high=config.max_contracts_high,
+        max_position_cents_elite=config.max_position_cents_elite,
+        max_contracts_elite=config.max_contracts_elite,
+        take_profit_cents=config.take_profit_cents,
+        stop_loss_cents=config.stop_loss_cents,
+        daily_loss_limit_cents=config.daily_loss_limit_cents,
+        max_signals_per_hour=config.max_signals_per_hour,
+        tier_budget_pct_elite=config.tier_budget_pct_elite,
+        tier_budget_pct_high=config.tier_budget_pct_high,
     )
 
 
@@ -107,3 +139,24 @@ async def delete_kalshi_keys(
     user.kalshi_api_private_key = None
     await db.commit()
     return KalshiKeysStatus(has_keys=False)
+
+
+class KalshiBalanceResponse(BaseModel):
+    cash_cents: int
+    portfolio_cents: int
+
+
+@router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
+async def get_kalshi_balance(user: User = Depends(get_current_user)):
+    if not user.kalshi_api_key_id or not user.kalshi_api_private_key:
+        return KalshiBalanceResponse(cash_cents=0, portfolio_cents=0)
+    try:
+        client = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+        data = await client.get_balance()
+        return KalshiBalanceResponse(
+            cash_cents=data.get("balance", 0),
+            portfolio_cents=data.get("portfolio_value", 0),
+        )
+    except Exception:
+        logger.exception("Failed to fetch Kalshi balance")
+        return KalshiBalanceResponse(cash_cents=0, portfolio_cents=0)

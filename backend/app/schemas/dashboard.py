@@ -7,9 +7,11 @@ class BotStatusResponse(BaseModel):
     mode: str
     enabled: bool
     has_kalshi_keys: bool
+    max_exposure_cents: int
+    current_exposure_cents: int
+    exposure_remaining_cents: int
     daily_budget_cents: int
     daily_spent_cents: int
-    daily_remaining_cents: int
     signals_today: int
     active_signals: int
 
@@ -23,6 +25,8 @@ class PaperPnLStats(BaseModel):
     total_pnl_cents: int
     total_cost_cents: int
     roi_pct: float
+    unrealized_pnl_cents: int = 0
+    open_positions: int = 0
 
 
 class OpportunitySummary(BaseModel):
@@ -38,6 +42,24 @@ class OpportunitySummary(BaseModel):
     liquidity: float = 0
     close_time: str | None = None
     quality: str = "low"
+
+
+class DailyPnLPoint(BaseModel):
+    date: str
+    pnl_cents: int
+    cumulative_pnl_cents: int
+    signals_count: int
+    wins: int
+    losses: int
+
+
+class PnLChartResponse(BaseModel):
+    daily: list[DailyPnLPoint]
+    total_pnl_cents: int
+    best_day_cents: int
+    worst_day_cents: int
+    winning_days: int
+    losing_days: int
 
 
 class DashboardResponse(BaseModel):

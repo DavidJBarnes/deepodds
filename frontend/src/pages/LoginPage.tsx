@@ -27,9 +27,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-3xl font-bold text-emerald-400 text-center mb-8">
-          DeepOdds
-        </h1>
+        <div className="flex flex-col items-center mb-8">
+          <img src="/favicon.svg" alt="DeepOdds" className="w-14 h-14 mb-3" />
+          <div className="flex flex-col items-center -space-y-0.5">
+            <span className="text-2xl font-bold tracking-tight text-white">Deep<span className="text-emerald-400">Odds</span></span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.15em] text-slate-500">Trading Bot</span>
+          </div>
+        </div>
         <form
           onSubmit={handleSubmit}
           className="bg-slate-900 rounded-xl p-6 space-y-4 border border-slate-800"

@@ -1,8 +1,8 @@
 import type { BotStatus } from "@/api/bot";
 
 export default function BotStatusBar({ status }: { status: BotStatus }) {
-  const budgetPct = status.daily_budget_cents > 0
-    ? Math.min(100, (status.daily_spent_cents / status.daily_budget_cents) * 100)
+  const exposurePct = status.max_exposure_cents > 0
+    ? Math.min(100, (status.current_exposure_cents / status.max_exposure_cents) * 100)
     : 0;
 
   return (
@@ -32,17 +32,17 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
 
         <div className="flex-1 min-w-48">
           <div className="flex justify-between text-xs text-slate-400 mb-1">
-            <span>Daily Budget</span>
+            <span>Exposure</span>
             <span>
-              ${(status.daily_spent_cents / 100).toFixed(2)} / ${(status.daily_budget_cents / 100).toFixed(2)}
+              ${(status.current_exposure_cents / 100).toFixed(2)} / ${(status.max_exposure_cents / 100).toFixed(2)}
             </span>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
-                budgetPct > 90 ? "bg-red-500" : budgetPct > 70 ? "bg-amber-500" : "bg-emerald-500"
+                exposurePct > 90 ? "bg-red-500" : exposurePct > 70 ? "bg-amber-500" : "bg-emerald-500"
               }`}
-              style={{ width: `${budgetPct}%` }}
+              style={{ width: `${exposurePct}%` }}
             />
           </div>
         </div>
@@ -58,6 +58,14 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
             <span className="text-slate-500">Active: </span>
             <span className="text-white font-medium">{status.active_signals}</span>
           </div>
+          {status.daily_budget_cents > 0 && (
+            <div>
+              <span className="text-slate-500">Budget: </span>
+              <span className="text-white font-medium">
+                ${(status.daily_spent_cents / 100).toFixed(0)}/${(status.daily_budget_cents / 100).toFixed(0)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

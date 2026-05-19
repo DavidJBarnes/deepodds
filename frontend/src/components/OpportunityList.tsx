@@ -1,5 +1,20 @@
 import type { Opportunity } from "@/api/bot";
 
+const SERIES_SLUGS: Record<string, string> = {
+  KXBTC: "bitcoin-range",
+  KXBTCD: "bitcoin-price",
+  KXETH: "ethereum-range",
+  KXETHD: "ethereum-price",
+};
+
+function kalshiUrl(ticker: string) {
+  const series = ticker.split("-")[0];
+  const eventTicker = ticker.substring(0, ticker.lastIndexOf("-")).toLowerCase();
+  const slug = SERIES_SLUGS[series];
+  if (slug) return `https://kalshi.com/markets/${series.toLowerCase()}/${slug}/${eventTicker}`;
+  return `https://kalshi.com/markets/${eventTicker}`;
+}
+
 const QUALITY_COLORS: Record<string, string> = {
   high: "text-emerald-400",
   medium: "text-amber-400",
@@ -38,7 +53,16 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
           <tbody>
             {opportunities.map((o) => (
               <tr key={o.ticker} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                <td className="px-4 py-2 text-white font-mono text-xs">{o.ticker}</td>
+                <td className="px-4 py-2 font-mono text-xs">
+                  <a
+                    href={kalshiUrl(o.ticker)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white hover:text-emerald-400 transition-colors"
+                  >
+                    {o.ticker}
+                  </a>
+                </td>
                 <td className="px-4 py-2 text-slate-300">{o.asset}</td>
                 <td className="px-4 py-2 text-right text-slate-300">
                   {o.spot_price != null ? `$${o.spot_price.toLocaleString()}` : "—"}
@@ -47,7 +71,7 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
                   {o.strike_price != null ? `$${o.strike_price.toLocaleString()}` : "—"}
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300">
-                  {o.yes_price != null ? `${o.yes_price}c` : "—"}
+                  {o.yes_price != null ? `${Number(o.yes_price.toFixed(1))}c` : "—"}
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300">
                   {o.model_fair_cents != null ? `${o.model_fair_cents.toFixed(1)}c` : "—"}

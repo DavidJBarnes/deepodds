@@ -8,7 +8,9 @@ export default function StatsCard({ stats }: { stats: PnLStats }) {
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <p className="text-xs text-slate-500 uppercase tracking-wide">Signals</p>
         <p className="text-2xl font-bold text-white mt-1">{stats.total_signals}</p>
-        <p className="text-xs text-slate-500 mt-1">{stats.settled_count} settled</p>
+        <p className="text-xs text-slate-500 mt-1">
+          {stats.settled_count} settled{stats.open_positions > 0 && ` · ${stats.open_positions} open`}
+        </p>
       </div>
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <p className="text-xs text-slate-500 uppercase tracking-wide">Win Rate</p>
@@ -26,6 +28,11 @@ export default function StatsCard({ stats }: { stats: PnLStats }) {
         </p>
         <p className="text-xs text-slate-500 mt-1">
           ${(stats.total_cost_cents / 100).toFixed(2)} invested
+          {stats.unrealized_pnl_cents !== 0 && (
+            <span className={stats.unrealized_pnl_cents >= 0 ? "text-emerald-400/60" : "text-red-400/60"}>
+              {" "}({stats.unrealized_pnl_cents >= 0 ? "+" : ""}${(stats.unrealized_pnl_cents / 100).toFixed(2)} open)
+            </span>
+          )}
         </p>
       </div>
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">

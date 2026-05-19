@@ -52,5 +52,6 @@ async def _run_scan():
 @celery.task(name="scan_markets", bind=True, max_retries=0)
 def scan_markets(self):
     asyncio.run(_run_scan())
-    from app.tasks.signals import evaluate_all_users_task
-    evaluate_all_users_task.delay()
+    from celery import chain
+    from app.tasks.signals import evaluate_all_users_task, process_paper_positions_task
+    chain(evaluate_all_users_task.si(), process_paper_positions_task.si()).delay()

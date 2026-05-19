@@ -7,6 +7,7 @@ import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import DashboardPage from "@/pages/DashboardPage";
 import SettingsPage from "@/pages/SettingsPage";
+import ResourcesPage from "@/pages/ResourcesPage";
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -23,6 +24,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<DashboardPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="resources" element={<ResourcesPage />} />
         </Route>
       </Route>
     </Routes>

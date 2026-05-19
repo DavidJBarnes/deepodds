@@ -26,6 +26,7 @@ class Signal(Base):
     model_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     model_fair_cents: Mapped[float | None] = mapped_column(Float, nullable=True)
     model_edge_cents: Mapped[float | None] = mapped_column(Float, nullable=True)
+    edge_tier: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     implied_vol: Mapped[float | None] = mapped_column(Float, nullable=True)
     market_yes_price_cents: Mapped[float | None] = mapped_column(Float, nullable=True)
     spot_price: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -34,7 +35,9 @@ class Signal(Base):
     kalshi_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     fill_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fill_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exit_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     settled_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
     pnl_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)

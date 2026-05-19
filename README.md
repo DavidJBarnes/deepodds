@@ -20,16 +20,32 @@ Automated signal detection and execution engine for Kalshi crypto prediction mar
    - Computes side (yes if edge > 0, no if edge < 0), limit price, quantity (capped by `max_position_cents` and `max_contracts_per_signal`)
    - Creates a `Signal` record (paper mode) or places a live Kalshi order (live mode)
 
-4. **Settlement** (every 5 min) — Finds signals past their close time. Compares final spot price vs strike to determine winner. P&L: win = (100 − price) × qty, loss = −(price × qty).
+4. **Paper Fill Simulation** (runs after signal evaluation) — Checks `signaled` paper orders against current market ask prices. If ask ≤ limit price, marks the signal as `filled` with the actual ask as `fill_price_cents` and records `filled_at` timestamp. This simulates realistic order fills rather than assuming instant execution.
+
+5. **Take-Profit Monitor** (runs after fill simulation) — Checks `filled` paper positions against current market bid prices (what you could sell at). If unrealized profit per contract ≥ the user's `take_profit_cents` threshold, exits early: sets `status = "settled_win"`, records `exit_price_cents`, and computes P&L net of Kalshi fees.
+
+6. **Settlement** (every 5 min) — Finds signals past their close time that haven't already been closed by take-profit. Compares final spot price vs strike to determine winner. P&L uses actual `fill_price_cents` when available (not the limit price). Wins are net of estimated Kalshi fees.
+
+### Fee Model
+
+P&L accounting includes estimated Kalshi transaction fees:
+- **Fee rate**: 7% of profit per contract
+- **Minimum fee**: 2¢ per contract
+- Fees only apply to winning trades (Kalshi charges on profit, not on losses)
+- Formula: `net_pnl = gross_pnl - max(2, floor(profit_per_contract × 0.07)) × quantity`
 
 ### Signal Lifecycle
 
 ```
-signaled → placed → filled → settled_win / settled_loss
-                              (or cancelled on error)
+Paper mode:
+  signaled → filled (sim) → settled_win (take-profit or expiry)
+                           → settled_loss (expiry)
+
+Live mode:
+  signaled → placed → filled → settled_win / settled_loss
 ```
 
-- **Paper mode**: Signals go straight to `signaled` and settle based on spot vs strike.
+- **Paper mode**: Signals start as `signaled`. Fill simulation checks each cycle if the market ask ≤ limit price → `filled`. Take-profit monitor checks if bid − fill ≥ threshold → early `settled_win`. Otherwise settles at expiry based on spot vs strike.
 - **Live mode**: Signal engine calls `kalshi.place_order()`, sets status to `placed`. Settlement checks actual market result.
 
 ### Probability Model
@@ -120,7 +136,7 @@ deepodds/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI entrypoint
-│   │   ├── celery_app.py        # Beat schedule: scan 60s, settle 300s
+│   │   ├── celery_app.py        # Beat schedule: scan 60s, settle 300s, paper sim chained
 │   │   ├── core/                # Config, database, auth deps
 │   │   ├── models/
 │   │   │   ├── user.py          # User + encrypted Kalshi keys
@@ -131,14 +147,14 @@ deepodds/
 │   │   ├── api/v1/              # auth, dashboard, settings, signals
 │   │   ├── services/
 │   │   │   ├── market_scanner.py    # Kalshi event scanner
-│   │   │   ├── signal_engine.py     # Edge detection + order logic
+│   │   │   ├── signal_engine.py     # Edge detection, fill sim, take-profit, settlement
 │   │   │   ├── probability_model.py # Black-Scholes N(d2)
 │   │   │   ├── deribit_client.py    # IV surface (free, no auth)
 │   │   │   ├── binance_client.py    # Spot prices (binance.us)
 │   │   │   └── kalshi_client.py     # RSA-PSS signed requests
 │   │   └── tasks/
-│   │       ├── scanner.py       # scan_markets → evaluate_all_users
-│   │       └── signals.py       # evaluate + settle tasks
+│   │       ├── scanner.py       # scan → evaluate → paper sim (chained)
+│   │       └── signals.py       # evaluate, settle, process_paper_positions tasks
 │   └── alembic/
 │
 └── frontend/
@@ -160,6 +176,17 @@ deepodds/
 | `min_liquidity` | 10.0 | Minimum market liquidity |
 | `max_position_cents` | 500 ($5) | Max cost per trade |
 | `max_contracts_per_signal` | 10 | Max contracts per signal |
+| `take_profit_cents` | 15 | Exit when profit/contract ≥ this (0 = disabled) |
+
+## Task Chain
+
+Each 60-second scan cycle runs three tasks in sequence via Celery chain:
+
+1. `scan_markets` — Fetch opportunities from Kalshi, Deribit, Binance
+2. `evaluate_all_users` — Generate signals for each user based on their config
+3. `process_paper_positions` — Simulate fills + check take-profit thresholds
+
+Settlement (`settle_signals`) runs independently every 5 minutes.
 
 ## Kalshi API Notes
 
