@@ -26,8 +26,10 @@ const STATUS_COLORS: Record<string, string> = {
   signaled: "bg-blue-500/20 text-blue-400",
   placed: "bg-amber-500/20 text-amber-400",
   filled: "bg-purple-500/20 text-purple-400",
+  settling: "bg-cyan-500/20 text-cyan-400",
   settled_win: "bg-emerald-500/20 text-emerald-400",
   settled_loss: "bg-red-500/20 text-red-400",
+  cancelled: "bg-slate-500/20 text-slate-400",
 };
 
 function formatTime(iso: string) {
@@ -53,8 +55,10 @@ function timeRemaining(closeTime: string | null) {
 
 function statusLabel(s: Signal) {
   if (s.status === "settled_win" && s.exit_price_cents != null) return "take profit";
+  if (s.status === "filled" && s.close_time && new Date(s.close_time).getTime() < Date.now()) return "settling";
   return s.status.replace("_", " ");
 }
+
 
 export default function SignalTable({ signals }: { signals: Signal[] }) {
   if (signals.length === 0) {
@@ -135,9 +139,15 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   ${(s.cost_cents / 100).toFixed(2)}
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400"}`}>
-                    {statusLabel(s)}
-                  </span>
+                  {(() => {
+                    const label = statusLabel(s);
+                    const color = STATUS_COLORS[label] || STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400";
+                    return (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded ${color}`}>
+                        {label}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-2 text-right text-xs text-slate-400">
                   {s.status.startsWith("settled") ? (

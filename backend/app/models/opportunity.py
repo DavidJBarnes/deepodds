@@ -19,6 +19,7 @@ class Opportunity(Base):
     category: Mapped[str] = mapped_column(String(64), default="Crypto")
     asset: Mapped[str] = mapped_column(String(16), index=True)
     strike_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cap_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
     strike_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     spot_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     yes_price: Mapped[float | None] = mapped_column(Float, nullable=True)

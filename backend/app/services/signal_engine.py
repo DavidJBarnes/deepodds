@@ -163,6 +163,8 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
         if opp.liquidity < config.min_liquidity:
             continue
+        if config.mode == "live" and opp.liquidity <= 0:
+            continue
         if _has_open_signal(session, user_id, opp.ticker):
             continue
 
@@ -220,6 +222,7 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             market_yes_price_cents=opp.yes_price,
             spot_price=opp.spot_price,
             strike_price=opp.strike_price,
+            cap_strike=opp.cap_strike,
             close_time=opp.close_time,
         )
 
@@ -379,9 +382,16 @@ def settle_signals(session: Session) -> int:
 
         current_spot = opp.spot_price if opp else sig.spot_price
         strike = sig.strike_price
+        cap = sig.cap_strike
+        s_type = opp.strike_type if opp else None
 
         if current_spot is not None and strike is not None:
-            won_side = "yes" if current_spot > strike else "no"
+            if s_type == "between" and cap is not None:
+                won_side = "yes" if strike < current_spot < cap else "no"
+            elif s_type == "below":
+                won_side = "yes" if current_spot < strike else "no"
+            else:
+                won_side = "yes" if current_spot > strike else "no"
         else:
             won_side = None
 
@@ -465,10 +475,11 @@ def sync_live_orders(session: Session, user_id, kalshi: "KalshiClient") -> dict:
             logger.warning("Failed to fetch market %s", sig.ticker)
             continue
 
-        market_result = market.get("market", market).get("result", "")
-        market_status = market.get("market", market).get("status", "")
+        mkt = market.get("market", market)
+        market_result = mkt.get("result", "")
+        market_status = mkt.get("status", "")
 
-        if market_status in ("settled", "finalized") and market_result:
+        if market_status in ("closed", "settled", "finalized") and market_result:
             entry_price = sig.fill_price_cents or sig.limit_price_cents
             qty = sig.fill_quantity or sig.quantity
 

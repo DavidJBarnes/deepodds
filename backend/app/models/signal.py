@@ -31,6 +31,7 @@ class Signal(Base):
     market_yes_price_cents: Mapped[float | None] = mapped_column(Float, nullable=True)
     spot_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     strike_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cap_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     kalshi_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     fill_price_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)

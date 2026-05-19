@@ -9,7 +9,7 @@ from app.models.opportunity import Opportunity
 from app.services.binance_client import get_crypto_prices, get_fear_greed
 from app.services.deribit_client import get_iv_surface
 from app.services.kalshi_client import KalshiClient
-from app.services.probability_model import compute_edge, prob_above, time_to_expiry
+from app.services.probability_model import compute_edge, prob_above, prob_below, prob_between, time_to_expiry
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,14 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
             model_edge = None
             iv_used = None
             close_time_str = best.get("close_time")
+            s_type = best.get("strike_type")
+            cap = best.get("cap_strike")
+            cap_val = None
+            if cap is not None:
+                try:
+                    cap_val = float(cap)
+                except (ValueError, TypeError):
+                    pass
 
             if spot and strike and close_time_str:
                 try:
@@ -190,7 +198,12 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
                     if iv:
                         iv_used = iv
                         T = time_to_expiry(expiry_dt)
-                        model_prob = prob_above(spot, strike, iv, T)
+                        if s_type == "between" and cap_val is not None:
+                            model_prob = prob_between(spot, strike, cap_val, iv, T)
+                        elif s_type == "below":
+                            model_prob = prob_below(spot, strike, iv, T)
+                        else:
+                            model_prob = prob_above(spot, strike, iv, T)
                         model_fair = model_prob * 100
                         model_edge = compute_edge(model_prob, yes_cents)
                 except Exception:
@@ -211,6 +224,8 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
             ).scalar_one_or_none()
 
             if existing:
+                existing.cap_strike = cap_val
+                existing.strike_type = s_type
                 existing.spot_price = spot
                 existing.yes_price = yes_cents
                 existing.no_price = no_cents
@@ -241,7 +256,8 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
                     category="Crypto",
                     asset=asset,
                     strike_price=strike,
-                    strike_type=best.get("strike_type"),
+                    cap_strike=cap_val,
+                    strike_type=s_type,
                     spot_price=spot,
                     yes_price=yes_cents,
                     no_price=no_cents,
