@@ -35,6 +35,22 @@ function formatTime(iso: string) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function timeRemaining(closeTime: string | null) {
+  if (!closeTime) return null;
+  const now = Date.now();
+  const close = new Date(closeTime).getTime();
+  const diff = close - now;
+  if (diff <= 0) return "expired";
+  const hours = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
 function statusLabel(s: Signal) {
   if (s.status === "settled_win" && s.exit_price_cents != null) return "take profit";
   return s.status.replace("_", " ");
@@ -67,6 +83,7 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
               <th className="text-right px-4 py-2">Qty</th>
               <th className="text-right px-4 py-2">Cost</th>
               <th className="text-left px-4 py-2">Status</th>
+              <th className="text-right px-4 py-2">Expires</th>
               <th className="text-right px-4 py-2">P&L</th>
             </tr>
           </thead>
@@ -121,6 +138,13 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   <span className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400"}`}>
                     {statusLabel(s)}
                   </span>
+                </td>
+                <td className="px-4 py-2 text-right text-xs text-slate-400">
+                  {s.status.startsWith("settled") ? (
+                    <span className="text-slate-600">done</span>
+                  ) : (
+                    timeRemaining(s.close_time) || "—"
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right">
                   {s.pnl_cents != null ? (

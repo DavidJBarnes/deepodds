@@ -76,6 +76,10 @@ class KalshiClient:
             "GET", f"/series/{series_ticker}/markets/{ticker}/candlesticks?period_interval=60"
         )
 
+    async def get_order(self, order_id: str) -> dict:
+        result = await self._request("GET", f"/portfolio/orders/{order_id}")
+        return result.get("order", {})
+
     async def get_balance(self) -> dict:
         return await self._request("GET", "/portfolio/balance")
 

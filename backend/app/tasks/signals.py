@@ -13,6 +13,7 @@ from app.services.signal_engine import (
     evaluate_opportunities,
     settle_signals,
     simulate_fills,
+    sync_live_orders,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,4 +72,33 @@ def settle_signals_task(self):
                 logger.info("Settled %d signals", settled)
         except Exception:
             logger.exception("Signal settlement failed")
+    engine.dispose()
+
+
+@celery.task(name="sync_live_orders", bind=True, max_retries=0)
+def sync_live_orders_task(self):
+    engine = create_engine(settings.DATABASE_URL_SYNC)
+    with Session(engine) as session:
+        configs = session.execute(
+            select(BotConfig).where(BotConfig.mode == "live")
+        ).scalars().all()
+
+        for config in configs:
+            user = session.execute(
+                select(User).where(User.id == config.user_id)
+            ).scalar_one_or_none()
+            if not user or not user.kalshi_api_key_id or not user.kalshi_api_private_key:
+                continue
+
+            kalshi = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+            try:
+                result = sync_live_orders(session, config.user_id, kalshi)
+                if result["filled"] or result["settled"]:
+                    logger.info(
+                        "Live sync for %s: %d filled, %d settled",
+                        user.email, result["filled"], result["settled"],
+                    )
+            except Exception:
+                logger.exception("Live order sync failed for user %s", config.user_id)
+
     engine.dispose()

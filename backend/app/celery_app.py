@@ -18,6 +18,10 @@ celery.conf.update(
             "task": "settle_signals",
             "schedule": 300.0,
         },
+        "sync-live-orders": {
+            "task": "sync_live_orders",
+            "schedule": 60.0,
+        },
     },
 )
 celery.autodiscover_tasks(["app.tasks"])

@@ -409,3 +409,95 @@ def settle_signals(session: Session) -> int:
 
     session.commit()
     return settled
+
+
+def sync_live_orders(session: Session, user_id, kalshi: "KalshiClient") -> dict:
+    live_signals = session.execute(
+        select(Signal).where(
+            Signal.user_id == user_id,
+            Signal.signal_type == "live",
+            Signal.status.in_(("placed", "filled")),
+            Signal.kalshi_order_id.isnot(None),
+        )
+    ).scalars().all()
+
+    if not live_signals:
+        return {"synced": 0, "filled": 0, "settled": 0}
+
+    now = datetime.now(timezone.utc)
+    filled_count = 0
+    settled_count = 0
+
+    for sig in live_signals:
+        try:
+            order = asyncio.run(kalshi.get_order(sig.kalshi_order_id))
+        except Exception:
+            logger.warning("Failed to fetch order %s for %s", sig.kalshi_order_id, sig.ticker)
+            continue
+
+        order_status = order.get("status", "")
+
+        if sig.status == "placed" and order_status in ("executed", "filled"):
+            price_dollars = order.get("yes_price_dollars") if sig.side == "yes" else order.get("no_price_dollars")
+            fill_count_str = order.get("fill_count_fp", "0")
+            fill_count = int(float(fill_count_str)) if fill_count_str else sig.quantity
+            if price_dollars:
+                sig.fill_price_cents = int(float(price_dollars) * 100)
+            sig.fill_quantity = fill_count or sig.quantity
+            sig.filled_at = now
+            sig.status = "filled"
+            sig.cost_cents = (sig.fill_price_cents or sig.limit_price_cents) * (sig.fill_quantity or sig.quantity)
+            filled_count += 1
+            logger.info(
+                "Live fill synced: %s %s @ %d¢ x%d",
+                sig.ticker, sig.side, sig.fill_price_cents, sig.fill_quantity,
+            )
+
+        if order_status == "canceled":
+            sig.status = "cancelled"
+            sig.resolved_at = now
+            logger.info("Live order cancelled on Kalshi: %s", sig.ticker)
+            continue
+
+        try:
+            market = asyncio.run(kalshi.get_market(sig.ticker))
+        except Exception:
+            logger.warning("Failed to fetch market %s", sig.ticker)
+            continue
+
+        market_result = market.get("market", market).get("result", "")
+        market_status = market.get("market", market).get("status", "")
+
+        if market_status in ("settled", "finalized") and market_result:
+            entry_price = sig.fill_price_cents or sig.limit_price_cents
+            qty = sig.fill_quantity or sig.quantity
+
+            if sig.status == "placed":
+                if order_status in ("executed", "filled"):
+                    pass
+                else:
+                    sig.status = "cancelled"
+                    sig.resolved_at = now
+                    logger.info("Live order expired unfilled: %s", sig.ticker)
+                    continue
+
+            sig.settled_side = market_result
+            sig.resolved_at = now
+
+            if sig.side == market_result:
+                gross_pnl = (100 - entry_price) * qty
+                fees = _estimate_fee(entry_price, 100, qty)
+                sig.pnl_cents = gross_pnl - fees
+                sig.status = "settled_win"
+            else:
+                sig.pnl_cents = -(entry_price * qty)
+                sig.status = "settled_loss"
+
+            settled_count += 1
+            logger.info(
+                "Live settled: %s %s (P&L: %d¢)",
+                sig.ticker, sig.status, sig.pnl_cents,
+            )
+
+    session.commit()
+    return {"synced": len(live_signals), "filled": filled_count, "settled": settled_count}
