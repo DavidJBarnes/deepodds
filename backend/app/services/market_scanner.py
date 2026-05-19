@@ -205,7 +205,7 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
                         else:
                             model_prob = prob_above(spot, strike, iv, T)
                         model_fair = model_prob * 100
-                        model_edge = compute_edge(model_prob, yes_cents)
+                        model_edge = compute_edge(model_prob, yes_ask, no_ask)
                 except Exception:
                     logger.warning("Model calc failed for %s", best.get("ticker"), exc_info=True)
 

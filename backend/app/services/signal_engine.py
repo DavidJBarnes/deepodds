@@ -163,8 +163,10 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
         if opp.liquidity < config.min_liquidity:
             continue
-        if config.mode == "live" and opp.liquidity <= 0:
-            continue
+        if config.mode == "live":
+            ask = opp.yes_ask if edge > 0 else opp.no_ask
+            if ask is None or ask <= 0:
+                continue
         if _has_open_signal(session, user_id, opp.ticker):
             continue
 
@@ -270,7 +272,7 @@ def simulate_fills(session: Session) -> int:
         else:
             current_ask = opp.no_ask or opp.no_price
 
-        if current_ask is None:
+        if not current_ask or current_ask <= 0:
             continue
 
         if current_ask <= sig.limit_price_cents:

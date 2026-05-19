@@ -30,11 +30,18 @@ def prob_between(spot: float, k_low: float, k_high: float, sigma: float, t_years
     return prob_above(spot, k_low, sigma, t_years, r) - prob_above(spot, k_high, sigma, t_years, r)
 
 
-def compute_edge(model_prob: float, market_price_cents: float | None) -> float | None:
-    """Edge in cents: how much the market is mispriced.
-    Positive = market is cheap (buy opportunity).
-    Negative = market is expensive."""
-    if market_price_cents is None:
-        return None
-    fair_cents = model_prob * 100
-    return fair_cents - market_price_cents
+def compute_edge(model_prob: float, yes_ask: float | None, no_ask: float | None) -> float | None:
+    """Edge in cents against the ask price (what you'd actually pay).
+    Positive = YES is cheap (buy YES).
+    Negative = NO is cheap (buy NO), magnitude is the NO edge."""
+    fair_yes = model_prob * 100
+    fair_no = 100 - fair_yes
+    yes_edge = (fair_yes - yes_ask) if yes_ask and yes_ask > 0 else None
+    no_edge = (fair_no - no_ask) if no_ask and no_ask > 0 else None
+    if yes_edge is not None and no_edge is not None:
+        return yes_edge if yes_edge >= no_edge else -no_edge
+    if yes_edge is not None:
+        return yes_edge
+    if no_edge is not None:
+        return -no_edge
+    return None
