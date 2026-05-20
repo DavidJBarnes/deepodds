@@ -710,23 +710,23 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSaveCbKeys} className="space-y-4">
           <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key</label>
+            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
             <input
               type="text"
               value={cbKey}
               onChange={(e) => setCbKey(e.target.value)}
-              placeholder="Your Coinbase API Key"
+              placeholder="Your Coinbase API Key ID"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
             />
           </div>
           <div>
             <label className="block text-sm text-slate-400 mb-1">API Secret</label>
-            <input
-              type="password"
+            <textarea
               value={cbSecret}
               onChange={(e) => setCbSecret(e.target.value)}
-              placeholder="Your Coinbase API Secret"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              placeholder={"-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----"}
+              rows={6}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
             />
           </div>
           <button
