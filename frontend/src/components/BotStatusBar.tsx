@@ -66,6 +66,18 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
               </span>
             </div>
           )}
+          {status.spot_enabled && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">Spot: </span>
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                status.spot_mode === "live"
+                  ? "bg-red-500/20 text-red-400"
+                  : "bg-blue-500/20 text-blue-400"
+              }`}>
+                {status.spot_mode.toUpperCase()}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

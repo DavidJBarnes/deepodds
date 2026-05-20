@@ -25,6 +25,14 @@ class BotConfigResponse(BaseModel):
     tier_budget_pct_high: int
     max_positions_per_asset: int = 3
     min_yes_prob: int = 20
+    spot_enabled: bool = False
+    spot_mode: str = "paper"
+    spot_dip_pct: float = 3.0
+    spot_take_profit_pct: float = 2.0
+    spot_stop_loss_pct: float = 5.0
+    spot_buy_amount_usd: int = 50
+    spot_max_position_usd: int = 500
+    spot_cooldown_minutes: int = 60
 
 
 class BotConfigUpdate(BaseModel):
@@ -51,3 +59,11 @@ class BotConfigUpdate(BaseModel):
     tier_budget_pct_high: int | None = Field(None, ge=0, le=50)
     max_positions_per_asset: int | None = Field(None, ge=0, le=20)
     min_yes_prob: int | None = Field(None, ge=0, le=100)
+    spot_enabled: bool | None = None
+    spot_mode: str | None = None
+    spot_dip_pct: float | None = Field(None, ge=0.1, le=20.0)
+    spot_take_profit_pct: float | None = Field(None, ge=0.1, le=50.0)
+    spot_stop_loss_pct: float | None = Field(None, ge=0.5, le=50.0)
+    spot_buy_amount_usd: int | None = Field(None, ge=10, le=10000)
+    spot_max_position_usd: int | None = Field(None, ge=10, le=100000)
+    spot_cooldown_minutes: int | None = Field(None, ge=1, le=1440)

@@ -7,6 +7,7 @@ import SignalTable from "@/components/SignalTable";
 import OpportunityList from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
+import SpotTab from "@/components/SpotTab";
 
 const REFRESH_INTERVAL = 60;
 
@@ -14,7 +15,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"signals" | "markets">("signals");
+  const [tab, setTab] = useState<"signals" | "markets" | "spot">("signals");
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -93,7 +94,7 @@ export default function DashboardPage() {
       )}
 
       <BotStatusBar status={status} />
-      <StatsCard stats={dashboard.stats} />
+      <StatsCard stats={dashboard.stats} spotStats={dashboard.spot_stats} />
       <PnLChart />
 
       <div className="flex gap-1 border-b border-slate-800">
@@ -117,12 +118,24 @@ export default function DashboardPage() {
         >
           Markets ({dashboard.opportunities.length})
         </button>
+        <button
+          onClick={() => setTab("spot")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "spot"
+              ? "text-emerald-400 border-b-2 border-emerald-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          Spot BTC
+        </button>
       </div>
 
       {tab === "signals" ? (
         <SignalTable signals={dashboard.recent_signals} />
-      ) : (
+      ) : tab === "markets" ? (
         <OpportunityList opportunities={dashboard.opportunities} />
+      ) : (
+        <SpotTab spotStats={dashboard.spot_stats} />
       )}
     </div>
   );

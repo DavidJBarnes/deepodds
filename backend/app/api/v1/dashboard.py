@@ -4,11 +4,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import redis
+
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
 from app.models.opportunity import Opportunity
 from app.models.signal import Signal
+from app.models.spot_position import SpotPosition
+from app.models.spot_trade import SpotTrade
 from app.models.user import User
 from app.schemas.dashboard import (
     BotStatusResponse,
@@ -19,6 +24,7 @@ from app.schemas.dashboard import (
     PnLChartResponse,
 )
 from app.schemas.signal import SignalResponse
+from app.schemas.spot import SpotPnLStats
 
 router = APIRouter(tags=["dashboard"])
 
@@ -81,6 +87,9 @@ async def get_dashboard(
         mode=config.mode,
         enabled=config.enabled,
         has_kalshi_keys=bool(user.kalshi_api_key_id),
+        has_coinbase_keys=bool(user.coinbase_api_key),
+        spot_enabled=config.spot_enabled,
+        spot_mode=config.spot_mode,
         max_exposure_cents=config.max_exposure_cents,
         current_exposure_cents=current_exposure,
         exposure_remaining_cents=max(0, config.max_exposure_cents - current_exposure),
@@ -188,11 +197,38 @@ async def get_dashboard(
         for o in opps
     ]
 
+    spot_trade_count = (await db.execute(
+        select(func.count()).select_from(SpotTrade).where(SpotTrade.user_id == user.id)
+    )).scalar()
+    spot_realized = (await db.execute(
+        select(func.coalesce(func.sum(SpotTrade.pnl_usd), 0.0))
+        .where(SpotTrade.user_id == user.id, SpotTrade.pnl_usd.isnot(None))
+    )).scalar()
+    spot_pos = (await db.execute(
+        select(SpotPosition).where(SpotPosition.user_id == user.id, SpotPosition.status == "open")
+    )).scalar_one_or_none()
+
+    spot_unrealized = 0.0
+    if spot_pos:
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        price_str = r.get("spot:btc:price")
+        if price_str:
+            spot_unrealized = round((float(price_str) - spot_pos.entry_price_usd) * spot_pos.quantity_btc, 2)
+
+    spot_stats = SpotPnLStats(
+        total_trades=spot_trade_count,
+        open_position_btc=round(spot_pos.quantity_btc, 8) if spot_pos else 0.0,
+        open_position_usd=round(spot_pos.cost_basis_usd, 2) if spot_pos else 0.0,
+        unrealized_pnl_usd=spot_unrealized,
+        realized_pnl_usd=round(spot_realized, 2),
+    )
+
     return DashboardResponse(
         bot_status=bot_status,
         recent_signals=recent_signals,
         opportunities=opportunities,
         stats=stats,
+        spot_stats=spot_stats,
     )
 
 
