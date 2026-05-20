@@ -53,7 +53,6 @@ export const useBotStore = create<BotState>((set, get) => ({
   },
 
   startPriceStream: () => {
-    const token = localStorage.getItem("token");
     const baseUrl = import.meta.env.VITE_API_URL || "";
     const url = `${baseUrl}/api/v1/spot/price/stream`;
     const es = new EventSource(url, { withCredentials: false } as EventSourceInit);
