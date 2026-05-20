@@ -10,7 +10,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
-    PATH="/app/backend/.venv/bin:$PATH"
+    PATH="/app/backend/.venv/bin:$PATH" \
+    PYTHONPATH="/app/backend"
 
 WORKDIR /app/backend
 

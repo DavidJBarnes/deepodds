@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import ConfirmModal from "@/components/ConfirmModal";
 import * as settingsApi from "@/api/settings";

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
-import { useBotStore } from "@/stores/botStore";
 import { getKalshiBalance, type KalshiBalance } from "@/api/settings";
 
 const navItems = [
@@ -13,8 +12,6 @@ const navItems = [
 export default function Layout() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const dashboard = useBotStore((s) => s.dashboard);
-  const status = dashboard?.bot_status;
   const [balance, setBalance] = useState<KalshiBalance | null>(null);
 
   useEffect(() => {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  AreaChart,
   Area,
   Bar,
   ComposedChart,

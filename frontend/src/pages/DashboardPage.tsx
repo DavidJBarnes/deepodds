@@ -12,7 +12,7 @@ const REFRESH_INTERVAL = 30;
 
 export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [tab, setTab] = useState<"signals" | "markets">("signals");
 
