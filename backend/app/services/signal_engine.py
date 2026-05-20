@@ -145,6 +145,90 @@ def _asset_position_count(session: Session, user_id, asset_prefix: str) -> int:
     return result.scalar()
 
 
+def evaluate_naive_no(user_id, session: Session) -> list[Signal]:
+    """Naive control strategy: buy NO on any range contract priced <8¢.
+    No model computation — tests whether alpha is structural."""
+    config = session.execute(
+        select(BotConfig).where(BotConfig.user_id == user_id)
+    ).scalar_one_or_none()
+
+    if not config or not config.enabled:
+        return []
+
+    if config.daily_loss_limit_cents > 0:
+        if _today_pnl(session, user_id) <= -config.daily_loss_limit_cents:
+            return []
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    opps = session.execute(
+        select(Opportunity).where(
+            Opportunity.strike_type == "between",
+            (Opportunity.close_time.is_(None)) | (Opportunity.close_time > now_iso),
+        )
+    ).scalars().all()
+
+    current_exposure = _open_exposure(session, user_id)
+    daily_spent = _today_spend(session, user_id)
+    signals_created = []
+
+    for opp in opps:
+        no_ask = opp.no_ask or opp.no_price
+        if not no_ask or no_ask <= 0 or no_ask > 8:
+            continue
+
+        if _has_open_signal(session, user_id, opp.ticker):
+            continue
+        if _recently_lost(session, user_id, opp.ticker):
+            continue
+
+        limit_price = int(no_ask)
+        if limit_price < 1:
+            limit_price = 1
+
+        quantity = min(config.max_contracts_per_signal, config.max_position_cents // limit_price if limit_price > 0 else 0)
+        if quantity < 1:
+            continue
+
+        cost = limit_price * quantity
+
+        if current_exposure + cost > config.max_exposure_cents:
+            continue
+        if config.daily_budget_cents > 0 and daily_spent + cost > config.daily_budget_cents:
+            continue
+
+        signal = Signal(
+            user_id=user_id,
+            opportunity_id=opp.id,
+            ticker=opp.ticker,
+            side="no",
+            action="buy",
+            limit_price_cents=limit_price,
+            quantity=quantity,
+            cost_cents=cost,
+            signal_type=config.mode,
+            status="signaled",
+            model_prob=opp.model_prob,
+            model_fair_cents=opp.model_fair_cents,
+            model_edge_cents=opp.model_edge_cents,
+            edge_tier="naive",
+            implied_vol=opp.implied_vol,
+            market_yes_price_cents=opp.yes_price,
+            spot_price=opp.spot_price,
+            strike_price=opp.strike_price,
+            cap_strike=opp.cap_strike,
+            close_time=opp.close_time,
+        )
+
+        session.add(signal)
+        current_exposure += cost
+        daily_spent += cost
+        signals_created.append(signal)
+        logger.info("Naive NO signal: %s @ %d¢ x%d", opp.ticker, limit_price, quantity)
+
+    session.commit()
+    return signals_created
+
+
 def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | None = None) -> list[Signal]:
     config = session.execute(
         select(BotConfig).where(BotConfig.user_id == user_id)

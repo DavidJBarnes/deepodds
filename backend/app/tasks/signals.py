@@ -10,6 +10,7 @@ from app.models.user import User
 from app.services.kalshi_client import KalshiClient
 from app.services.signal_engine import (
     check_take_profits,
+    evaluate_naive_no,
     evaluate_opportunities,
     settle_signals,
     simulate_fills,
@@ -39,7 +40,10 @@ def evaluate_all_users_task(self):
                 kalshi = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
 
             try:
-                signals = evaluate_opportunities(config.user_id, session, kalshi)
+                if config.strategy == "naive_no":
+                    signals = evaluate_naive_no(config.user_id, session)
+                else:
+                    signals = evaluate_opportunities(config.user_id, session, kalshi)
                 if signals:
                     logger.info("Created %d signals for user %s", len(signals), user.email)
             except Exception:
