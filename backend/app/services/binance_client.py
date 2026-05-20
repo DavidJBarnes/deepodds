@@ -1,4 +1,5 @@
 import logging
+import math
 
 import httpx
 
@@ -44,3 +45,47 @@ async def get_fear_greed() -> dict:
             "value": int(data.get("value", 50)),
             "label": data.get("value_classification", "Neutral"),
         }
+
+
+async def get_realized_vol(symbol: str = "BTC", hours: int = 4) -> float | None:
+    """Compute annualized realized volatility from Binance 1-minute klines.
+
+    Uses close-to-close log returns over the specified window.
+    Returns annualized vol as a decimal (e.g. 0.65 = 65%).
+    """
+    pair = f"{symbol}USDT"
+    limit = hours * 60
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            resp = await client.get(
+                "https://api.binance.us/api/v3/klines",
+                params={"symbol": pair, "interval": "1m", "limit": limit},
+            )
+            resp.raise_for_status()
+            klines = resp.json()
+        except Exception:
+            try:
+                resp = await client.get(
+                    "https://api.binance.com/api/v3/klines",
+                    params={"symbol": pair, "interval": "1m", "limit": limit},
+                )
+                resp.raise_for_status()
+                klines = resp.json()
+            except Exception:
+                logger.warning("Failed to fetch klines for realized vol (%s)", symbol)
+                return None
+
+    if len(klines) < 30:
+        return None
+
+    closes = [float(k[4]) for k in klines]
+    log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+
+    if len(log_returns) < 20:
+        return None
+
+    mean_r = sum(log_returns) / len(log_returns)
+    variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
+    vol_per_minute = math.sqrt(variance)
+    annualized = vol_per_minute * math.sqrt(365.25 * 24 * 60)
+    return annualized

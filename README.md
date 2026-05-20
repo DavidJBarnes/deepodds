@@ -6,16 +6,19 @@ Automated signal detection and execution engine for Kalshi crypto prediction mar
 
 ### Signal Detection Loop
 
-1. **Scanner** (every 60s) — Celery Beat triggers `scan_markets`, which fetches all active crypto contracts from Kalshi's events API for series `KXBTC`, `KXBTCD`, `KXETH`, `KXETHD`. For each contract it pulls the current spot price (Binance), implied volatility (Deribit DVOL surface), and computes a model probability using Black-Scholes N(d2).
+1. **Scanner** (every 60s) — Celery Beat triggers `scan_markets`, which fetches all active crypto contracts from Kalshi's events API for series `KXBTC`, `KXBTCD`, `KXETH`, `KXETHD`. For each contract it pulls the current spot price (Binance), implied volatility (Deribit DVOL surface + Binance realized vol), and computes a model probability using Black-Scholes N(d2).
 
 2. **Edge Calculation** — For each opportunity the scanner computes:
    - `model_fair_cents` = model probability × 100 (what the contract should be worth)
-   - `model_edge_cents` = model_fair_cents − market_yes_price (positive = market is underpriced)
+   - `model_edge_cents` = fair − ask price (positive = YES is cheap, negative = NO is cheap)
 
 3. **Signal Engine** (runs after each scan) — For every user with an enabled `BotConfig`, evaluates all opportunities:
    - Edge must exceed `min_edge_cents` (default 8¢)
    - Liquidity must exceed `min_liquidity` (default 10)
    - No existing open signal on same ticker
+   - 2-hour cooldown after a loss on the same ticker
+   - YES bets restricted to high-probability only (model_prob > 50%)
+   - Range contracts: skip 10-30¢ dead zone (0% historical win rate)
    - Daily spend must not exceed `daily_budget_cents` (default $50)
    - Computes side (yes if edge > 0, no if edge < 0), limit price, quantity (capped by `max_position_cents` and `max_contracts_per_signal`)
    - Creates a `Signal` record (paper mode) or places a live Kalshi order (live mode)
@@ -50,11 +53,21 @@ Live mode:
 
 ### Probability Model
 
-Binary option pricing via Black-Scholes N(d2):
+Binary option pricing via Black-Scholes N(d2), with support for above/below/between (range) contracts:
 
-- **Inputs**: spot price (Binance), strike price (from contract ticker), time to expiry, implied volatility (Deribit), risk-free rate
-- **Deribit IV**: Free public API — fetches DVOL index and full IV surface by expiry. Interpolates IV for the contract's time horizon.
-- **Output**: Probability that spot > strike at expiry → fair value in cents → edge vs market price
+- **Inputs**: spot price (Binance), strike price (from contract), time to expiry, blended volatility, risk-free rate
+- **Volatility Blending**: Deribit IV surface (options-implied) is blended with Binance realized volatility (4h 1-minute klines). For short-term contracts (<6h), realized vol is weighted 60%; for 6-24h, 30%; beyond 24h, Deribit IV only. This captures recent price action that the options market may lag.
+- **Contract types**: `prob_above` (spot > strike), `prob_below` (spot < strike), `prob_between` (floor < spot < cap)
+- **Output**: Probability → fair value in cents → edge vs market ask price
+
+### Signal Archive
+
+Signals are preserved for historical analysis. Instead of deleting, the archive system moves settled signals to `archived_signals` with a `run_id` tag for grouping. The archive is queryable via API (`GET /api/v1/signals/archive`) and filterable by run.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/signals/archive` | Archive current user's signals (returns run_id) |
+| `GET /api/v1/signals/archive` | List archived signals (filter by run_id) |
 
 ## Architecture
 
@@ -119,6 +132,8 @@ cd backend && PYTHONPATH=. celery -A app.celery_app worker --beat --loglevel=inf
 | GET | `/api/v1/auth/me` | Current user |
 | GET | `/api/v1/dashboard` | Full dashboard: bot status, signals, opportunities, stats |
 | GET | `/api/v1/signals` | Paginated signals (filter by status) |
+| POST | `/api/v1/signals/archive` | Archive signals → archived_signals table |
+| GET | `/api/v1/signals/archive` | Browse archived signals (filter by run_id) |
 | GET | `/api/v1/settings/bot-config` | Get bot config |
 | PUT | `/api/v1/settings/bot-config` | Update bot config |
 | PUT | `/api/v1/settings/kalshi-keys` | Save Kalshi API keys |
@@ -139,19 +154,21 @@ deepodds/
 │   │   ├── celery_app.py        # Beat schedule: scan 60s, settle 300s, paper sim chained
 │   │   ├── core/                # Config, database, auth deps
 │   │   ├── models/
-│   │   │   ├── user.py          # User + encrypted Kalshi keys
-│   │   │   ├── opportunity.py   # Scanner results (upserted each cycle)
-│   │   │   ├── bot_config.py    # Per-user trading config
-│   │   │   └── signal.py        # Trade signals + P&L
+│   │   │   ├── user.py              # User + encrypted Kalshi keys
+│   │   │   ├── opportunity.py       # Scanner results (upserted each cycle)
+│   │   │   ├── bot_config.py        # Per-user trading config
+│   │   │   ├── signal.py            # Trade signals + P&L
+│   │   │   └── archived_signal.py   # Historical signal archive
 │   │   ├── schemas/             # Pydantic request/response
 │   │   ├── api/v1/              # auth, dashboard, settings, signals
 │   │   ├── services/
-│   │   │   ├── market_scanner.py    # Kalshi event scanner
+│   │   │   ├── market_scanner.py    # Kalshi event scanner + vol blending
 │   │   │   ├── signal_engine.py     # Edge detection, fill sim, take-profit, settlement
-│   │   │   ├── probability_model.py # Black-Scholes N(d2)
+│   │   │   ├── probability_model.py # Black-Scholes N(d2) (above/below/between)
 │   │   │   ├── deribit_client.py    # IV surface (free, no auth)
-│   │   │   ├── binance_client.py    # Spot prices (binance.us)
-│   │   │   └── kalshi_client.py     # RSA-PSS signed requests
+│   │   │   ├── binance_client.py    # Spot prices + realized vol (binance.us)
+│   │   │   ├── kalshi_client.py     # RSA-PSS signed requests
+│   │   │   └── archive.py          # Signal archival (sync + async)
 │   │   └── tasks/
 │   │       ├── scanner.py       # scan → evaluate → paper sim (chained)
 │   │       └── signals.py       # evaluate, settle, process_paper_positions tasks

@@ -191,6 +191,11 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
 
         side = "yes" if edge > 0 else "no"
+
+        # YES bets only when model strongly favors it (>50% probability)
+        if side == "yes" and opp.model_prob is not None and opp.model_prob <= 0.50:
+            continue
+
         if side == "yes":
             limit_price = int(opp.yes_ask or opp.yes_price or opp.model_fair_cents or 50)
         else:
@@ -199,7 +204,6 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
         limit_price = max(1, min(99, limit_price))
 
         # Skip mid-range entries on range contracts — 0% win rate in backtesting
-        # Cheap (<10c) = lottery payoff, expensive (>60c) = high probability
         if opp.strike_type == "between" and 10 <= limit_price <= 30:
             continue
 

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.opportunity import Opportunity
-from app.services.binance_client import get_crypto_prices, get_fear_greed
+from app.services.binance_client import get_crypto_prices, get_fear_greed, get_realized_vol
 from app.services.deribit_client import get_iv_surface
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, prob_above, prob_below, prob_between, time_to_expiry
@@ -117,6 +117,31 @@ def _match_iv(iv_surface: dict, target_expiry: datetime) -> float | None:
     return None
 
 
+def _blend_vol(deribit_iv: float | None, realized_vol: float | None, expiry_dt: datetime) -> float | None:
+    """Blend Deribit implied vol with short-term realized vol.
+
+    For contracts expiring within 6 hours, weight realized vol at 60%.
+    For 6-24 hours, weight at 30%. Beyond 24 hours, use Deribit IV only.
+    """
+    if deribit_iv is None and realized_vol is None:
+        return None
+    if deribit_iv is None:
+        return realized_vol
+    if realized_vol is None:
+        return deribit_iv
+
+    hours_to_expiry = max((expiry_dt - datetime.now(timezone.utc)).total_seconds(), 0) / 3600
+
+    if hours_to_expiry <= 6:
+        rv_weight = 0.60
+    elif hours_to_expiry <= 24:
+        rv_weight = 0.30
+    else:
+        return deribit_iv
+
+    return rv_weight * realized_vol + (1 - rv_weight) * deribit_iv
+
+
 async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
     try:
         prices = await get_crypto_prices()
@@ -130,12 +155,18 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
         fg = {"value": 50, "label": "Neutral"}
 
     iv_surfaces: dict[str, dict] = {}
+    realized_vols: dict[str, float | None] = {}
     for currency in ("BTC", "ETH"):
         try:
             iv_surfaces[currency] = await get_iv_surface(currency)
         except Exception:
             logger.warning("Failed to fetch IV surface for %s", currency)
             iv_surfaces[currency] = {}
+        try:
+            realized_vols[currency] = await get_realized_vol(currency, hours=4)
+        except Exception:
+            logger.warning("Failed to fetch realized vol for %s", currency)
+            realized_vols[currency] = None
 
     upserted = 0
 
@@ -194,7 +225,9 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
             if spot and strike and close_time_str:
                 try:
                     expiry_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
-                    iv = _match_iv(iv_surfaces.get(asset, {}), expiry_dt)
+                    deribit_iv = _match_iv(iv_surfaces.get(asset, {}), expiry_dt)
+                    rv = realized_vols.get(asset)
+                    iv = _blend_vol(deribit_iv, rv, expiry_dt)
                     if iv:
                         iv_used = iv
                         T = time_to_expiry(expiry_dt)
