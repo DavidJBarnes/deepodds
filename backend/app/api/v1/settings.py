@@ -54,6 +54,7 @@ async def get_bot_config(
         max_signals_per_hour=config.max_signals_per_hour,
         tier_budget_pct_elite=config.tier_budget_pct_elite,
         tier_budget_pct_high=config.tier_budget_pct_high,
+        max_positions_per_asset=config.max_positions_per_asset,
     )
 
 
@@ -103,6 +104,7 @@ async def update_bot_config(
         max_signals_per_hour=config.max_signals_per_hour,
         tier_budget_pct_elite=config.tier_budget_pct_elite,
         tier_budget_pct_high=config.tier_budget_pct_high,
+        max_positions_per_asset=config.max_positions_per_asset,
     )
 
 

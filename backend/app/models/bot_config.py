@@ -33,5 +33,6 @@ class BotConfig(Base):
     max_signals_per_hour: Mapped[int] = mapped_column(Integer, default=5)
     tier_budget_pct_elite: Mapped[int] = mapped_column(Integer, default=30)
     tier_budget_pct_high: Mapped[int] = mapped_column(Integer, default=20)
+    max_positions_per_asset: Mapped[int] = mapped_column(Integer, default=3)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
