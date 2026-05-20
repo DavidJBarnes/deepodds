@@ -77,6 +77,12 @@ export default function SettingsPage() {
   const [savingKeys, setSavingKeys] = useState(false);
   const [keysMessage, setKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  const [cbKeysStatus, setCbKeysStatus] = useState<settingsApi.CoinbaseKeysStatus | null>(null);
+  const [cbKey, setCbKey] = useState("");
+  const [cbSecret, setCbSecret] = useState("");
+  const [savingCbKeys, setSavingCbKeys] = useState(false);
+  const [cbKeysMessage, setCbKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   const [config, setConfig] = useState<botApi.BotConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
   const [configMessage, setConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -85,6 +91,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKeysStatus);
+    settingsApi.getCoinbaseKeysStatus().then(setCbKeysStatus);
     botApi.getBotConfig().then(setConfig);
     settingsApi.getKalshiBalance().then(setKalshiBalance).catch(() => {});
   }, []);
@@ -111,6 +118,30 @@ export default function SettingsPage() {
     const result = await settingsApi.deleteKalshiKeys();
     setKeysStatus(result);
     setKeysMessage({ type: "success", text: "Kalshi keys removed." });
+  }
+
+  async function handleSaveCbKeys(e: FormEvent) {
+    e.preventDefault();
+    setSavingCbKeys(true);
+    setCbKeysMessage(null);
+    try {
+      const result = await settingsApi.updateCoinbaseKeys(cbKey, cbSecret);
+      setCbKeysStatus(result);
+      setCbKey("");
+      setCbSecret("");
+      setCbKeysMessage({ type: "success", text: "Coinbase keys saved." });
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
+      setCbKeysMessage({ type: "error", text: detail });
+    } finally {
+      setSavingCbKeys(false);
+    }
+  }
+
+  async function handleDeleteCbKeys() {
+    const result = await settingsApi.deleteCoinbaseKeys();
+    setCbKeysStatus(result);
+    setCbKeysMessage({ type: "success", text: "Coinbase keys removed." });
   }
 
   async function handleUpdateConfig(updates: Partial<botApi.BotConfig>) {
@@ -151,6 +182,19 @@ export default function SettingsPage() {
       max_signals_per_hour: config.max_signals_per_hour,
       tier_budget_pct_elite: config.tier_budget_pct_elite,
       tier_budget_pct_high: config.tier_budget_pct_high,
+    });
+  }
+
+  function handleSpotConfigSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!config) return;
+    handleUpdateConfig({
+      spot_dip_pct: config.spot_dip_pct,
+      spot_take_profit_pct: config.spot_take_profit_pct,
+      spot_stop_loss_pct: config.spot_stop_loss_pct,
+      spot_buy_amount_usd: config.spot_buy_amount_usd,
+      spot_max_position_usd: config.spot_max_position_usd,
+      spot_cooldown_minutes: config.spot_cooldown_minutes,
     });
   }
 
@@ -527,6 +571,174 @@ export default function SettingsPage() {
         </form>
         <p className="text-xs text-slate-500">
           Generate API keys at kalshi.com under Account &gt; API Keys. Required for live trading mode.
+        </p>
+      </section>
+
+      {/* Spot Trading Config */}
+      <section className="bg-slate-900 border border-blue-500/20 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Spot BTC Trading</h3>
+          {config && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Mode:</label>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                  config.spot_mode === "live"
+                    ? "bg-red-500/20 text-red-400"
+                    : "bg-blue-500/20 text-blue-400"
+                }`}>
+                  {config.spot_mode.toUpperCase()}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Enabled:</label>
+                <button
+                  onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    config.spot_enabled ? "bg-blue-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      config.spot_enabled ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-slate-500">
+          Buy the dip strategy: automatically buys BTC when price drops from its rolling 1-hour high, and sells on recovery or stop loss.
+        </p>
+        {config && (
+          <form onSubmit={handleSpotConfigSubmit} className="grid grid-cols-2 gap-4">
+            <ConfigField
+              label="Dip Threshold"
+              description="Buy when BTC drops this % from its rolling 1-hour high. Lower values trigger more often. 3% is a moderate dip."
+              suffix="%"
+              value={config.spot_dip_pct}
+              onChange={(v) => setConfig({ ...config, spot_dip_pct: v })}
+              step={0.5} min={0.1} max={20}
+            />
+            <ConfigField
+              label="Take Profit"
+              description="Sell when price rises this % above your average entry. Locks in gains. 2% is conservative."
+              suffix="%"
+              value={config.spot_take_profit_pct}
+              onChange={(v) => setConfig({ ...config, spot_take_profit_pct: v })}
+              step={0.5} min={0.1} max={50}
+            />
+            <ConfigField
+              label="Stop Loss"
+              description="Sell when price drops this % below your average entry. Limits downside. 5% is standard."
+              suffix="%"
+              value={config.spot_stop_loss_pct}
+              onChange={(v) => setConfig({ ...config, spot_stop_loss_pct: v })}
+              step={0.5} min={0.5} max={50}
+            />
+            <ConfigField
+              label="Buy Amount"
+              description="USD to spend on each dip buy. Smaller amounts = more averaging-in opportunities."
+              prefix="$"
+              value={config.spot_buy_amount_usd}
+              onChange={(v) => setConfig({ ...config, spot_buy_amount_usd: v })}
+              step={10} min={10} max={10000}
+            />
+            <ConfigField
+              label="Max Position"
+              description="Maximum total USD invested in BTC at any time. Prevents over-concentration in a single asset."
+              prefix="$"
+              value={config.spot_max_position_usd}
+              onChange={(v) => setConfig({ ...config, spot_max_position_usd: v })}
+              step={50} min={10} max={100000}
+            />
+            <ConfigField
+              label="Cooldown"
+              description="Minimum minutes between successive dip buys. Prevents buying repeatedly in a freefall."
+              suffix="min"
+              value={config.spot_cooldown_minutes}
+              onChange={(v) => setConfig({ ...config, spot_cooldown_minutes: v })}
+              step={5} min={1} max={1440}
+            />
+            <div className="col-span-2">
+              <button
+                type="submit"
+                disabled={savingConfig}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+              >
+                {savingConfig ? "Saving..." : "Save Spot Settings"}
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+
+      {/* Coinbase Keys */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
+        <div className="flex items-center gap-3">
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${cbKeysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
+          />
+          <span className="text-sm text-slate-300">
+            {cbKeysStatus?.has_keys
+              ? `Keys configured (${cbKeysStatus.key_preview})`
+              : "No keys configured"}
+          </span>
+          {cbKeysStatus?.has_keys && (
+            <button
+              onClick={handleDeleteCbKeys}
+              className="ml-auto text-sm text-red-400 hover:text-red-300"
+            >
+              Remove keys
+            </button>
+          )}
+        </div>
+
+        {cbKeysMessage && (
+          <p
+            className={`text-sm rounded-lg p-3 ${
+              cbKeysMessage.type === "success"
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "bg-red-400/10 text-red-400"
+            }`}
+          >
+            {cbKeysMessage.text}
+          </p>
+        )}
+
+        <form onSubmit={handleSaveCbKeys} className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+            <input
+              type="text"
+              value={cbKey}
+              onChange={(e) => setCbKey(e.target.value)}
+              placeholder="Your Coinbase API Key ID"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">API Secret</label>
+            <textarea
+              value={cbSecret}
+              onChange={(e) => setCbSecret(e.target.value)}
+              placeholder={"-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----"}
+              rows={6}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={savingCbKeys || !cbKey || !cbSecret}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+          >
+            {savingCbKeys ? "Saving..." : "Save Keys"}
+          </button>
+        </form>
+        <p className="text-xs text-slate-500">
+          Create API keys at coinbase.com under Settings &gt; API. Required for live spot trading.
         </p>
       </section>
 

@@ -22,6 +22,18 @@ celery.conf.update(
             "task": "sync_live_orders",
             "schedule": 60.0,
         },
+        "check-spot-signals": {
+            "task": "check_spot_signals",
+            "schedule": 10.0,
+        },
     },
 )
 celery.autodiscover_tasks(["app.tasks"])
+
+from celery.signals import worker_ready  # noqa: E402
+
+
+@worker_ready.connect
+def _start_binance_stream(**kwargs):
+    from app.tasks.spot import start_binance_stream_task
+    start_binance_stream_task.delay()

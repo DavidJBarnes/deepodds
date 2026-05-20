@@ -1,12 +1,17 @@
 from pydantic import BaseModel
 
 from app.schemas.signal import SignalResponse
+from app.schemas.spot import SpotPnLStats
 
 
 class BotStatusResponse(BaseModel):
     mode: str
     enabled: bool
     has_kalshi_keys: bool
+    has_coinbase_keys: bool = False
+    spot_enabled: bool = False
+    spot_mode: str = "paper"
+    spot_dip_pct: float = 3.0
     max_exposure_cents: int
     current_exposure_cents: int
     exposure_remaining_cents: int
@@ -67,3 +72,4 @@ class DashboardResponse(BaseModel):
     recent_signals: list[SignalResponse]
     opportunities: list[OpportunitySummary]
     stats: PaperPnLStats
+    spot_stats: SpotPnLStats | None = None

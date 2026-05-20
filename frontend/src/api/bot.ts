@@ -4,6 +4,10 @@ export interface BotStatus {
   mode: string;
   enabled: boolean;
   has_kalshi_keys: boolean;
+  has_coinbase_keys: boolean;
+  spot_enabled: boolean;
+  spot_mode: string;
+  spot_dip_pct: number;
   max_exposure_cents: number;
   current_exposure_cents: number;
   exposure_remaining_cents: number;
@@ -71,11 +75,51 @@ export interface Opportunity {
   quality: string;
 }
 
+export interface SpotPnLStats {
+  total_trades: number;
+  open_position_btc: number;
+  open_position_usd: number;
+  unrealized_pnl_usd: number;
+  realized_pnl_usd: number;
+}
+
+export interface SpotTrade {
+  id: string;
+  side: string;
+  price_usd: number;
+  quantity_btc: number;
+  amount_usd: number;
+  trigger: string;
+  status: string;
+  coinbase_order_id: string | null;
+  pnl_usd: number | null;
+  created_at: string;
+}
+
+export interface SpotPosition {
+  id: string;
+  entry_price_usd: number;
+  quantity_btc: number;
+  cost_basis_usd: number;
+  status: string;
+  unrealized_pnl_usd: number | null;
+  opened_at: string;
+  closed_at: string | null;
+}
+
+export interface SpotPrice {
+  price: number | null;
+  high_1h: number | null;
+  dip_pct: number | null;
+  updated: number | null;
+}
+
 export interface DashboardData {
   bot_status: BotStatus;
   recent_signals: Signal[];
   opportunities: Opportunity[];
   stats: PnLStats;
+  spot_stats: SpotPnLStats | null;
 }
 
 export interface BotConfig {
@@ -101,6 +145,14 @@ export interface BotConfig {
   tier_budget_pct_high: number;
   max_positions_per_asset: number;
   min_yes_prob: number;
+  spot_enabled: boolean;
+  spot_mode: string;
+  spot_dip_pct: number;
+  spot_take_profit_pct: number;
+  spot_stop_loss_pct: number;
+  spot_buy_amount_usd: number;
+  spot_max_position_usd: number;
+  spot_cooldown_minutes: number;
 }
 
 export interface DailyPnLPoint {
@@ -143,5 +195,25 @@ export async function updateBotConfig(updates: Partial<BotConfig>) {
 
 export async function getSignals(params: { status?: string; limit?: number; offset?: number }) {
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
+  return data;
+}
+
+export async function getSpotTrades() {
+  const { data } = await client.get<SpotTrade[]>("/spot/trades");
+  return data;
+}
+
+export async function getSpotPosition() {
+  const { data } = await client.get<SpotPosition | null>("/spot/position");
+  return data;
+}
+
+export async function getSpotPrice() {
+  const { data } = await client.get<SpotPrice>("/spot/price");
+  return data;
+}
+
+export async function getSpotStats() {
+  const { data } = await client.get<SpotPnLStats>("/spot/stats");
   return data;
 }
