@@ -24,6 +24,7 @@ class BotConfigResponse(BaseModel):
     tier_budget_pct_elite: int
     tier_budget_pct_high: int
     max_positions_per_asset: int = 3
+    min_yes_prob: int = 20
 
 
 class BotConfigUpdate(BaseModel):
@@ -49,3 +50,4 @@ class BotConfigUpdate(BaseModel):
     tier_budget_pct_elite: int | None = Field(None, ge=0, le=50)
     tier_budget_pct_high: int | None = Field(None, ge=0, le=50)
     max_positions_per_asset: int | None = Field(None, ge=0, le=20)
+    min_yes_prob: int | None = Field(None, ge=0, le=100)

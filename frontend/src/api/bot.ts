@@ -99,6 +99,8 @@ export interface BotConfig {
   max_signals_per_hour: number;
   tier_budget_pct_elite: number;
   tier_budget_pct_high: number;
+  max_positions_per_asset: number;
+  min_yes_prob: number;
 }
 
 export interface DailyPnLPoint {

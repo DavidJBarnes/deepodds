@@ -1,8 +1,73 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import ConfirmModal from "@/components/ConfirmModal";
 import * as settingsApi from "@/api/settings";
 import * as botApi from "@/api/bot";
+
+function ConfigField({
+  label,
+  description,
+  prefix,
+  suffix,
+  value,
+  onChange,
+  step,
+  min,
+  max,
+  children,
+}: {
+  label: string;
+  description: string;
+  prefix?: string;
+  suffix?: string;
+  value: number;
+  onChange: (v: number) => void;
+  step: number;
+  min: number;
+  max: number;
+  children?: ReactNode;
+}) {
+  const [showTip, setShowTip] = useState(false);
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-1">
+        <label className="text-sm text-slate-400">{label}</label>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowTip(!showTip)}
+            onBlur={() => setShowTip(false)}
+            className="text-slate-600 hover:text-slate-400 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0ZM8.94 6.94a.75.75 0 1 1-1.061-1.061 3 3 0 1 1 2.871 5.026v.345a.75.75 0 0 1-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 1 0 8.94 6.94ZM10 15a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {showTip && (
+            <div className="absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 shadow-xl">
+              {description}
+              <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 bg-slate-800 border-r border-b border-slate-700 rotate-45 -mt-1" />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        {prefix && <span className="text-slate-500 text-sm">{prefix}</span>}
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          step={step}
+          min={min}
+          max={max}
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+        {suffix && <span className="text-slate-500 text-sm whitespace-nowrap">{suffix}</span>}
+      </div>
+      {children && <div className="text-xs text-slate-500 mt-1">{children}</div>}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
@@ -69,7 +134,9 @@ export default function SettingsPage() {
       max_exposure_cents: config.max_exposure_cents,
       daily_budget_cents: config.daily_budget_cents,
       min_edge_cents: config.min_edge_cents,
+      min_yes_prob: config.min_yes_prob,
       min_liquidity: config.min_liquidity,
+      max_positions_per_asset: config.max_positions_per_asset,
       max_position_cents: config.max_position_cents,
       max_contracts_per_signal: config.max_contracts_per_signal,
       max_position_cents_moderate: config.max_position_cents_moderate,
@@ -186,160 +253,111 @@ export default function SettingsPage() {
             )}
 
             <form onSubmit={handleConfigSubmit} className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Max Exposure</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={config.max_exposure_cents / 100}
-                    onChange={(e) => setConfig({ ...config, max_exposure_cents: Math.round(Number(e.target.value) * 100) })}
-                    step="1"
-                    min="1"
-                    max="1000"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Max $ in open positions at once. Freed when positions settle.
-                  {kalshiBalance && kalshiBalance.cash_cents > 0 && (
-                    <span className="ml-1 text-slate-400">
-                      Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
-                    </span>
-                  )}
-                </p>
+              <ConfigField
+                label="Max Exposure"
+                description="Maximum capital tied up in open positions at once. Freed when positions settle."
+                prefix="$"
+                value={config.max_exposure_cents / 100}
+                onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
+                step={1} min={1} max={1000}
+              >
+                {kalshiBalance && kalshiBalance.cash_cents > 0 && (
+                  <span className="text-slate-400">
+                    Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
+                  </span>
+                )}
                 {kalshiBalance && kalshiBalance.cash_cents > 0 && config.max_exposure_cents > kalshiBalance.cash_cents && (
-                  <p className="text-xs text-amber-400 mt-1">
-                    Exposure exceeds your Kalshi cash balance. Live orders may fail if funds are insufficient.
-                  </p>
+                  <span className="text-amber-400 block">Exposure exceeds your Kalshi cash balance.</span>
                 )}
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Daily Budget</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={config.daily_budget_cents / 100}
-                    onChange={(e) => setConfig({ ...config, daily_budget_cents: Math.round(Number(e.target.value) * 100) })}
-                    step="1"
-                    min="0"
-                    max="1000"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">0 = unlimited. Hard cap on total spend per day.</p>
+              </ConfigField>
+              <ConfigField
+                label="Daily Budget"
+                description="Hard cap on total new position spend per calendar day. 0 = unlimited."
+                prefix="$"
+                value={config.daily_budget_cents / 100}
+                onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
+                step={1} min={0} max={1000}
+              >
                 {kalshiBalance && kalshiBalance.cash_cents > 0 && config.daily_budget_cents > 0 && config.daily_budget_cents > kalshiBalance.cash_cents && (
-                  <p className="text-xs text-amber-400 mt-1">
-                    Daily budget exceeds your Kalshi cash balance.
-                  </p>
+                  <span className="text-amber-400">Daily budget exceeds your Kalshi cash balance.</span>
                 )}
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Min Edge (cents)</label>
-                <input
-                  type="number"
-                  value={config.min_edge_cents}
-                  onChange={(e) => setConfig({ ...config, min_edge_cents: Number(e.target.value) })}
-                  step="0.5"
-                  min="1"
-                  max="50"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Min Liquidity</label>
-                <input
-                  type="number"
-                  value={config.min_liquidity}
-                  onChange={(e) => setConfig({ ...config, min_liquidity: Number(e.target.value) })}
-                  step="1"
-                  min="0"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Max Position</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={config.max_position_cents / 100}
-                    onChange={(e) => setConfig({ ...config, max_position_cents: Math.round(Number(e.target.value) * 100) })}
-                    step="1"
-                    min="1"
-                    max="100"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Max Contracts/Signal</label>
-                <input
-                  type="number"
-                  value={config.max_contracts_per_signal}
-                  onChange={(e) => setConfig({ ...config, max_contracts_per_signal: Number(e.target.value) })}
-                  step="1"
-                  min="1"
-                  max="100"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Take Profit (cents)</label>
-                <input
-                  type="number"
-                  value={config.take_profit_cents}
-                  onChange={(e) => setConfig({ ...config, take_profit_cents: Number(e.target.value) })}
-                  step="1"
-                  min="0"
-                  max="50"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <p className="text-xs text-slate-500 mt-1">0 = disabled</p>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Stop Loss (cents)</label>
-                <input
-                  type="number"
-                  value={config.stop_loss_cents}
-                  onChange={(e) => setConfig({ ...config, stop_loss_cents: Number(e.target.value) })}
-                  step="1"
-                  min="0"
-                  max="50"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <p className="text-xs text-slate-500 mt-1">0 = disabled</p>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Daily Loss Limit</label>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500 text-sm">$</span>
-                  <input
-                    type="number"
-                    value={config.daily_loss_limit_cents / 100}
-                    onChange={(e) => setConfig({ ...config, daily_loss_limit_cents: Math.round(Number(e.target.value) * 100) })}
-                    step="1"
-                    min="0"
-                    max="1000"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">0 = disabled. Pauses bot if daily losses exceed this.</p>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-1">Max Signals/Hour</label>
-                <input
-                  type="number"
-                  value={config.max_signals_per_hour}
-                  onChange={(e) => setConfig({ ...config, max_signals_per_hour: Number(e.target.value) })}
-                  step="1"
-                  min="0"
-                  max="50"
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <p className="text-xs text-slate-500 mt-1">0 = unlimited</p>
-              </div>
+              </ConfigField>
+              <ConfigField
+                label="Min Edge"
+                description="Minimum fee-adjusted edge (in cents) the model must find before placing a signal. Lower = more signals but noisier."
+                suffix="cents"
+                value={config.min_edge_cents}
+                onChange={(v) => setConfig({ ...config, min_edge_cents: v })}
+                step={0.5} min={1} max={50}
+              />
+              <ConfigField
+                label="Min YES Probability"
+                description="Only buy YES when the model's probability exceeds this threshold. Filters out low-confidence longshot YES bets. 0 = no filter."
+                suffix="%"
+                value={config.min_yes_prob}
+                onChange={(v) => setConfig({ ...config, min_yes_prob: v })}
+                step={5} min={0} max={100}
+              />
+              <ConfigField
+                label="Min Liquidity"
+                description="Skip markets with fewer contracts available. Higher values avoid thin markets where fills are unreliable."
+                value={config.min_liquidity}
+                onChange={(v) => setConfig({ ...config, min_liquidity: v })}
+                step={1} min={0} max={1000}
+              />
+              <ConfigField
+                label="Max Positions/Asset"
+                description="Limit concurrent open positions per underlying asset (BTC or ETH). Prevents correlated exposure to a single price move."
+                value={config.max_positions_per_asset}
+                onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
+                step={1} min={0} max={20}
+              />
+              <ConfigField
+                label="Max Position"
+                description="Maximum dollar value of a single position (speculative tier). Higher-edge tiers override this in the tier config below."
+                prefix="$"
+                value={config.max_position_cents / 100}
+                onChange={(v) => setConfig({ ...config, max_position_cents: Math.round(v * 100) })}
+                step={1} min={1} max={100}
+              />
+              <ConfigField
+                label="Max Contracts/Signal"
+                description="Upper limit on contracts per signal. Combined with max position to cap risk on any single trade."
+                value={config.max_contracts_per_signal}
+                onChange={(v) => setConfig({ ...config, max_contracts_per_signal: v })}
+                step={1} min={1} max={100}
+              />
+              <ConfigField
+                label="Take Profit"
+                description="Exit early when unrealized profit per contract reaches this many cents. Locks in gains before expiry. 0 = hold to settlement."
+                suffix="cents"
+                value={config.take_profit_cents}
+                onChange={(v) => setConfig({ ...config, take_profit_cents: v })}
+                step={1} min={0} max={50}
+              />
+              <ConfigField
+                label="Stop Loss"
+                description="Exit early when unrealized loss per contract reaches this many cents. Limits downside on bad trades. 0 = hold to settlement."
+                suffix="cents"
+                value={config.stop_loss_cents}
+                onChange={(v) => setConfig({ ...config, stop_loss_cents: v })}
+                step={1} min={0} max={50}
+              />
+              <ConfigField
+                label="Daily Loss Limit"
+                description="Pauses the bot for the rest of the day if realized losses exceed this amount. Prevents tilt/drawdown spirals. 0 = disabled."
+                prefix="$"
+                value={config.daily_loss_limit_cents / 100}
+                onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
+                step={1} min={0} max={1000}
+              />
+              <ConfigField
+                label="Max Signals/Hour"
+                description="Rate limit on new signals per hour. Prevents the bot from over-trading in volatile conditions. 0 = unlimited."
+                value={config.max_signals_per_hour}
+                onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
+                step={1} min={0} max={50}
+              />
               <div className="col-span-2">
                 <button
                   type="submit"

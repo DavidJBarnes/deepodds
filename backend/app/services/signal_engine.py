@@ -309,8 +309,8 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
 
         side = "yes" if edge > 0 else "no"
 
-        # YES bets only when model strongly favors it (>50% probability)
-        if side == "yes" and opp.model_prob is not None and opp.model_prob <= 0.50:
+        min_yes_threshold = (config.min_yes_prob or 20) / 100.0
+        if side == "yes" and opp.model_prob is not None and opp.model_prob < min_yes_threshold:
             continue
 
         if side == "yes":
