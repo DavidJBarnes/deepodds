@@ -23,6 +23,14 @@ const glossary = [
   { term: "Daily Loss Limit", definition: "A circuit breaker that pauses signal generation for the rest of the day if your total realized losses exceed the configured threshold. The bot remains enabled but skips evaluation until the next day, preventing a bad day from spiraling." },
   { term: "Max Signals Per Hour", definition: "A pacing control that caps how many new signals can be created in any rolling 60-minute window. This spreads your daily budget across the trading day instead of front-loading all positions in the first evaluation cycles." },
   { term: "Tier Budget Reservation", definition: "Reserves a percentage of your daily budget exclusively for high-confidence (high and elite tier) signals. Speculative and moderate signals can only use the unreserved portion, ensuring that when a strong opportunity appears, budget is available for it." },
+  { term: "Spot Trading", definition: "Buying and selling actual BTC (not prediction contracts). DeepOdds uses a 'buy the dip' strategy — automatically purchasing BTC when the price drops from its recent high, and selling when it recovers or hits a stop loss." },
+  { term: "Dip Threshold", definition: "The percentage drop from BTC's rolling 1-hour high that triggers a buy. For example, a 3% threshold means the bot buys when BTC falls 3% from its highest price in the last hour." },
+  { term: "Rolling 1-Hour High", definition: "The highest BTC price observed in the last 60 minutes, tracked in real-time via Binance websocket. This is the reference point for calculating dip percentage." },
+  { term: "Cooldown", definition: "The minimum wait time between successive spot dip buys. Prevents the bot from buying repeatedly during a sustained drop. Default is 60 minutes." },
+  { term: "Max Position (Spot)", definition: "The maximum total USD invested in BTC at any time. Once this limit is reached, no more dip buys are placed until the position is closed." },
+  { term: "Cost Basis", definition: "The total USD spent building your BTC position. When multiple dip buys occur, the entry price is the weighted average across all buys." },
+  { term: "Coinbase Advanced Trade API", definition: "The API used by DeepOdds for live spot BTC execution. Requires an API key and secret from your Coinbase account under Settings > API." },
+  { term: "Binance Websocket", definition: "A persistent real-time connection to Binance that streams BTC trade data. Provides sub-second price updates used for the dip meter and spot trading decisions." },
 ];
 
 const faqs = [
@@ -65,6 +73,26 @@ const faqs = [
   {
     q: "What's the difference between max exposure and daily budget?",
     a: "Max exposure limits how much is at risk right now — it's a rolling cap on open positions. When a position settles (win or lose), that capital is freed and the bot can open new positions. Daily budget is an optional hard ceiling on total spending for the day, regardless of outcomes. Most users set max exposure as their primary control and leave daily budget at $0 (disabled).",
+  },
+  {
+    q: "How does spot BTC trading work?",
+    a: "The bot streams BTC prices in real-time from Binance and tracks the highest price in the last hour. When the price drops by your configured dip threshold (default 3%), it buys a fixed dollar amount of BTC. If the price recovers past your take-profit percentage, it sells for a gain. If it drops further past your stop-loss, it sells to limit the loss. Multiple dip buys can accumulate into one position (dollar-cost averaging), up to your max position limit.",
+  },
+  {
+    q: "What's the difference between Kalshi trading and spot BTC?",
+    a: "Kalshi trading buys binary prediction contracts — you're betting on whether BTC will be above or below a price at a specific time. Spot trading buys actual BTC — you own the asset and profit from price movements directly. Both run in parallel with separate settings, but their P&L is combined in the dashboard stats.",
+  },
+  {
+    q: "Do I need a Coinbase account for spot trading?",
+    a: "Only for live mode. In paper mode, the bot simulates trades against real Binance prices without placing any real orders. When you're ready for live spot trading, you'll need a Coinbase account with API keys (Settings > Coinbase API Keys). The bot uses Coinbase's Advanced Trade API for market orders.",
+  },
+  {
+    q: "Why does the bot use Binance for prices but Coinbase for orders?",
+    a: "Binance provides the fastest, most liquid BTC price stream via websocket — ideal for real-time dip detection. Coinbase Advanced Trade is used for execution because it offers a straightforward US-regulated exchange with a reliable REST API for market orders. The price difference between the two is negligible for the timeframes involved.",
+  },
+  {
+    q: "What happens if BTC keeps falling after a dip buy?",
+    a: "The cooldown timer (default 60 minutes) prevents immediate repeat buys. If the price is still dipping after the cooldown and your position is under the max limit, the bot will buy again — averaging down your entry price. If the total drop exceeds your stop-loss threshold, the entire position is sold to cap losses.",
   },
 ];
 

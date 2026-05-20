@@ -1,10 +1,30 @@
-# DeepOdds — Automated Kalshi Crypto Trading Bot
+# DeepOdds — Automated Crypto Trading Platform
 
-Automated signal detection and execution engine for Kalshi crypto prediction markets. Uses a Black-Scholes probability model with Deribit implied volatility to identify mispriced contracts, then generates paper or live trades.
+Automated trading platform combining Kalshi crypto prediction markets with BTC spot "buy the dip" trading. Uses a Black-Scholes probability model with Deribit implied volatility for prediction market signals, and Binance real-time websocket streaming with configurable dip detection for spot BTC execution via Coinbase.
 
 ## How It Works
 
-### Signal Detection Loop
+### Spot BTC — Buy the Dip
+
+A parallel trading engine that buys BTC during price dips and sells on recovery:
+
+1. **Price Streaming** — A persistent Binance websocket connection streams real-time BTC trades. Each price is written to Redis along with a rolling 1-hour high watermark.
+
+2. **Dip Detection** (every 10s) — Celery Beat triggers `check_spot_signals`, which:
+   - Reads current price and 1h high from Redis
+   - For each user with `spot_enabled=True`, calculates: `dip_pct = (high_1h - price) / high_1h × 100`
+   - If dip ≥ `spot_dip_pct` threshold (default 3%), no buy in last `spot_cooldown_minutes` (default 60), and position < `spot_max_position_usd` (default $500): **buy**
+   - Paper mode: creates `SpotTrade(status="filled")` at current price, updates `SpotPosition` with weighted-average entry
+   - Live mode: calls Coinbase Advanced Trade API `create_market_order("BUY", "BTC-USD", amount)`
+
+3. **Exit Logic** — Same 10s cycle checks open positions:
+   - **Take profit**: if `(price - entry) / entry × 100 ≥ spot_take_profit_pct` (default 2%) → sell
+   - **Stop loss**: if `(price - entry) / entry × 100 ≤ -spot_stop_loss_pct` (default 5%) → sell
+   - Closes position, records P&L on the sell trade
+
+4. **Dollar-Cost Averaging** — If BTC keeps dropping and the cooldown expires, the bot buys again (up to max position). Entry price becomes the weighted average across all buys, improving the breakeven point.
+
+### Kalshi Prediction Markets — Signal Detection Loop
 
 1. **Scanner** (every 60s) — Celery Beat triggers `scan_markets`, which fetches all active crypto contracts from Kalshi's events API for series `KXBTC`, `KXBTCD`, `KXETH`, `KXETHD`. For each contract it pulls the current spot price (Binance), implied volatility (Deribit DVOL surface + Binance realized vol), and computes a model probability using Black-Scholes N(d2).
 
@@ -78,20 +98,21 @@ Signals are preserved for historical analysis. Instead of deleting, the archive 
 └─────────────┘    └─────┬─────┘    └──────────┘
                          │
                    ┌─────▼─────┐
-                   │  Celery   │───▶ Redis 7
-                   │  Worker   │
+                   │  Celery   │───▶ Redis 7 ◀── Binance WS
+                   │  Worker   │                  (live prices)
                    └─────┬─────┘
                          │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-          Kalshi API  Deribit    Binance
-          (orders)    (IV)      (spot)
+          ┌──────────┬───┼───────┬──────────┐
+          ▼          ▼   ▼       ▼          ▼
+      Kalshi API  Deribit Binance  Coinbase
+      (contracts) (IV)   (spot)   (spot orders)
 ```
 
 - **Backend**: FastAPI + async SQLAlchemy (asyncpg) + Alembic
 - **Tasks**: Celery + Redis, Celery Beat for scheduling
+- **Streaming**: Binance websocket → Redis price cache (sub-second updates)
 - **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS v4 + Zustand
-- **Auth**: JWT (HS256), per-user Kalshi RSA keys stored server-side
+- **Auth**: JWT (HS256), per-user Kalshi RSA + Coinbase HMAC keys stored server-side
 
 ## Prerequisites
 
@@ -130,15 +151,23 @@ cd backend && PYTHONPATH=. celery -A app.celery_app worker --beat --loglevel=inf
 | POST | `/api/v1/auth/register` | Register |
 | POST | `/api/v1/auth/login` | Login → JWT |
 | GET | `/api/v1/auth/me` | Current user |
-| GET | `/api/v1/dashboard` | Full dashboard: bot status, signals, opportunities, stats |
+| GET | `/api/v1/dashboard` | Full dashboard: bot status, signals, opportunities, Kalshi + spot stats |
 | GET | `/api/v1/signals` | Paginated signals (filter by status) |
 | POST | `/api/v1/signals/archive` | Archive signals → archived_signals table |
 | GET | `/api/v1/signals/archive` | Browse archived signals (filter by run_id) |
-| GET | `/api/v1/settings/bot-config` | Get bot config |
+| GET | `/api/v1/settings/bot-config` | Get bot config (Kalshi + spot settings) |
 | PUT | `/api/v1/settings/bot-config` | Update bot config |
 | PUT | `/api/v1/settings/kalshi-keys` | Save Kalshi API keys |
 | GET | `/api/v1/settings/kalshi-keys` | Key status |
 | DELETE | `/api/v1/settings/kalshi-keys` | Remove keys |
+| PUT | `/api/v1/settings/coinbase-keys` | Save Coinbase API keys |
+| GET | `/api/v1/settings/coinbase-keys` | Key status |
+| DELETE | `/api/v1/settings/coinbase-keys` | Remove keys |
+| GET | `/api/v1/spot/price` | Current BTC price + 1h high from Redis |
+| GET | `/api/v1/spot/price/stream` | SSE stream of price updates (1s interval) |
+| GET | `/api/v1/spot/trades` | List spot trades for current user |
+| GET | `/api/v1/spot/position` | Current open spot position (or null) |
+| GET | `/api/v1/spot/stats` | Spot P&L summary |
 
 ## Project Structure
 
@@ -154,35 +183,43 @@ deepodds/
 │   │   ├── celery_app.py        # Beat schedule: scan 60s, settle 300s, paper sim chained
 │   │   ├── core/                # Config, database, auth deps
 │   │   ├── models/
-│   │   │   ├── user.py              # User + encrypted Kalshi keys
+│   │   │   ├── user.py              # User + Kalshi/Coinbase API keys
 │   │   │   ├── opportunity.py       # Scanner results (upserted each cycle)
-│   │   │   ├── bot_config.py        # Per-user trading config
-│   │   │   ├── signal.py            # Trade signals + P&L
+│   │   │   ├── bot_config.py        # Per-user config (Kalshi + spot settings)
+│   │   │   ├── signal.py            # Kalshi trade signals + P&L
+│   │   │   ├── spot_trade.py        # Spot BTC trade records
+│   │   │   ├── spot_position.py     # Open/closed spot BTC positions
 │   │   │   └── archived_signal.py   # Historical signal archive
-│   │   ├── schemas/             # Pydantic request/response
-│   │   ├── api/v1/              # auth, dashboard, settings, signals
+│   │   ├── schemas/             # Pydantic request/response (incl. spot.py)
+│   │   ├── api/v1/              # auth, dashboard, settings, signals, spot
 │   │   ├── services/
 │   │   │   ├── market_scanner.py    # Kalshi event scanner + vol blending
 │   │   │   ├── signal_engine.py     # Edge detection, fill sim, take-profit, settlement
 │   │   │   ├── probability_model.py # Black-Scholes N(d2) (above/below/between)
 │   │   │   ├── deribit_client.py    # IV surface (free, no auth)
 │   │   │   ├── binance_client.py    # Spot prices + realized vol (binance.us)
+│   │   │   ├── binance_ws.py        # Persistent BTC price websocket → Redis
+│   │   │   ├── coinbase_client.py   # Coinbase Advanced Trade API (HMAC-signed)
+│   │   │   ├── spot_engine.py       # Dip detection, buy/sell logic, TP/SL exits
 │   │   │   ├── kalshi_client.py     # RSA-PSS signed requests
 │   │   │   └── archive.py          # Signal archival (sync + async)
 │   │   └── tasks/
 │   │       ├── scanner.py       # scan → evaluate → paper sim (chained)
-│   │       └── signals.py       # evaluate, settle, process_paper_positions tasks
+│   │       ├── signals.py       # evaluate, settle, process_paper_positions tasks
+│   │       └── spot.py          # spot signal check (10s), binance stream startup
 │   └── alembic/
 │
 └── frontend/
     └── src/
         ├── api/                 # client, auth, settings, bot
-        ├── stores/              # authStore, botStore (30s polling)
-        ├── pages/               # Dashboard, Settings, Login, Register
-        └── components/          # BotStatusBar, StatsCard, SignalTable, etc.
+        ├── stores/              # authStore, botStore (60s polling + 2s spot price)
+        ├── pages/               # Dashboard, Settings, Login, Register, Resources
+        └── components/          # BotStatusBar, StatsCard, SignalTable, SpotTab, etc.
 ```
 
 ## Bot Config Defaults
+
+### Kalshi Prediction Markets
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -195,9 +232,22 @@ deepodds/
 | `max_contracts_per_signal` | 10 | Max contracts per signal |
 | `take_profit_cents` | 15 | Exit when profit/contract ≥ this (0 = disabled) |
 
-## Task Chain
+### Spot BTC Trading
 
-Each 60-second scan cycle runs three tasks in sequence via Celery chain:
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `spot_enabled` | false | Spot trading active |
+| `spot_mode` | paper | paper or live |
+| `spot_dip_pct` | 3.0 | Buy when price drops this % from 1h high |
+| `spot_take_profit_pct` | 2.0 | Sell when price rises this % from entry |
+| `spot_stop_loss_pct` | 5.0 | Sell when price drops this % from entry |
+| `spot_buy_amount_usd` | 50 | USD to spend per dip buy |
+| `spot_max_position_usd` | 500 | Max total USD in BTC |
+| `spot_cooldown_minutes` | 60 | Min time between buys |
+
+## Task Chains
+
+### Kalshi (every 30s)
 
 1. `scan_markets` — Fetch opportunities from Kalshi, Deribit, Binance
 2. `evaluate_all_users` — Generate signals for each user based on their config
@@ -205,8 +255,30 @@ Each 60-second scan cycle runs three tasks in sequence via Celery chain:
 
 Settlement (`settle_signals`) runs independently every 5 minutes.
 
-## Kalshi API Notes
+### Spot BTC (every 10s)
+
+1. `check_spot_signals` — Read BTC price from Redis, check dip thresholds, check TP/SL exits
+
+### Persistent
+
+- `start_binance_stream` — Launched on worker startup, maintains websocket connection to Binance, writes prices to Redis
+
+## External API Notes
+
+### Kalshi
 
 - **Signing**: RSA-PSS with `DIGEST_LENGTH` salt, SHA256, message = `{timestamp_ms}{METHOD}{path_without_query}`
 - **Base URL**: `https://api.elections.kalshi.com/trade-api/v2` (prod)
 - **Auth path**: Full path `/trade-api/v2{endpoint}` must be used for signing
+
+### Coinbase Advanced Trade
+
+- **Signing**: HMAC-SHA256, message = `{timestamp}{METHOD}{path}{body}`
+- **Base URL**: `https://api.coinbase.com/api/v3/brokerage`
+- **Order type**: Market IOC (immediate-or-cancel) with `quote_size` in USD
+
+### Binance Websocket
+
+- **Primary**: `wss://fstream.binance.com/ws/btcusdt@trade` (futures stream, globally accessible)
+- **Fallbacks**: `wss://stream.binance.com:9443/...` (global, may be geo-blocked), `wss://stream.binance.us:9443/...` (US)
+- **Auto-selection**: On worker startup, tests each endpoint and uses the first that responds
