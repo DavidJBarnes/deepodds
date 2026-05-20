@@ -22,6 +22,7 @@ class BotConfigResponse(BaseModel):
     max_signals_per_hour: int
     tier_budget_pct_elite: int
     tier_budget_pct_high: int
+    max_positions_per_asset: int = 3
 
 
 class BotConfigUpdate(BaseModel):
@@ -45,3 +46,4 @@ class BotConfigUpdate(BaseModel):
     max_signals_per_hour: int | None = Field(None, ge=0, le=50)
     tier_budget_pct_elite: int | None = Field(None, ge=0, le=50)
     tier_budget_pct_high: int | None = Field(None, ge=0, le=50)
+    max_positions_per_asset: int | None = Field(None, ge=0, le=20)

@@ -132,6 +132,19 @@ def _recently_lost(session: Session, user_id, ticker: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+def _asset_position_count(session: Session, user_id, asset_prefix: str) -> int:
+    """Count open positions on tickers starting with asset prefix (e.g., 'KXBTC', 'KXETH')."""
+    result = session.execute(
+        select(func.count(Signal.id))
+        .where(
+            Signal.user_id == user_id,
+            Signal.ticker.like(f"{asset_prefix}%"),
+            Signal.status.in_(OPEN_STATUSES),
+        )
+    )
+    return result.scalar()
+
+
 def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | None = None) -> list[Signal]:
     config = session.execute(
         select(BotConfig).where(BotConfig.user_id == user_id)
@@ -204,6 +217,11 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
         if _recently_lost(session, user_id, opp.ticker):
             continue
+
+        if config.max_positions_per_asset > 0:
+            asset_prefix = "KXETH" if "ETH" in opp.ticker.upper() else "KXBTC"
+            if _asset_position_count(session, user_id, asset_prefix) >= config.max_positions_per_asset:
+                continue
 
         side = "yes" if edge > 0 else "no"
 
