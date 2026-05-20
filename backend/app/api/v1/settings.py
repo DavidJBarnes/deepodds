@@ -35,7 +35,7 @@ async def get_bot_config(
         await db.refresh(config)
 
     return BotConfigResponse(
-        mode=config.mode, enabled=config.enabled,
+        mode=config.mode, strategy=config.strategy, enabled=config.enabled,
         max_exposure_cents=config.max_exposure_cents,
         daily_budget_cents=config.daily_budget_cents,
         min_edge_cents=config.min_edge_cents,
@@ -77,6 +77,8 @@ async def update_bot_config(
     updates = body.model_dump(exclude_unset=True)
     if "mode" in updates and updates["mode"] not in ("paper", "live"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mode must be 'paper' or 'live'")
+    if "strategy" in updates and updates["strategy"] not in ("model", "naive_no"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strategy must be 'model' or 'naive_no'")
 
     for key, value in updates.items():
         setattr(config, key, value)
@@ -85,7 +87,7 @@ async def update_bot_config(
     await db.refresh(config)
 
     return BotConfigResponse(
-        mode=config.mode, enabled=config.enabled,
+        mode=config.mode, strategy=config.strategy, enabled=config.enabled,
         max_exposure_cents=config.max_exposure_cents,
         daily_budget_cents=config.daily_budget_cents,
         min_edge_cents=config.min_edge_cents,

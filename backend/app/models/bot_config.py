@@ -14,6 +14,7 @@ class BotConfig(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, index=True)
     mode: Mapped[str] = mapped_column(String(8), default="paper")
+    strategy: Mapped[str] = mapped_column(String(16), default="model")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     max_exposure_cents: Mapped[int] = mapped_column(Integer, default=5000)
     daily_budget_cents: Mapped[int] = mapped_column(Integer, default=0)

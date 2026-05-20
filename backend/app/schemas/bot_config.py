@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class BotConfigResponse(BaseModel):
     mode: str
+    strategy: str = "model"
     enabled: bool
     max_exposure_cents: int
     daily_budget_cents: int
@@ -27,6 +28,7 @@ class BotConfigResponse(BaseModel):
 
 class BotConfigUpdate(BaseModel):
     mode: str | None = None
+    strategy: str | None = None
     enabled: bool | None = None
     max_exposure_cents: int | None = Field(None, ge=100, le=100000)
     daily_budget_cents: int | None = Field(None, ge=0, le=100000)
