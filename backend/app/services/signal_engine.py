@@ -410,7 +410,7 @@ def settle_signals(session: Session) -> int:
         current_spot = opp.spot_price if opp else sig.spot_price
         strike = sig.strike_price
         cap = sig.cap_strike
-        s_type = opp.strike_type if opp else None
+        s_type = opp.strike_type if opp else ("between" if sig.cap_strike else None)
 
         if current_spot is not None and strike is not None:
             if s_type == "between" and cap is not None:
