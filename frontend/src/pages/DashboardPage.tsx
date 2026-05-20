@@ -8,7 +8,7 @@ import OpportunityList from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 
-const REFRESH_INTERVAL = 30;
+const REFRESH_INTERVAL = 60;
 
 export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();

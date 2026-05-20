@@ -12,7 +12,7 @@ celery.conf.update(
     beat_schedule={
         "scan-crypto-markets": {
             "task": "scan_markets",
-            "schedule": 60.0,
+            "schedule": 30.0,
         },
         "settle-signals": {
             "task": "settle_signals",
