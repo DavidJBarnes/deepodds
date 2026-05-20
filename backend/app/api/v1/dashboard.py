@@ -50,7 +50,7 @@ async def get_dashboard(
         await db.commit()
         await db.refresh(config)
 
-    today = date.today()
+    today = datetime.now(timezone.utc).astimezone().date()
     daily_spent = (await db.execute(
         select(func.coalesce(func.sum(Signal.cost_cents), 0))
         .where(
@@ -204,7 +204,7 @@ async def get_pnl_chart(
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
-    day_col = func.date(Signal.resolved_at).label("day")
+    day_col = func.date(func.timezone('America/New_York', Signal.resolved_at)).label("day")
     stmt = (
         select(
             day_col,
