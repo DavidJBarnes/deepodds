@@ -177,6 +177,21 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
         if edge is None:
             continue
         abs_edge = abs(edge)
+
+        # Estimate entry price for fee calculation
+        if edge > 0:
+            est_price = int(opp.yes_ask or opp.yes_price or opp.model_fair_cents or 50)
+        else:
+            est_price = int(opp.no_ask or opp.no_price or (100 - (opp.model_fair_cents or 50)))
+        est_price = max(1, min(99, est_price))
+
+        # Subtract expected fee from edge before comparing to threshold
+        if opp.model_prob is not None:
+            win_prob = opp.model_prob if edge > 0 else (1 - opp.model_prob)
+            fee_if_win = max(KALSHI_MIN_FEE_CENTS, int((100 - est_price) * KALSHI_FEE_RATE))
+            expected_fee = win_prob * fee_if_win
+            abs_edge -= expected_fee
+
         if abs_edge < config.min_edge_cents:
             continue
         if opp.liquidity < config.min_liquidity:
