@@ -130,7 +130,7 @@ function TradeRow({ trade }: { trade: SpotTrade }) {
   );
 }
 
-export default function SpotTab({ spotStats }: { spotStats: SpotPnLStats | null }) {
+export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number }) {
   const { spotPrice, spotDipPct, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
   const prevPriceRef = useRef<number | null>(null);
   const prevPrice = prevPriceRef.current;
@@ -148,8 +148,6 @@ export default function SpotTab({ spotStats }: { spotStats: SpotPnLStats | null 
       clearInterval(interval);
     };
   }, [startPriceStream, fetchSpotData]);
-
-  const dipThreshold = 3.0;
 
   return (
     <div className="space-y-4">
@@ -203,7 +201,9 @@ export default function SpotTab({ spotStats }: { spotStats: SpotPnLStats | null 
 
       {spotTrades.length === 0 && (
         <div className="text-center py-8 text-slate-500 text-sm">
-          No spot trades yet. Enable spot trading in Settings to get started.
+          {spotEnabled
+            ? "No spot trades yet. Waiting for a dip to trigger a buy."
+            : "No spot trades yet. Enable spot trading in Settings to get started."}
         </div>
       )}
     </div>

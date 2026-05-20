@@ -4,7 +4,6 @@ import { useBotStore } from "@/stores/botStore";
 import BotStatusBar from "@/components/BotStatusBar";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
-import OpportunityList from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 import SpotTab from "@/components/SpotTab";
@@ -15,7 +14,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"signals" | "markets" | "spot">("signals");
+  const [tab, setTab] = useState<"signals" | "spot">("signals");
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -109,16 +108,6 @@ export default function DashboardPage() {
           Signals ({dashboard.recent_signals.length})
         </button>
         <button
-          onClick={() => setTab("markets")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "markets"
-              ? "text-emerald-400 border-b-2 border-emerald-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-        >
-          Markets ({dashboard.opportunities.length})
-        </button>
-        <button
           onClick={() => setTab("spot")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             tab === "spot"
@@ -132,10 +121,8 @@ export default function DashboardPage() {
 
       {tab === "signals" ? (
         <SignalTable signals={dashboard.recent_signals} />
-      ) : tab === "markets" ? (
-        <OpportunityList opportunities={dashboard.opportunities} />
       ) : (
-        <SpotTab spotStats={dashboard.spot_stats} />
+        <SpotTab spotStats={dashboard.spot_stats} spotEnabled={status.spot_enabled} dipThreshold={dashboard.bot_status.spot_dip_pct} />
       )}
     </div>
   );

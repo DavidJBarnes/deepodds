@@ -11,6 +11,7 @@ class BotStatusResponse(BaseModel):
     has_coinbase_keys: bool = False
     spot_enabled: bool = False
     spot_mode: str = "paper"
+    spot_dip_pct: float = 3.0
     max_exposure_cents: int
     current_exposure_cents: int
     exposure_remaining_cents: int

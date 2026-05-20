@@ -7,6 +7,7 @@ export interface BotStatus {
   has_coinbase_keys: boolean;
   spot_enabled: boolean;
   spot_mode: string;
+  spot_dip_pct: number;
   max_exposure_cents: number;
   current_exposure_cents: number;
   exposure_remaining_cents: number;

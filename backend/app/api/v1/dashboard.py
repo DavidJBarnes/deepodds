@@ -90,6 +90,7 @@ async def get_dashboard(
         has_coinbase_keys=bool(user.coinbase_api_key),
         spot_enabled=config.spot_enabled,
         spot_mode=config.spot_mode,
+        spot_dip_pct=config.spot_dip_pct,
         max_exposure_cents=config.max_exposure_cents,
         current_exposure_cents=current_exposure,
         exposure_remaining_cents=max(0, config.max_exposure_cents - current_exposure),
