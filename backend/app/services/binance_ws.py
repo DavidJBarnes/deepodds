@@ -10,7 +10,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-BINANCE_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@trade"
+BINANCE_WS_URLS = [
+    "wss://fstream.binance.com/ws/btcusdt@trade",
+    "wss://stream.binance.com:9443/ws/btcusdt@trade",
+    "wss://stream.binance.us:9443/ws/btcusdt@trade",
+]
 REDIS_KEY_PRICE = "spot:btc:price"
 REDIS_KEY_UPDATED = "spot:btc:updated"
 REDIS_KEY_HIGH_1H = "spot:btc:high_1h"
@@ -25,10 +29,25 @@ async def run_binance_stream():
     r = _get_redis()
     price_history: list[tuple[float, float]] = []
 
+    for url in BINANCE_WS_URLS:
+        try:
+            async with asyncio.timeout(10):
+                async with websockets.connect(url) as ws:
+                    await ws.recv()
+            ws_url = url
+            logger.info("Selected Binance WS endpoint: %s", url)
+            break
+        except Exception:
+            logger.debug("Binance WS endpoint %s unavailable", url)
+            continue
+    else:
+        ws_url = BINANCE_WS_URLS[0]
+        logger.warning("No Binance WS endpoint responded, defaulting to %s", ws_url)
+
     while True:
         try:
-            async for ws in websockets.connect(BINANCE_WS_URL):
-                logger.info("Binance WS connected")
+            async for ws in websockets.connect(ws_url):
+                logger.info("Binance WS connected to %s", ws_url)
                 try:
                     async for raw in ws:
                         msg = json.loads(raw)
