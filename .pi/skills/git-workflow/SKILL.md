@@ -5,11 +5,13 @@ description: Enforces clean git branch naming, focused commits, and stale branch
 
 # Git Workflow
 
-Before any commit or push, enforce these rules:
+**CRITICAL: Before making ANY code changes, create a fresh branch from origin/main.**
+
+Never add new work to an existing branch. Every distinct topic gets its own branch.
 
 ## Branch naming
 
-Branches must follow the convention: `{type}/{short-description}`
+`{type}/{short-description}` — 3-6 words, specific to this change only.
 
 | Prefix | When |
 |--------|------|
@@ -18,24 +20,26 @@ Branches must follow the convention: `{type}/{short-description}`
 | `docs/` | Documentation only |
 | `refactor/` | Code restructuring, no behavior change |
 
-The description must be short (3-6 words) and specific to the actual change being made. Examples:
-- `feat/add-sol-xrp-doge-scanner` (good)
-- `feat/v2-settlement-arb-dashboard` (too long, too vague)
-- `fix/ssm-json-quoting` (wrong — branch grew beyond this scope)
+## When user request is a new topic
 
-## Before committing
+1. Stash or discard any unrelated changes
+2. Checkout origin/main: `git fetch && git checkout main && git pull`
+3. Create new branch: `git checkout -b {type}/{short-description}`
+4. Make changes and commit
+5. Push: `git push -u origin {branch}`
 
-1. Check current branch name matches the actual work
-2. If not, create a properly named branch from main first
-3. Never commit directly to main
+## When user says "push and open PR"
 
-## After merging
+1. Create PR immediately, do NOT add more commits first
+2. Use `gh pr create` with a title matching the branch name
 
-1. Delete the branch locally and on origin
-2. Close the PR
+## After merge or when moving to a new topic
+
+1. Delete the old branch locally and on origin
+2. Close associated PRs
+3. Start fresh from main
 
 ## Commit messages
 
-- Short first line describing the change
-- Bullet points for details if needed
-- Never include shell-sensitive characters in commit messages
+- Short first line (under 72 chars)
+- No shell-sensitive characters (backticks, dollar signs in body are fine)
