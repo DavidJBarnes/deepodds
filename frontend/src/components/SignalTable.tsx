@@ -1,4 +1,5 @@
 import type { Signal } from "@/api/bot";
+import Countdown from "@/components/Countdown";
 
 const SERIES_SLUGS: Record<string, string> = {
   KXBTC: "bitcoin-range",
@@ -28,18 +29,6 @@ const STATUS_COLORS: Record<string, string> = {
 function formatTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function timeRemaining(closeTime: string | null) {
-  if (!closeTime) return null;
-  const now = Date.now();
-  const close = new Date(closeTime).getTime();
-  const diff = close - now;
-  if (diff <= 0) return "expired";
-  const mins = Math.floor(diff / 60000);
-  if (mins >= 1440) return `${Math.floor(mins / 1440)}d`;
-  if (mins >= 60) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
-  return `${mins}m`;
 }
 
 function statusLabel(s: Signal) {
@@ -139,8 +128,10 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                 <td className="px-4 py-2 text-right text-xs text-slate-400">
                   {s.status.startsWith("settled") ? (
                     <span className="text-slate-600">done</span>
+                  ) : s.close_time ? (
+                    <Countdown closeTime={s.close_time} />
                   ) : (
-                    timeRemaining(s.close_time) || "—"
+                    <span className="text-slate-600">—</span>
                   )}
                 </td>
                 <td className="px-4 py-2 text-right">
