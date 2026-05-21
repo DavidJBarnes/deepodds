@@ -20,5 +20,6 @@ class SpotTrade(Base):
     trigger: Mapped[str] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     coinbase_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    fee_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

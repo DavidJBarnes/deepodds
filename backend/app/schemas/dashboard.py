@@ -12,8 +12,8 @@ class BotStatusResponse(BaseModel):
     spot_enabled: bool = False
     spot_mode: str = "paper"
     spot_dip_pct: float = 3.0
-    spot_take_profit_pct: float = 2.0
-    spot_stop_loss_pct: float = 5.0
+    spot_take_profit_pct: float = 3.0
+    spot_stop_loss_pct: float = 2.0
     max_exposure_cents: int
     current_exposure_cents: int
     exposure_remaining_cents: int

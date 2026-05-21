@@ -40,6 +40,7 @@ class Signal(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    max_unrealized_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     settled_side: Mapped[str | None] = mapped_column(String(8), nullable=True)
     pnl_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     close_time: Mapped[str | None] = mapped_column(String(64), nullable=True)

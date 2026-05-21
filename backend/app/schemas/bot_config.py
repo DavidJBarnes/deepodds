@@ -28,8 +28,8 @@ class BotConfigResponse(BaseModel):
     spot_enabled: bool = False
     spot_mode: str = "paper"
     spot_dip_pct: float = 3.0
-    spot_take_profit_pct: float = 2.0
-    spot_stop_loss_pct: float = 5.0
+    spot_take_profit_pct: float = 3.0
+    spot_stop_loss_pct: float = 2.0
     spot_buy_amount_usd: int = 50
     spot_max_position_usd: int = 500
     spot_cooldown_minutes: int = 60
