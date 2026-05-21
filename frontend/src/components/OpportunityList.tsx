@@ -141,6 +141,8 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
                   </td>
                 </tr>
               );
+            })}
+          </tbody>
         </table>
       </div>
     </div>
