@@ -35,7 +35,7 @@ def _get_btc_price() -> tuple[float | None, float | None, float | None]:
 
 def check_dip_buys(session: Session) -> int:
     price, _high_1h, high_4h = _get_btc_price()
-    if price is None or high_4h is None or high_4h <= 0:
+    if not price or price <= 0 or high_4h is None or high_4h <= 0:
         logger.debug("No BTC price in Redis, skipping dip check")
         return 0
 
@@ -134,7 +134,7 @@ def check_dip_buys(session: Session) -> int:
 
 def check_spot_exits(session: Session) -> int:
     price, _high_1h, _high_4h = _get_btc_price()
-    if price is None:
+    if not price or price <= 0:
         return 0
 
     positions = session.execute(
