@@ -40,3 +40,11 @@ lint:
 
 format:
 	cd backend && uv run ruff format .
+
+reset-local:
+	curl -s -X POST http://localhost:8000/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"reset@reset.dev","password":"clear"}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" | xargs -I{} curl -s -X POST http://localhost:8000/api/v1/settings/reset-data -H 'Authorization: Bearer {}'
+
+reset-aws:
+	curl -s -X POST https://deepodds.davidjbarnes.com/api/v1/auth/register -H 'Content-Type: application/json' -d '{"email":"reset@reset.dev","password":"clear"}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" | xargs -I{} curl -s -X POST https://deepodds.davidjbarnes.com/api/v1/settings/reset-data -H 'Authorization: Bearer {}'
+
+reset: reset-local reset-aws
