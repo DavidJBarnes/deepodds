@@ -76,7 +76,7 @@ jobs:
               "echo === Health-checking API ===",
               "for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://127.0.0.1:'"$API_PORT"'/health && echo Health OK && break; echo Attempt $i, waiting 5s...; sleep 5; done",
               "if curl -sf http://127.0.0.1:'"$API_PORT"'/health; then",
-              "  echo === Deploy successful, cleaning up old images ===",
+              "  echo === Deploy successful, cleaning up ===",
               "  docker image prune -af 2>/dev/null || true",
               "else",
               "  echo === FAILED: rolling back to previous image ===",
