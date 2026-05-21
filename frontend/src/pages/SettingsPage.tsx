@@ -498,39 +498,38 @@ export default function SettingsPage() {
       </section>
 
       {/* Spot BTC Trading */}
-      <section className="bg-slate-900 border border-amber-500/20 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Spot BTC Trading</h3>
-          {config && (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Mode:</label>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                  config.spot_mode === "live"
-                    ? "bg-red-500/20 text-red-400"
-                    : "bg-amber-500/20 text-amber-400"
-                }`}>
-                  {config.spot_mode.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Enabled:</label>
-                <button
-                  onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
-                  className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      config.spot_enabled ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-              </div>
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white">Spot BTC Settings</h3>
+
+        {config && (
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Mode:</label>
+              <span className={`text-xs font-bold px-3 py-1 rounded ${
+                config.spot_mode === "live"
+                  ? "bg-red-500/20 text-red-400"
+                  : "bg-amber-500/20 text-amber-400"
+              }`}>
+                {config.spot_mode.toUpperCase()}
+              </span>
             </div>
-          )}
-        </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Enabled:</label>
+              <button
+                onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  config.spot_enabled ? "bg-emerald-600" : "bg-slate-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    config.spot_enabled ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
         <p className="text-xs text-slate-500">
           Buy the dip strategy: automatically buys BTC when price drops from its rolling 4-hour high, and sells on recovery or stop loss.
           Coinbase charges 0.5% per side (1% round trip) — thresholds must exceed fees to be profitable.
