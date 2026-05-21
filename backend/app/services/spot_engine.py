@@ -14,6 +14,9 @@ from app.services.coinbase_client import CoinbaseClient
 
 logger = logging.getLogger(__name__)
 
+# Coinbase Advanced Trade taker fee (market orders)
+COINBASE_TAKER_FEE_RATE = 0.005
+
 
 def _get_redis():
     return redis.from_url(settings.REDIS_URL, decode_responses=True)
@@ -73,6 +76,8 @@ def check_dip_buys(session: Session) -> int:
 
         quantity_btc = buy_usd / price
 
+        buy_fee = round(buy_usd * COINBASE_TAKER_FEE_RATE, 2)
+
         if config.spot_mode == "live":
             user = session.execute(select(User).where(User.id == config.user_id)).scalar_one()
             if not user.coinbase_api_key or not user.coinbase_api_secret:
@@ -92,12 +97,13 @@ def check_dip_buys(session: Session) -> int:
                 user_id=config.user_id, side="buy", price_usd=price,
                 quantity_btc=quantity_btc, amount_usd=buy_usd,
                 trigger="dip", status="filled", coinbase_order_id=order_id,
+                fee_usd=buy_fee,
             )
         else:
             trade = SpotTrade(
                 user_id=config.user_id, side="buy", price_usd=price,
                 quantity_btc=quantity_btc, amount_usd=buy_usd,
-                trigger="dip", status="filled",
+                trigger="dip", status="filled", fee_usd=buy_fee,
             )
 
         session.add(trade)
@@ -142,17 +148,30 @@ def check_spot_exits(session: Session) -> int:
             continue
 
         change_pct = (price - pos.entry_price_usd) / pos.entry_price_usd * 100
+
+        # Always track peak P&L for trailing stop
+        prev_peak = pos.peak_pnl_pct or 0.0
+        if change_pct > prev_peak:
+            pos.peak_pnl_pct = change_pct
+
+        peak = pos.peak_pnl_pct or 0.0
+        trail_distance = config.spot_take_profit_pct / 2.0
+        trailing_active = peak >= config.spot_take_profit_pct
+
         trigger = None
-        if change_pct >= config.spot_take_profit_pct:
+        if trailing_active and change_pct <= peak - trail_distance:
             trigger = "take_profit"
         elif change_pct <= -config.spot_stop_loss_pct:
             trigger = "stop_loss"
 
         if not trigger:
+            session.commit()
             continue
 
         sell_usd = pos.quantity_btc * price
-        pnl = sell_usd - pos.cost_basis_usd
+        buy_fees = pos.cost_basis_usd * COINBASE_TAKER_FEE_RATE
+        sell_fee = round(sell_usd * COINBASE_TAKER_FEE_RATE, 2)
+        pnl = sell_usd - pos.cost_basis_usd - buy_fees - sell_fee
 
         if config.spot_mode == "live":
             user = session.execute(select(User).where(User.id == pos.user_id)).scalar_one()
@@ -170,13 +189,14 @@ def check_spot_exits(session: Session) -> int:
                 user_id=pos.user_id, side="sell", price_usd=price,
                 quantity_btc=pos.quantity_btc, amount_usd=sell_usd,
                 trigger=trigger, status="filled", coinbase_order_id=order_id,
-                pnl_usd=round(pnl, 2),
+                fee_usd=sell_fee, pnl_usd=round(pnl, 2),
             )
         else:
             trade = SpotTrade(
                 user_id=pos.user_id, side="sell", price_usd=price,
                 quantity_btc=pos.quantity_btc, amount_usd=sell_usd,
-                trigger=trigger, status="filled", pnl_usd=round(pnl, 2),
+                trigger=trigger, status="filled",
+                fee_usd=sell_fee, pnl_usd=round(pnl, 2),
             )
 
         session.add(trade)
@@ -185,8 +205,8 @@ def check_spot_exits(session: Session) -> int:
         session.commit()
         exits += 1
         logger.info(
-            "Spot SELL [%s] user=%s trigger=%s price=$%.2f pnl=$%.2f",
-            config.spot_mode, pos.user_id, trigger, price, pnl,
+            "Spot SELL [%s] user=%s trigger=%s price=$%.2f pnl=$%.2f (fees=$%.2f)",
+            config.spot_mode, pos.user_id, trigger, price, pnl, buy_fees + sell_fee,
         )
 
     return exits

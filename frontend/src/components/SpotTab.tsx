@@ -192,7 +192,7 @@ function TradeRow({ trade }: { trade: SpotTrade }) {
   );
 }
 
-export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, takeProfitPct = 2.0, stopLossPct = 5.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number; takeProfitPct?: number; stopLossPct?: number }) {
+export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, takeProfitPct = 3.0, stopLossPct = 2.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number; takeProfitPct?: number; stopLossPct?: number }) {
   const { spotPrice, spotHigh1h, spotDipPct, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
   const prevPriceRef = useRef<number | null>(null);
   const prevPrice = prevPriceRef.current;

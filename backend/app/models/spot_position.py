@@ -16,6 +16,7 @@ class SpotPosition(Base):
     entry_price_usd: Mapped[float] = mapped_column(Float)
     quantity_btc: Mapped[float] = mapped_column(Float)
     cost_basis_usd: Mapped[float] = mapped_column(Float)
+    peak_pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(8), default="open", index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

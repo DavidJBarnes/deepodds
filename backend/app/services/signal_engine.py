@@ -25,6 +25,9 @@ EDGE_TIERS = [
     ("speculative", 0),
 ]
 
+# Edges above this threshold are likely model error, not alpha — cap sizing
+EDGE_SANITY_CAP_CENTS = 30
+
 
 def classify_edge_tier(abs_edge: float) -> str:
     for tier_name, threshold in EDGE_TIERS:
@@ -325,6 +328,12 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
 
         tier = classify_edge_tier(abs_edge)
+        if abs_edge >= EDGE_SANITY_CAP_CENTS and tier in ("elite", "high"):
+            logger.info(
+                "Edge sanity cap: %s edge %.1f¢ exceeds %d¢, capping at moderate sizing",
+                opp.ticker, abs_edge, EDGE_SANITY_CAP_CENTS,
+            )
+            tier = "moderate"
         tier_max_position, tier_max_contracts = _tier_limits(config, tier)
         max_qty_by_cost = tier_max_position // limit_price if limit_price > 0 else 0
         quantity = min(tier_max_contracts, max_qty_by_cost)
@@ -474,8 +483,17 @@ def check_take_profits(session: Session) -> int:
 
         unrealized_per_contract = int(current_bid) - sig.fill_price_cents
 
-        # Take-profit check
-        if unrealized_per_contract >= cfg.take_profit_cents:
+        # Always track peak unrealized for trailing stop
+        prev_peak = sig.max_unrealized_cents or 0
+        if unrealized_per_contract > prev_peak:
+            sig.max_unrealized_cents = unrealized_per_contract
+
+        peak = sig.max_unrealized_cents or 0
+        trail_distance = max(3, cfg.take_profit_cents // 2)
+        trailing_active = peak >= cfg.take_profit_cents
+
+        # Trailing stop: once TP threshold is reached, hold until price pulls back
+        if trailing_active and unrealized_per_contract <= peak - trail_distance:
             exit_price = int(current_bid)
             qty = sig.fill_quantity or sig.quantity
             gross_pnl = (exit_price - sig.fill_price_cents) * qty
@@ -486,8 +504,8 @@ def check_take_profits(session: Session) -> int:
             sig.resolved_at = now
             exited += 1
             logger.info(
-                "Take-profit: %s %s exit @ %d¢ (entry %d¢, gross +%d¢, fees %d¢, net +%d¢)",
-                sig.ticker, sig.side, exit_price, sig.fill_price_cents, gross_pnl, fees, sig.pnl_cents,
+                "Trailing stop: %s %s exit @ %d¢ (entry %d¢, peak %d¢, net +%d¢)",
+                sig.ticker, sig.side, exit_price, sig.fill_price_cents, peak, sig.pnl_cents,
             )
             continue
 
