@@ -487,6 +487,11 @@ def check_take_profits(session: Session) -> int:
         if not cfg or cfg.take_profit_cents <= 0:
             continue
 
+        # Settlement arb signals ride to expiry — no take-profit, no stop-loss.
+        # Temporary bid dips don't change the settlement outcome.
+        if sig.edge_tier == "settlement_arb":
+            continue
+
         opp = session.execute(
             select(Opportunity).where(Opportunity.ticker == sig.ticker)
         ).scalar_one_or_none()
