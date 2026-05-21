@@ -492,8 +492,10 @@ def check_take_profits(session: Session) -> int:
         trail_distance = max(3, cfg.take_profit_cents // 2)
         trailing_active = peak >= cfg.take_profit_cents
 
-        # Trailing stop: once TP threshold is reached, hold until price pulls back
-        if trailing_active and unrealized_per_contract <= peak - trail_distance:
+        # Trailing stop: once TP threshold is reached, hold until price pulls back.
+        # Floor guard: if trailing activated but price collapsed back below TP, exit immediately
+        # to avoid giving back all profit.
+        if trailing_active and (unrealized_per_contract <= peak - trail_distance or unrealized_per_contract < cfg.take_profit_cents):
             exit_price = int(current_bid)
             qty = sig.fill_quantity or sig.quantity
             gross_pnl = (exit_price - sig.fill_price_cents) * qty

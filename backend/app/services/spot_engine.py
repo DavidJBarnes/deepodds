@@ -159,13 +159,12 @@ def check_spot_exits(session: Session) -> int:
         trailing_active = peak >= config.spot_take_profit_pct
 
         trigger = None
-        if trailing_active and change_pct <= peak - trail_distance:
+        if trailing_active and (change_pct <= peak - trail_distance or change_pct < config.spot_take_profit_pct):
             trigger = "take_profit"
         elif change_pct <= -config.spot_stop_loss_pct:
             trigger = "stop_loss"
 
         if not trigger:
-            session.commit()
             continue
 
         sell_usd = pos.quantity_btc * price
@@ -209,4 +208,6 @@ def check_spot_exits(session: Session) -> int:
             config.spot_mode, pos.user_id, trigger, price, pnl, buy_fees + sell_fee,
         )
 
+    # Persist any peak_pnl_pct updates from non-exit iterations
+    session.commit()
     return exits
