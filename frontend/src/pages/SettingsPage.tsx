@@ -1,5 +1,4 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import { useAuthStore } from "@/stores/authStore";
 import ConfirmModal from "@/components/ConfirmModal";
 import * as settingsApi from "@/api/settings";
 import * as botApi from "@/api/bot";
