@@ -19,7 +19,7 @@ class BotConfig(Base):
     max_exposure_cents: Mapped[int] = mapped_column(Integer, default=5000)
     daily_budget_cents: Mapped[int] = mapped_column(Integer, default=0)
     min_edge_cents: Mapped[float] = mapped_column(Float, default=8.0)
-    min_liquidity: Mapped[float] = mapped_column(Float, default=50.0)
+    min_liquidity: Mapped[float] = mapped_column(Float, default=0.0)
     max_position_cents: Mapped[int] = mapped_column(Integer, default=100)
     max_contracts_per_signal: Mapped[int] = mapped_column(Integer, default=5)
     max_position_cents_moderate: Mapped[int] = mapped_column(Integer, default=750)
