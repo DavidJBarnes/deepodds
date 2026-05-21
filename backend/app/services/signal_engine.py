@@ -603,7 +603,7 @@ def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
     for sig in open_signals:
         kalshi = kalshi_clients.get(sig.user_id)
 
-        # Try Kalshi's published result first (authoritative)
+        # Try Kalshi's published result first (authoritative — public API, no auth needed)
         kalshi_result = None
         if kalshi:
             try:
@@ -614,11 +614,24 @@ def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
             except Exception:
                 pass
 
+        # Fallback: use public Kalshi API directly (no auth required for market results)
+        if not kalshi_result:
+            try:
+                import httpx
+                url = f"https://api.elections.kalshi.com/trade-api/v2/markets/{sig.ticker}"
+                resp = httpx.get(url, timeout=10)
+                data = resp.json()
+                mkt = data.get("market", data)
+                if mkt.get("status") in ("closed", "settled", "finalized"):
+                    kalshi_result = mkt.get("result")
+            except Exception:
+                pass
+
         if kalshi_result:
             won_side = kalshi_result
             logger.info("Kalshi result for %s: %s", sig.ticker, won_side)
         else:
-            # Fallback: compute from spot vs strike
+            # Last resort: compute from spot vs strike
             opp = session.execute(
                 select(Opportunity).where(Opportunity.ticker == sig.ticker)
             ).scalar_one_or_none()
