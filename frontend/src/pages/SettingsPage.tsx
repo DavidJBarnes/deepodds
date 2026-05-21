@@ -532,34 +532,47 @@ export default function SettingsPage() {
           )}
         </div>
         <p className="text-xs text-slate-500">
-          Buy the dip strategy: automatically buys BTC when price drops from its rolling 1-hour high, and sells on recovery or stop loss.
+          Buy the dip strategy: automatically buys BTC when price drops from its rolling 4-hour high, and sells on recovery or stop loss.
+          Coinbase charges 0.5% per side (1% round trip) — thresholds must exceed fees to be profitable.
         </p>
         {config && (
           <form onSubmit={handleSpotConfigSubmit} className="grid grid-cols-2 gap-4">
             <ConfigField
               label="Dip Threshold"
-              description="Buy when BTC drops this % from its rolling 1-hour high. Lower values trigger more often. 3% is a moderate dip."
+              description="Buy when BTC drops this % from its rolling 4-hour high. Lower values trigger more often. 3% is a moderate dip."
               suffix="%"
               value={config.spot_dip_pct}
               onChange={(v) => setConfig({ ...config, spot_dip_pct: v })}
-              step={0.5} min={0.1} max={20}
-            />
+              step={0.5} min={0.5} max={20}
+            >
+              {config.spot_dip_pct < 1.0 && (
+                <span className="text-amber-400 text-xs">Below 1% triggers on normal noise. Consider 2%+ for real dips.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Take Profit"
-              description="Sell when price rises this % above your average entry. Locks in gains. 2% is conservative."
+              description="Sell when price rises this % above your average entry. Must exceed 1% round-trip fees to profit. 3% is a good starting point."
               suffix="%"
               value={config.spot_take_profit_pct}
               onChange={(v) => setConfig({ ...config, spot_take_profit_pct: v })}
-              step={0.5} min={0.1} max={50}
-            />
+              step={0.5} min={1.5} max={50}
+            >
+              {config.spot_take_profit_pct < 2.0 && (
+                <span className="text-amber-400 text-xs">Thin margin after 1% round-trip fees. Consider 2%+ for reliable profit.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Stop Loss"
-              description="Sell when price drops this % below your average entry. Limits downside. 5% is standard."
+              description="Sell when price drops this % below your average entry. Must exceed 1% fees to be meaningful. 2% is moderate."
               suffix="%"
               value={config.spot_stop_loss_pct}
               onChange={(v) => setConfig({ ...config, spot_stop_loss_pct: v })}
-              step={0.5} min={0.5} max={50}
-            />
+              step={0.5} min={1.5} max={50}
+            >
+              {config.spot_stop_loss_pct < 2.0 && (
+                <span className="text-amber-400 text-xs">Fees are 1% round trip — a {config.spot_stop_loss_pct}% stop means fees dominate the exit cost.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Buy Amount"
               description="USD to spend on each dip buy. Smaller amounts = more averaging-in opportunities."
@@ -582,8 +595,12 @@ export default function SettingsPage() {
               suffix="min"
               value={config.spot_cooldown_minutes}
               onChange={(v) => setConfig({ ...config, spot_cooldown_minutes: v })}
-              step={5} min={1} max={1440}
-            />
+              step={5} min={5} max={1440}
+            >
+              {config.spot_cooldown_minutes < 10 && config.spot_dip_pct < 1.0 && (
+                <span className="text-amber-400 text-xs">Short cooldown + tight dip = rapid-fire losing buys in a slow decline.</span>
+              )}
+            </ConfigField>
             <div className="col-span-2">
               <button
                 type="submit"

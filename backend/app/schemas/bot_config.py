@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class BotConfigResponse(BaseModel):
@@ -63,9 +63,19 @@ class BotConfigUpdate(BaseModel):
     expiry_exit_minutes: int | None = Field(None, ge=0, le=120)
     spot_enabled: bool | None = None
     spot_mode: str | None = None
-    spot_dip_pct: float | None = Field(None, ge=0.1, le=20.0)
-    spot_take_profit_pct: float | None = Field(None, ge=0.1, le=50.0)
-    spot_stop_loss_pct: float | None = Field(None, ge=0.5, le=50.0)
+    spot_dip_pct: float | None = Field(None, ge=0.5, le=20.0)
+    spot_take_profit_pct: float | None = Field(None, ge=1.5, le=50.0)
+    spot_stop_loss_pct: float | None = Field(None, ge=1.5, le=50.0)
     spot_buy_amount_usd: int | None = Field(None, ge=10, le=10000)
     spot_max_position_usd: int | None = Field(None, ge=10, le=100000)
-    spot_cooldown_minutes: int | None = Field(None, ge=1, le=1440)
+    spot_cooldown_minutes: int | None = Field(None, ge=5, le=1440)
+
+    @model_validator(mode="after")
+    def check_fee_sanity(self):
+        ROUND_TRIP_FEE_PCT = 1.0  # Coinbase 0.5% taker fee each side
+        if self.spot_take_profit_pct is not None and self.spot_take_profit_pct <= ROUND_TRIP_FEE_PCT:
+            raise ValueError(
+                f"Take profit ({self.spot_take_profit_pct}%) must exceed "
+                f"round-trip Coinbase fees ({ROUND_TRIP_FEE_PCT}%)"
+            )
+        return self

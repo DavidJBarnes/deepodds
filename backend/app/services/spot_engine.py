@@ -72,6 +72,14 @@ def check_dip_buys(session: Session) -> int:
         if recent_buy:
             continue
 
+        round_trip_fee_pct = COINBASE_TAKER_FEE_RATE * 2 * 100
+        if config.spot_take_profit_pct <= round_trip_fee_pct:
+            logger.warning(
+                "Skipping buy for user %s: take_profit %.1f%% <= fees %.1f%%",
+                config.user_id, config.spot_take_profit_pct, round_trip_fee_pct,
+            )
+            continue
+
         buy_usd = min(config.spot_buy_amount_usd, config.spot_max_position_usd - current_position_usd)
         if buy_usd <= 0:
             continue
