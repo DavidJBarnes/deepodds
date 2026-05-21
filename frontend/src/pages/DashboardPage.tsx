@@ -122,7 +122,7 @@ export default function DashboardPage() {
       {tab === "signals" ? (
         <SignalTable signals={dashboard.recent_signals} />
       ) : (
-        <SpotTab spotStats={dashboard.spot_stats} spotEnabled={status.spot_enabled} dipThreshold={dashboard.bot_status.spot_dip_pct} />
+        <SpotTab spotStats={dashboard.spot_stats} spotEnabled={status.spot_enabled} dipThreshold={dashboard.bot_status.spot_dip_pct} takeProfitPct={dashboard.bot_status.spot_take_profit_pct} stopLossPct={dashboard.bot_status.spot_stop_loss_pct} />
       )}
     </div>
   );

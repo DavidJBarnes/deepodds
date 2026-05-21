@@ -14,28 +14,90 @@ function PriceDisplay({ price, prevPrice }: { price: number | null; prevPrice: n
   );
 }
 
-function DipMeter({ dipPct, threshold }: { dipPct: number | null; threshold: number }) {
-  const pct = dipPct ?? 0;
-  const fill = Math.min(100, (pct / Math.max(threshold, 0.1)) * 100);
-  const triggered = pct >= threshold;
+function TriggerMeter({
+  dipPct,
+  dipThreshold,
+  takeProfitPct,
+  stopLossPct,
+  position,
+  currentPrice,
+  high1h,
+}: {
+  dipPct: number | null;
+  dipThreshold: number;
+  takeProfitPct: number;
+  stopLossPct: number;
+  position: SpotPosition | null;
+  currentPrice: number | null;
+  high1h: number | null;
+}) {
+  const hasPosition = position !== null && currentPrice !== null;
+
+  const leftLabel = hasPosition ? `Stop -${stopLossPct}%` : `Buy -${dipThreshold}%`;
+  const rightLabel = hasPosition ? `Sell +${takeProfitPct}%` : `Sell +${takeProfitPct}%`;
+
+  let pct = 0;
+  let leftMax = dipThreshold;
+  let rightMax = takeProfitPct;
+
+  if (hasPosition) {
+    pct = ((currentPrice - position.entry_price_usd) / position.entry_price_usd) * 100;
+    leftMax = stopLossPct;
+    rightMax = takeProfitPct;
+  } else {
+    pct = -(dipPct ?? 0);
+  }
+
+  const leftFill = pct < 0 ? Math.min(100, (Math.abs(pct) / Math.max(leftMax, 0.01)) * 100) : 0;
+  const rightFill = pct > 0 ? Math.min(100, (pct / Math.max(rightMax, 0.01)) * 100) : 0;
+  const leftTriggered = pct < 0 && Math.abs(pct) >= leftMax;
+  const rightTriggered = pct > 0 && pct >= rightMax;
+
+  const high1hStr = high1h ? ` ($${high1h.toLocaleString(undefined, { maximumFractionDigits: 0 })})` : "";
+  const statusText = hasPosition
+    ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% from entry`
+    : `${(dipPct ?? 0).toFixed(2)}% dip from 1h high${high1hStr}`;
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
       <div className="flex justify-between text-xs text-slate-400 mb-2">
-        <span>Dip from 1h High</span>
-        <span className={triggered ? "text-amber-400 font-medium" : ""}>
-          {pct.toFixed(2)}% / {threshold}%
+        <span className={leftTriggered ? "text-red-400 font-medium" : ""}>{leftLabel}</span>
+        <span className={
+          leftTriggered ? "text-red-400 font-medium"
+          : rightTriggered ? "text-emerald-400 font-medium"
+          : ""
+        }>
+          {statusText}
         </span>
+        <span className={rightTriggered ? "text-emerald-400 font-medium" : ""}>{rightLabel}</span>
       </div>
-      <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            triggered ? "bg-amber-500" : "bg-blue-500"
-          }`}
-          style={{ width: `${fill}%` }}
-        />
+      <div className="relative h-3 flex gap-0.5">
+        <div className="flex-1 bg-slate-800 rounded-l-full overflow-hidden">
+          <div
+            className={`h-full float-right rounded-l-full transition-all duration-500 ${
+              leftTriggered ? "bg-red-500" : "bg-amber-500"
+            }`}
+            style={{ width: `${leftFill}%` }}
+          />
+        </div>
+        <div className="w-0.5 bg-slate-500 rounded-full shrink-0" />
+        <div className="flex-1 bg-slate-800 rounded-r-full overflow-hidden">
+          <div
+            className={`h-full rounded-r-full transition-all duration-500 ${
+              rightTriggered ? "bg-emerald-400" : "bg-emerald-500"
+            }`}
+            style={{ width: `${rightFill}%` }}
+          />
+        </div>
       </div>
-      {triggered && (
+      {leftTriggered && !hasPosition && (
         <p className="text-xs text-amber-400 mt-1">Dip threshold reached — buy signal active</p>
+      )}
+      {leftTriggered && hasPosition && (
+        <p className="text-xs text-red-400 mt-1">Stop loss triggered</p>
+      )}
+      {rightTriggered && (
+        <p className="text-xs text-emerald-400 mt-1">Take profit triggered</p>
       )}
     </div>
   );
@@ -130,8 +192,8 @@ function TradeRow({ trade }: { trade: SpotTrade }) {
   );
 }
 
-export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number }) {
-  const { spotPrice, spotDipPct, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
+export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, takeProfitPct = 2.0, stopLossPct = 5.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number; takeProfitPct?: number; stopLossPct?: number }) {
+  const { spotPrice, spotHigh1h, spotDipPct, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
   const prevPriceRef = useRef<number | null>(null);
   const prevPrice = prevPriceRef.current;
 
@@ -176,7 +238,7 @@ export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0 }: 
         </div>
       </div>
 
-      <DipMeter dipPct={spotDipPct} threshold={dipThreshold} />
+      <TriggerMeter dipPct={spotDipPct} dipThreshold={dipThreshold} takeProfitPct={takeProfitPct} stopLossPct={stopLossPct} position={spotPosition} currentPrice={spotPrice} high1h={spotHigh1h} />
       <PositionCard position={spotPosition} currentPrice={spotPrice} />
 
       {spotTrades.length > 0 && (
