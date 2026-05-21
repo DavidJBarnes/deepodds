@@ -174,6 +174,9 @@ cd backend && PYTHONPATH=. celery -A app.celery_app worker --beat --loglevel=inf
 ```
 deepodds/
 ├── .env                         # Config (project root, not backend/)
+├── .skills/                     # Agent skills (Claude Code custom agents)
+│   ├── crypto-trading-expert/   # Trading strategy & P&L analysis
+│   └── performance-auditor/     # Performance & optimization review
 ├── docker-compose.yml           # Postgres 16 (port 5433) + Redis 7
 ├── Makefile
 │
