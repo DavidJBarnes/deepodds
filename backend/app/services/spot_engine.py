@@ -133,7 +133,7 @@ def check_dip_buys(session: Session) -> int:
 
 
 def check_spot_exits(session: Session) -> int:
-    price, _ = _get_btc_price()
+    price, _high_1h, _high_4h = _get_btc_price()
     if price is None:
         return 0
 
