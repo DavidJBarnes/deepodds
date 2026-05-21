@@ -143,7 +143,7 @@ def _recently_lost(session: Session, user_id, ticker: str) -> bool:
 def _detect_asset_prefix(ticker: str) -> str:
     """Map a ticker to its Kalshi series prefix for asset concentration checks."""
     upper = ticker.upper()
-    for prefix in ("KXDOGE", "KXXRP", "KXSOL", "KXETH", "KXBTC"):
+    for prefix in ("KXSILVER", "KXGOLD", "KXDOGE", "KXXRP", "KXSOL", "KXETH", "KXBTC"):
         if upper.startswith(prefix):
             return prefix
     return "KXBTC"
