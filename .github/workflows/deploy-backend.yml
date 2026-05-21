@@ -60,6 +60,7 @@ jobs:
             --parameters commands='[
               "set -e",
               "echo === Pulling image ===",
+              "docker image prune -af 2>/dev/null || true",
               "aws ecr get-login-password --region '"$AWS_REGION"' | docker login --username AWS --password-stdin '"$ECR_REGISTRY"'",
               "docker pull '"$IMAGE"'",
               "echo === Running migrations ===",
