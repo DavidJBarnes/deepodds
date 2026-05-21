@@ -55,3 +55,8 @@ export async function deleteCoinbaseKeys() {
   const { data } = await client.delete<CoinbaseKeysStatus>("/settings/coinbase-keys");
   return data;
 }
+
+export async function resetData() {
+  const { data } = await client.post<{ status: string; cleared: string[] }>("/settings/reset-data");
+  return data;
+}

@@ -186,3 +186,17 @@ async def delete_coinbase_keys(
     user.coinbase_api_secret = None
     await db.commit()
     return CoinbaseKeysStatus(has_keys=False)
+
+
+@router.post("/reset-data")
+async def reset_data(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One-time endpoint to clear all signal, opportunity, and spot data."""
+    from sqlalchemy import text
+    tables = ["signals", "spot_trades", "spot_positions", "archived_signals", "opportunities"]
+    for t in tables:
+        await db.execute(text(f"DELETE FROM {t}"))
+    await db.commit()
+    return {"status": "ok", "cleared": tables}
