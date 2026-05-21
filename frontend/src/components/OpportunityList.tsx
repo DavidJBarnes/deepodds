@@ -1,4 +1,5 @@
 import type { Opportunity } from "@/api/bot";
+import Countdown from "@/components/Countdown";
 
 const SERIES_SLUGS: Record<string, string> = {
   KXBTC: "bitcoin-range",
@@ -15,15 +16,10 @@ function kalshiUrl(ticker: string) {
   return `https://kalshi.com/markets/${eventTicker}`;
 }
 
-function timeLeft(closeTime: string | null) {
-  if (!closeTime) return null;
+function isUrgent(closeTime: string | null) {
+  if (!closeTime) return false;
   const diff = new Date(closeTime).getTime() - Date.now();
-  if (diff <= 0) return { text: "expired", urgent: true };
-  const mins = Math.floor(diff / 60000);
-  if (mins < 10) return { text: `${mins}m`, urgent: true };
-  if (mins < 60) return { text: `${mins}m`, urgent: false };
-  if (mins < 1440) return { text: `${Math.floor(mins / 60)}h ${mins % 60}m`, urgent: false };
-  return { text: `${Math.floor(mins / 1440)}d`, urgent: false };
+  return diff > 0 && diff < 10 * 60 * 1000;
 }
 
 function strikeLabel(o: Opportunity) {
@@ -94,12 +90,12 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
           <tbody>
             {nearExpiry.map((o) => {
               const inside = spotInRange(o);
-              const tl = timeLeft(o.close_time);
+              const urgent = isUrgent(o.close_time);
               // Predict winning side based on spot position
               const predictSide = inside === true ? "yes" : inside === false ? "no" : null;
 
               return (
-                <tr key={o.ticker} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                <tr key={o.ticker} className={`border-b border-slate-800/50 hover:bg-slate-800/30 ${urgent ? "bg-amber-500/5" : ""}`}>
                   <td className="px-4 py-2 font-mono text-xs">
                     <a
                       href={kalshiUrl(o.ticker)}
@@ -137,18 +133,14 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    {tl ? (
-                      <span className={`text-xs font-medium ${tl.urgent ? "text-amber-400" : "text-slate-400"}`}>
-                        {tl.text}
-                      </span>
+                    {o.close_time ? (
+                      <Countdown closeTime={o.close_time} />
                     ) : (
                       <span className="text-slate-600">—</span>
                     )}
                   </td>
                 </tr>
               );
-            })}
-          </tbody>
         </table>
       </div>
     </div>
