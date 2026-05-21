@@ -163,7 +163,13 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
             logger.warning("Failed to fetch IV surface for %s", currency)
             iv_surfaces[currency] = {}
         try:
-            realized_vols[currency] = await get_realized_vol(currency, hours=4)
+            base_vol = await get_realized_vol(currency, hours=24, interval="5m")
+            recent_vol = await get_realized_vol(currency, hours=4, interval="1m")
+            if base_vol and recent_vol:
+                regime_ratio = recent_vol / base_vol
+                realized_vols[currency] = base_vol * min(regime_ratio, 1.5)
+            else:
+                realized_vols[currency] = base_vol or recent_vol
         except Exception:
             logger.warning("Failed to fetch realized vol for %s", currency)
             realized_vols[currency] = None
@@ -194,129 +200,130 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
             if not active:
                 continue
 
-            best = _pick_best_contract(active, spot)
-            if not best:
+            best_contracts = _pick_best_contracts(active, spot)
+            if not best_contracts:
                 continue
 
-            strike = _parse_strike(best)
-            yes_cents = _dollars_to_cents(best.get("yes_bid_dollars"))
-            no_cents = _dollars_to_cents(best.get("no_bid_dollars"))
-            yes_ask = _dollars_to_cents(best.get("yes_ask_dollars"))
-            no_ask = _dollars_to_cents(best.get("no_ask_dollars"))
-            volume = float(best.get("volume_fp", "0") or "0")
-            volume_24h = float(best.get("volume_24h_fp", "0") or "0")
-            oi = float(best.get("open_interest_fp", "0") or "0")
-            liq = float(best.get("liquidity_dollars", "0") or "0")
+            for best in best_contracts:
+                strike = _parse_strike(best)
+                yes_cents = _dollars_to_cents(best.get("yes_bid_dollars"))
+                no_cents = _dollars_to_cents(best.get("no_bid_dollars"))
+                yes_ask = _dollars_to_cents(best.get("yes_ask_dollars"))
+                no_ask = _dollars_to_cents(best.get("no_ask_dollars"))
+                volume = float(best.get("volume_fp", "0") or "0")
+                volume_24h = float(best.get("volume_24h_fp", "0") or "0")
+                oi = float(best.get("open_interest_fp", "0") or "0")
+                liq = float(best.get("liquidity_dollars", "0") or "0")
 
-            model_prob = None
-            model_fair = None
-            model_edge = None
-            iv_used = None
-            close_time_str = best.get("close_time")
-            s_type = best.get("strike_type")
-            cap = best.get("cap_strike")
-            cap_val = None
-            if cap is not None:
-                try:
-                    cap_val = float(cap)
-                except (ValueError, TypeError):
-                    pass
+                model_prob = None
+                model_fair = None
+                model_edge = None
+                iv_used = None
+                close_time_str = best.get("close_time")
+                s_type = best.get("strike_type")
+                cap = best.get("cap_strike")
+                cap_val = None
+                if cap is not None:
+                    try:
+                        cap_val = float(cap)
+                    except (ValueError, TypeError):
+                        pass
 
-            if spot and strike and close_time_str:
-                try:
-                    expiry_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
-                    deribit_iv = _match_iv(iv_surfaces.get(asset, {}), expiry_dt)
-                    rv = realized_vols.get(asset)
-                    iv = _blend_vol(deribit_iv, rv, expiry_dt)
-                    if iv:
-                        iv_used = iv
-                        T = time_to_expiry(expiry_dt)
-                        if s_type == "between" and cap_val is not None:
-                            model_prob = prob_between(spot, strike, cap_val, iv, T)
-                        elif s_type == "below":
-                            model_prob = prob_below(spot, strike, iv, T)
-                        else:
-                            model_prob = prob_above(spot, strike, iv, T)
-                        model_fair = model_prob * 100
-                        model_edge = compute_edge(model_prob, yes_ask, no_ask)
-                except Exception:
-                    logger.warning("Model calc failed for %s", best.get("ticker"), exc_info=True)
+                if spot and strike and close_time_str:
+                    try:
+                        expiry_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
+                        deribit_iv = _match_iv(iv_surfaces.get(asset, {}), expiry_dt)
+                        rv = realized_vols.get(asset)
+                        iv = _blend_vol(deribit_iv, rv, expiry_dt)
+                        if iv:
+                            iv_used = iv
+                            T = time_to_expiry(expiry_dt)
+                            if s_type == "between" and cap_val is not None:
+                                model_prob = prob_between(spot, strike, cap_val, iv, T)
+                            elif s_type == "below":
+                                model_prob = prob_below(spot, strike, iv, T)
+                            else:
+                                model_prob = prob_above(spot, strike, iv, T)
+                            model_fair = model_prob * 100
+                            model_edge = compute_edge(model_prob, yes_ask, no_ask)
+                    except Exception:
+                        logger.warning("Model calc failed for %s", best.get("ticker"), exc_info=True)
 
-            edge = abs(model_edge) if model_edge is not None else 0.0
-            if model_edge is not None:
-                direction = "yes" if model_edge > 0 else "no"
-            elif spot and strike:
-                direction = "yes" if spot > strike else "no"
-            else:
-                direction = "yes"
+                edge = abs(model_edge) if model_edge is not None else 0.0
+                if model_edge is not None:
+                    direction = "yes" if model_edge > 0 else "no"
+                elif spot and strike:
+                    direction = "yes" if spot > strike else "no"
+                else:
+                    direction = "yes"
 
-            quality = _rate_quality(volume, liq, edge, oi)
+                quality = _rate_quality(volume, liq, edge, oi)
 
-            existing = session.execute(
-                select(Opportunity).where(Opportunity.ticker == best["ticker"])
-            ).scalar_one_or_none()
+                existing = session.execute(
+                    select(Opportunity).where(Opportunity.ticker == best["ticker"])
+                ).scalar_one_or_none()
 
-            if existing:
-                existing.cap_strike = cap_val
-                existing.strike_type = s_type
-                existing.spot_price = spot
-                existing.yes_price = yes_cents
-                existing.no_price = no_cents
-                existing.yes_ask = yes_ask
-                existing.no_ask = no_ask
-                existing.edge = edge
-                existing.edge_direction = direction
-                existing.quality = quality
-                existing.volume = volume
-                existing.volume_24h = volume_24h
-                existing.open_interest = oi
-                existing.liquidity = liq
-                existing.model_prob = model_prob
-                existing.model_fair_cents = model_fair
-                existing.model_edge_cents = model_edge
-                existing.implied_vol = iv_used
-                existing.fear_greed_value = fg.get("value")
-                existing.fear_greed_label = fg.get("label")
-                existing.active_contracts = len(active)
-                existing.last_scanned_at = datetime.now(timezone.utc)
-                existing.market_data = best
-            else:
-                opp = Opportunity(
-                    event_ticker=event_ticker,
-                    ticker=best["ticker"],
-                    title=event_data.get("title", best.get("title", event_ticker)),
-                    subtitle=best.get("subtitle", best.get("yes_sub_title")),
-                    category="Crypto",
-                    asset=asset,
-                    strike_price=strike,
-                    cap_strike=cap_val,
-                    strike_type=s_type,
-                    spot_price=spot,
-                    yes_price=yes_cents,
-                    no_price=no_cents,
-                    yes_ask=yes_ask,
-                    no_ask=no_ask,
-                    edge=edge,
-                    edge_direction=direction,
-                    quality=quality,
-                    volume=volume,
-                    volume_24h=volume_24h,
-                    open_interest=oi,
-                    liquidity=liq,
-                    close_time=close_time_str,
-                    total_contracts=len(markets),
-                    active_contracts=len(active),
-                    market_data=best,
-                    model_prob=model_prob,
-                    model_fair_cents=model_fair,
-                    model_edge_cents=model_edge,
-                    implied_vol=iv_used,
-                    fear_greed_value=fg.get("value"),
-                    fear_greed_label=fg.get("label"),
-                )
-                session.add(opp)
+                if existing:
+                    existing.cap_strike = cap_val
+                    existing.strike_type = s_type
+                    existing.spot_price = spot
+                    existing.yes_price = yes_cents
+                    existing.no_price = no_cents
+                    existing.yes_ask = yes_ask
+                    existing.no_ask = no_ask
+                    existing.edge = edge
+                    existing.edge_direction = direction
+                    existing.quality = quality
+                    existing.volume = volume
+                    existing.volume_24h = volume_24h
+                    existing.open_interest = oi
+                    existing.liquidity = liq
+                    existing.model_prob = model_prob
+                    existing.model_fair_cents = model_fair
+                    existing.model_edge_cents = model_edge
+                    existing.implied_vol = iv_used
+                    existing.fear_greed_value = fg.get("value")
+                    existing.fear_greed_label = fg.get("label")
+                    existing.active_contracts = len(active)
+                    existing.last_scanned_at = datetime.now(timezone.utc)
+                    existing.market_data = best
+                else:
+                    opp = Opportunity(
+                        event_ticker=event_ticker,
+                        ticker=best["ticker"],
+                        title=event_data.get("title", best.get("title", event_ticker)),
+                        subtitle=best.get("subtitle", best.get("yes_sub_title")),
+                        category="Crypto",
+                        asset=asset,
+                        strike_price=strike,
+                        cap_strike=cap_val,
+                        strike_type=s_type,
+                        spot_price=spot,
+                        yes_price=yes_cents,
+                        no_price=no_cents,
+                        yes_ask=yes_ask,
+                        no_ask=no_ask,
+                        edge=edge,
+                        edge_direction=direction,
+                        quality=quality,
+                        volume=volume,
+                        volume_24h=volume_24h,
+                        open_interest=oi,
+                        liquidity=liq,
+                        close_time=close_time_str,
+                        total_contracts=len(markets),
+                        active_contracts=len(active),
+                        market_data=best,
+                        model_prob=model_prob,
+                        model_fair_cents=model_fair,
+                        model_edge_cents=model_edge,
+                        implied_vol=iv_used,
+                        fear_greed_value=fg.get("value"),
+                        fear_greed_label=fg.get("label"),
+                    )
+                    session.add(opp)
 
-            upserted += 1
+                upserted += 1
 
         session.commit()
 
@@ -329,7 +336,7 @@ async def _fetch_events(kalshi: KalshiClient, series_ticker: str) -> list[dict]:
     return result.get("events", [])
 
 
-def _pick_best_contract(markets: list[dict], spot: float | None) -> dict | None:
+def _pick_best_contracts(markets: list[dict], spot: float | None, top_n: int = 3) -> list[dict]:
     scored = []
     for m in markets:
         vol = float(m.get("volume_fp", "0") or "0")
@@ -347,9 +354,9 @@ def _pick_best_contract(markets: list[dict], spot: float | None) -> dict | None:
         scored.append((score, m))
 
     if not scored:
-        return None
+        return []
     scored.sort(key=lambda x: x[0], reverse=True)
-    return scored[0][1]
+    return [m for _, m in scored[:top_n]]
 
 
 def _prune_settled(session: Session):
