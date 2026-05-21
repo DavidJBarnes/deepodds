@@ -192,6 +192,12 @@ def evaluate_naive_no(user_id, session: Session) -> list[Signal]:
         if quantity < 1:
             continue
 
+        # Per-asset position limit (same guard as model strategy)
+        if config.max_positions_per_asset > 0:
+            asset_prefix = "KXETH" if "ETH" in opp.ticker.upper() else "KXBTC"
+            if _asset_position_count(session, user_id, asset_prefix) >= config.max_positions_per_asset:
+                continue
+
         cost = limit_price * quantity
 
         if current_exposure + cost > config.max_exposure_cents:
@@ -492,10 +498,12 @@ def check_take_profits(session: Session) -> int:
         trail_distance = max(3, cfg.take_profit_cents // 2)
         trailing_active = peak >= cfg.take_profit_cents
 
-        # Trailing stop: once TP threshold is reached, hold until price pulls back.
-        # Floor guard: if trailing activated but price collapsed back below TP, exit immediately
-        # to avoid giving back all profit.
-        if trailing_active and (unrealized_per_contract <= peak - trail_distance or unrealized_per_contract < cfg.take_profit_cents):
+        # Trailing stop: once TP threshold is reached, hold until price pulls back
+        # by the trail distance from the peak. The floor guard (below) provides a
+        # secondary exit at half the TP threshold to prevent giving back all profit
+        # on positions that peaked briefly and then reversed hard.
+        floor_guard_cents = max(3, cfg.take_profit_cents // 2)
+        if trailing_active and (unrealized_per_contract <= peak - trail_distance or unrealized_per_contract < floor_guard_cents):
             exit_price = int(current_bid)
             qty = sig.fill_quantity or sig.quantity
             gross_pnl = (exit_price - sig.fill_price_cents) * qty
