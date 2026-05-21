@@ -70,7 +70,6 @@ function ConfigField({
 }
 
 export default function SettingsPage() {
-  const user = useAuthStore((s) => s.user);
   const [keysStatus, setKeysStatus] = useState<settingsApi.KalshiKeysStatus | null>(null);
   const [keyId, setKeyId] = useState("");
   const [privateKey, setPrivateKey] = useState("");
@@ -199,12 +198,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-2xl">
+    <div className="space-y-8">
       <h2 className="text-2xl font-bold text-white">Settings</h2>
 
-      {/* Bot Config */}
+      {/* Futures Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Bot Configuration</h3>
+        <h3 className="text-lg font-semibold text-white">Futures Settings</h3>
 
         {config && (
           <>
@@ -357,21 +356,6 @@ export default function SettingsPage() {
                 step={1} min={0} max={20}
               />
               <ConfigField
-                label="Max Position"
-                description="Maximum dollar value of a single position (speculative tier). Higher-edge tiers override this in the tier config below."
-                prefix="$"
-                value={config.max_position_cents / 100}
-                onChange={(v) => setConfig({ ...config, max_position_cents: Math.round(v * 100) })}
-                step={1} min={1} max={100}
-              />
-              <ConfigField
-                label="Max Contracts/Signal"
-                description="Upper limit on contracts per signal. Combined with max position to cap risk on any single trade."
-                value={config.max_contracts_per_signal}
-                onChange={(v) => setConfig({ ...config, max_contracts_per_signal: v })}
-                step={1} min={1} max={100}
-              />
-              <ConfigField
                 label="Take Profit"
                 description="Exit early when unrealized profit per contract reaches this many cents. Locks in gains before expiry. 0 = hold to settlement."
                 suffix="cents"
@@ -402,180 +386,111 @@ export default function SettingsPage() {
                 onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
                 step={1} min={0} max={50}
               />
+
+              {/* Position Sizing by Tier */}
+              <div className="col-span-2 border-t border-slate-800 pt-4 mt-2">
+                <h4 className="text-sm font-medium text-slate-300 mb-1">Position Sizing by Tier</h4>
+                <p className="text-xs text-slate-500 mb-3">
+                  Higher-edge signals get larger position limits. "Speculative" uses the defaults above.
+                </p>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <ConfigField
+                    label="Elite Reserve %"
+                    description="Percentage of exposure budget reserved for elite-tier signals (80c+ edge)."
+                    suffix="%"
+                    value={config.tier_budget_pct_elite}
+                    onChange={(v) => setConfig({ ...config, tier_budget_pct_elite: v })}
+                    step={1} min={0} max={50}
+                  />
+                  <ConfigField
+                    label="High Reserve %"
+                    description="Percentage of exposure budget reserved for high-tier signals (50-79c edge)."
+                    suffix="%"
+                    value={config.tier_budget_pct_high}
+                    onChange={(v) => setConfig({ ...config, tier_budget_pct_high: v })}
+                    step={1} min={0} max={50}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <ConfigField
+                    label="Max Position (Speculative)"
+                    description="Maximum dollar value per signal for speculative-tier trades (under 20c edge)."
+                    prefix="$"
+                    value={config.max_position_cents / 100}
+                    onChange={(v) => setConfig({ ...config, max_position_cents: Math.round(v * 100) })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Contracts (Speculative)"
+                    description="Maximum contracts per signal for speculative-tier trades."
+                    value={config.max_contracts_per_signal}
+                    onChange={(v) => setConfig({ ...config, max_contracts_per_signal: v })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Position (Moderate)"
+                    description="Maximum dollar value per signal for moderate-tier trades (20-49c edge)."
+                    prefix="$"
+                    value={config.max_position_cents_moderate / 100}
+                    onChange={(v) => setConfig({ ...config, max_position_cents_moderate: Math.round(v * 100) })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Contracts (Moderate)"
+                    description="Maximum contracts per signal for moderate-tier trades."
+                    value={config.max_contracts_moderate}
+                    onChange={(v) => setConfig({ ...config, max_contracts_moderate: v })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Position (High)"
+                    description="Maximum dollar value per signal for high-tier trades (50-79c edge)."
+                    prefix="$"
+                    value={config.max_position_cents_high / 100}
+                    onChange={(v) => setConfig({ ...config, max_position_cents_high: Math.round(v * 100) })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Contracts (High)"
+                    description="Maximum contracts per signal for high-tier trades."
+                    value={config.max_contracts_high}
+                    onChange={(v) => setConfig({ ...config, max_contracts_high: v })}
+                    step={1} min={1} max={100}
+                  />
+                  <ConfigField
+                    label="Max Position (Elite)"
+                    description="Maximum dollar value per signal for elite-tier trades (80c+ edge)."
+                    prefix="$"
+                    value={config.max_position_cents_elite / 100}
+                    onChange={(v) => setConfig({ ...config, max_position_cents_elite: Math.round(v * 100) })}
+                    step={1} min={1} max={500}
+                  />
+                  <ConfigField
+                    label="Max Contracts (Elite)"
+                    description="Maximum contracts per signal for elite-tier trades."
+                    value={config.max_contracts_elite}
+                    onChange={(v) => setConfig({ ...config, max_contracts_elite: v })}
+                    step={1} min={1} max={200}
+                  />
+                </div>
+              </div>
+
               <div className="col-span-2">
                 <button
                   type="submit"
                   disabled={savingConfig}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
                 >
-                  {savingConfig ? "Saving..." : "Save"}
+                  {savingConfig ? "Saving..." : "Save Settings"}
                 </button>
               </div>
             </form>
-
-            <details className="mt-2">
-              <summary className="text-sm text-slate-400 cursor-pointer hover:text-slate-300 select-none">
-                Position Sizing by Tier
-              </summary>
-              <p className="text-xs text-slate-500 mt-2 mb-3">
-                Higher-edge signals get larger position limits. "Speculative" uses the defaults above.
-              </p>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Elite Reserve %</label>
-                  <input
-                    type="number"
-                    value={config.tier_budget_pct_elite}
-                    onChange={(e) => setConfig({ ...config, tier_budget_pct_elite: Number(e.target.value) })}
-                    step="1"
-                    min="0"
-                    max="50"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <p className="text-xs text-slate-600 mt-0.5">% of daily budget reserved for elite signals</p>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">High Reserve %</label>
-                  <input
-                    type="number"
-                    value={config.tier_budget_pct_high}
-                    onChange={(e) => setConfig({ ...config, tier_budget_pct_high: Number(e.target.value) })}
-                    step="1"
-                    min="0"
-                    max="50"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <p className="text-xs text-slate-600 mt-0.5">% of daily budget reserved for high signals</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-xs">
-                <div />
-                <div className="text-slate-500 text-center">Max Position</div>
-                <div className="text-slate-500 text-center">Max Contracts</div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-blue-400" />
-                  <span className="text-slate-300">Moderate (20-49c)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500">$</span>
-                  <input type="number" value={config.max_position_cents_moderate / 100}
-                    onChange={(e) => setConfig({ ...config, max_position_cents_moderate: Math.round(Number(e.target.value) * 100) })}
-                    step="1" min="1" max="100"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <input type="number" value={config.max_contracts_moderate}
-                  onChange={(e) => setConfig({ ...config, max_contracts_moderate: Number(e.target.value) })}
-                  step="1" min="1" max="100"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
-                  <span className="text-slate-300">High (50-79c)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500">$</span>
-                  <input type="number" value={config.max_position_cents_high / 100}
-                    onChange={(e) => setConfig({ ...config, max_position_cents_high: Math.round(Number(e.target.value) * 100) })}
-                    step="1" min="1" max="100"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <input type="number" value={config.max_contracts_high}
-                  onChange={(e) => setConfig({ ...config, max_contracts_high: Number(e.target.value) })}
-                  step="1" min="1" max="100"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
-                  <span className="text-slate-300">Elite (80c+)</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-slate-500">$</span>
-                  <input type="number" value={config.max_position_cents_elite / 100}
-                    onChange={(e) => setConfig({ ...config, max_position_cents_elite: Math.round(Number(e.target.value) * 100) })}
-                    step="1" min="1" max="500"
-                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <input type="number" value={config.max_contracts_elite}
-                  onChange={(e) => setConfig({ ...config, max_contracts_elite: Number(e.target.value) })}
-                  step="1" min="1" max="200"
-                  className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-              </div>
-            </details>
           </>
         )}
       </section>
 
-      {/* Kalshi Keys */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
-        <div className="flex items-center gap-3">
-          <span
-            className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
-          />
-          <span className="text-sm text-slate-300">
-            {keysStatus?.has_keys
-              ? `Keys configured (${keysStatus.key_id_preview})`
-              : "No keys configured"}
-          </span>
-          {keysStatus?.has_keys && (
-            <button
-              onClick={handleDeleteKeys}
-              className="ml-auto text-sm text-red-400 hover:text-red-300"
-            >
-              Remove keys
-            </button>
-          )}
-        </div>
-
-        {keysMessage && (
-          <p
-            className={`text-sm rounded-lg p-3 ${
-              keysMessage.type === "success"
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-red-400/10 text-red-400"
-            }`}
-          >
-            {keysMessage.text}
-          </p>
-        )}
-
-        <form onSubmit={handleSaveKeys} className="space-y-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
-            <input
-              type="text"
-              value={keyId}
-              onChange={(e) => setKeyId(e.target.value)}
-              placeholder="Your Kalshi API Key ID"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">RSA Private Key (PEM)</label>
-            <textarea
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
-              rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={savingKeys || !keyId || !privateKey}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-          >
-            {savingKeys ? "Saving..." : "Save Keys"}
-          </button>
-        </form>
-        <p className="text-xs text-slate-500">
-          Generate API keys at kalshi.com under Account &gt; API Keys. Required for live trading mode.
-        </p>
-      </section>
-
-      {/* Spot Trading Config */}
-      <section className="bg-slate-900 border border-blue-500/20 rounded-xl p-6 space-y-4">
+      {/* Spot BTC Trading */}
+      <section className="bg-slate-900 border border-amber-500/20 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-white">Spot BTC Trading</h3>
           {config && (
@@ -585,7 +500,7 @@ export default function SettingsPage() {
                 <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                   config.spot_mode === "live"
                     ? "bg-red-500/20 text-red-400"
-                    : "bg-blue-500/20 text-blue-400"
+                    : "bg-amber-500/20 text-amber-400"
                 }`}>
                   {config.spot_mode.toUpperCase()}
                 </span>
@@ -595,7 +510,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
                   className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.spot_enabled ? "bg-blue-600" : "bg-slate-700"
+                    config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
                   }`}
                 >
                   <span
@@ -665,90 +580,153 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 disabled={savingConfig}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
               >
-                {savingConfig ? "Saving..." : "Save Spot Settings"}
+                {savingConfig ? "Saving..." : "Save Settings"}
               </button>
             </div>
           </form>
         )}
       </section>
 
-      {/* Coinbase Keys */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
-        <div className="flex items-center gap-3">
-          <span
-            className={`w-2.5 h-2.5 rounded-full ${cbKeysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
-          />
-          <span className="text-sm text-slate-300">
-            {cbKeysStatus?.has_keys
-              ? `Keys configured (${cbKeysStatus.key_preview})`
-              : "No keys configured"}
-          </span>
-          {cbKeysStatus?.has_keys && (
-            <button
-              onClick={handleDeleteCbKeys}
-              className="ml-auto text-sm text-red-400 hover:text-red-300"
+      {/* API Keys — side by side */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* Kalshi Keys */}
+        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
+          <div className="flex items-center gap-3">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
+            />
+            <span className="text-sm text-slate-300">
+              {keysStatus?.has_keys
+                ? `Keys configured (${keysStatus.key_id_preview})`
+                : "No keys configured"}
+            </span>
+            {keysStatus?.has_keys && (
+              <button
+                onClick={handleDeleteKeys}
+                className="ml-auto text-sm text-red-400 hover:text-red-300"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
+          {keysMessage && (
+            <p
+              className={`text-sm rounded-lg p-3 ${
+                keysMessage.type === "success"
+                  ? "bg-emerald-500/10 text-emerald-400"
+                  : "bg-red-400/10 text-red-400"
+              }`}
             >
-              Remove keys
-            </button>
+              {keysMessage.text}
+            </p>
           )}
-        </div>
 
-        {cbKeysMessage && (
-          <p
-            className={`text-sm rounded-lg p-3 ${
-              cbKeysMessage.type === "success"
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-red-400/10 text-red-400"
-            }`}
-          >
-            {cbKeysMessage.text}
+          <form onSubmit={handleSaveKeys} className="space-y-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+              <input
+                type="text"
+                value={keyId}
+                onChange={(e) => setKeyId(e.target.value)}
+                placeholder="Your Kalshi API Key ID"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">RSA Private Key (PEM)</label>
+              <textarea
+                value={privateKey}
+                onChange={(e) => setPrivateKey(e.target.value)}
+                placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
+                rows={6}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={savingKeys || !keyId || !privateKey}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+            >
+              {savingKeys ? "Saving..." : "Save API Keys"}
+            </button>
+          </form>
+          <p className="text-xs text-slate-500">
+            Generate API keys at kalshi.com under Account &gt; API Keys. Required for live trading mode.
           </p>
-        )}
+        </section>
 
-        <form onSubmit={handleSaveCbKeys} className="space-y-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
-            <input
-              type="text"
-              value={cbKey}
-              onChange={(e) => setCbKey(e.target.value)}
-              placeholder="Your Coinbase API Key ID"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+        {/* Coinbase Keys */}
+        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
+          <div className="flex items-center gap-3">
+            <span
+              className={`w-2.5 h-2.5 rounded-full ${cbKeysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
             />
+            <span className="text-sm text-slate-300">
+              {cbKeysStatus?.has_keys
+                ? `Keys configured (${cbKeysStatus.key_preview})`
+                : "No keys configured"}
+            </span>
+            {cbKeysStatus?.has_keys && (
+              <button
+                onClick={handleDeleteCbKeys}
+                className="ml-auto text-sm text-red-400 hover:text-red-300"
+              >
+                Remove
+              </button>
+            )}
           </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">API Secret</label>
-            <textarea
-              value={cbSecret}
-              onChange={(e) => setCbSecret(e.target.value)}
-              placeholder={"-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----"}
-              rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={savingCbKeys || !cbKey || !cbSecret}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-          >
-            {savingCbKeys ? "Saving..." : "Save Keys"}
-          </button>
-        </form>
-        <p className="text-xs text-slate-500">
-          Create API keys at coinbase.com under Settings &gt; API. Required for live spot trading.
-        </p>
-      </section>
 
-      {/* Account */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-        <h3 className="text-lg font-semibold text-white mb-2">Account</h3>
-        <p className="text-sm text-slate-400">
-          Email: <span className="text-white">{user?.email}</span>
-        </p>
-      </section>
+          {cbKeysMessage && (
+            <p
+              className={`text-sm rounded-lg p-3 ${
+                cbKeysMessage.type === "success"
+                  ? "bg-emerald-500/10 text-emerald-400"
+                  : "bg-red-400/10 text-red-400"
+              }`}
+            >
+              {cbKeysMessage.text}
+            </p>
+          )}
+
+          <form onSubmit={handleSaveCbKeys} className="space-y-4">
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+              <input
+                type="text"
+                value={cbKey}
+                onChange={(e) => setCbKey(e.target.value)}
+                placeholder="Your Coinbase API Key ID"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">API Secret</label>
+              <textarea
+                value={cbSecret}
+                onChange={(e) => setCbSecret(e.target.value)}
+                placeholder={"-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----"}
+                rows={6}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={savingCbKeys || !cbKey || !cbSecret}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+            >
+              {savingCbKeys ? "Saving..." : "Save API Keys"}
+            </button>
+          </form>
+          <p className="text-xs text-slate-500">
+            Create API keys at coinbase.com under Settings &gt; API. Required for live spot trading.
+          </p>
+        </section>
+      </div>
     </div>
   );
 }
