@@ -77,6 +77,9 @@ export interface Opportunity {
   liquidity: number;
   close_time: string | null;
   strike_type: string | null;
+  sigma_distance: number | null;
+  discount_cents: number | null;
+  would_signal: boolean;
 }
 
 export interface DashboardData {
