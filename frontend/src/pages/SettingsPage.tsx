@@ -68,18 +68,18 @@ function ConfigField({
   );
 }
 
+const STRATEGIES = [
+  { value: "settlement_arb", label: "Settlement Arb", desc: "Buy near-certain contracts close to expiry at a discount. No model needed." },
+  { value: "naive_no", label: "Naive NO", desc: "Buy NO on any range contract under 8¢. Baseline control strategy." },
+  { value: "model", label: "BSM Model (V1)", desc: "Black-Scholes probability model. Legacy — kept for comparison." },
+];
+
 export default function SettingsPage() {
   const [keysStatus, setKeysStatus] = useState<settingsApi.KalshiKeysStatus | null>(null);
   const [keyId, setKeyId] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
   const [keysMessage, setKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const [cbKeysStatus, setCbKeysStatus] = useState<settingsApi.CoinbaseKeysStatus | null>(null);
-  const [cbKey, setCbKey] = useState("");
-  const [cbSecret, setCbSecret] = useState("");
-  const [savingCbKeys, setSavingCbKeys] = useState(false);
-  const [cbKeysMessage, setCbKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const [config, setConfig] = useState<botApi.BotConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -89,7 +89,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKeysStatus);
-    settingsApi.getCoinbaseKeysStatus().then(setCbKeysStatus);
     botApi.getBotConfig().then(setConfig);
     settingsApi.getKalshiBalance().then(setKalshiBalance).catch(() => {});
   }, []);
@@ -118,30 +117,6 @@ export default function SettingsPage() {
     setKeysMessage({ type: "success", text: "Kalshi keys removed." });
   }
 
-  async function handleSaveCbKeys(e: FormEvent) {
-    e.preventDefault();
-    setSavingCbKeys(true);
-    setCbKeysMessage(null);
-    try {
-      const result = await settingsApi.updateCoinbaseKeys(cbKey, cbSecret);
-      setCbKeysStatus(result);
-      setCbKey("");
-      setCbSecret("");
-      setCbKeysMessage({ type: "success", text: "Coinbase keys saved." });
-    } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
-      setCbKeysMessage({ type: "error", text: detail });
-    } finally {
-      setSavingCbKeys(false);
-    }
-  }
-
-  async function handleDeleteCbKeys() {
-    const result = await settingsApi.deleteCoinbaseKeys();
-    setCbKeysStatus(result);
-    setCbKeysMessage({ type: "success", text: "Coinbase keys removed." });
-  }
-
   async function handleUpdateConfig(updates: Partial<botApi.BotConfig>) {
     setSavingConfig(true);
     setConfigMessage(null);
@@ -160,40 +135,17 @@ export default function SettingsPage() {
     e.preventDefault();
     if (!config) return;
     handleUpdateConfig({
+      strategy: config.strategy,
+      settlement_arb_enabled: config.settlement_arb_enabled,
+      settlement_arb_max_minutes: config.settlement_arb_max_minutes,
+      settlement_arb_min_sigma: config.settlement_arb_min_sigma,
+      settlement_arb_min_discount_cents: config.settlement_arb_min_discount_cents,
+      settlement_arb_max_position_cents: config.settlement_arb_max_position_cents,
       max_exposure_cents: config.max_exposure_cents,
       daily_budget_cents: config.daily_budget_cents,
-      min_edge_cents: config.min_edge_cents,
-      min_yes_prob: config.min_yes_prob,
-      min_liquidity: config.min_liquidity,
       max_positions_per_asset: config.max_positions_per_asset,
-      max_position_cents: config.max_position_cents,
-      max_contracts_per_signal: config.max_contracts_per_signal,
-      max_position_cents_moderate: config.max_position_cents_moderate,
-      max_contracts_moderate: config.max_contracts_moderate,
-      max_position_cents_high: config.max_position_cents_high,
-      max_contracts_high: config.max_contracts_high,
-      max_position_cents_elite: config.max_position_cents_elite,
-      max_contracts_elite: config.max_contracts_elite,
-      take_profit_cents: config.take_profit_cents,
-      stop_loss_cents: config.stop_loss_cents,
-      expiry_exit_minutes: config.expiry_exit_minutes,
-      daily_loss_limit_cents: config.daily_loss_limit_cents,
       max_signals_per_hour: config.max_signals_per_hour,
-      tier_budget_pct_elite: config.tier_budget_pct_elite,
-      tier_budget_pct_high: config.tier_budget_pct_high,
-    });
-  }
-
-  function handleSpotConfigSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!config) return;
-    handleUpdateConfig({
-      spot_dip_pct: config.spot_dip_pct,
-      spot_take_profit_pct: config.spot_take_profit_pct,
-      spot_stop_loss_pct: config.spot_stop_loss_pct,
-      spot_buy_amount_usd: config.spot_buy_amount_usd,
-      spot_max_position_usd: config.spot_max_position_usd,
-      spot_cooldown_minutes: config.spot_cooldown_minutes,
+      daily_loss_limit_cents: config.daily_loss_limit_cents,
     });
   }
 
@@ -201,13 +153,13 @@ export default function SettingsPage() {
     <div className="space-y-8">
       <h2 className="text-2xl font-bold text-white">Settings</h2>
 
-      {/* Futures Settings */}
+      {/* Strategy Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Futures Settings</h3>
+        <h3 className="text-lg font-semibold text-white">Strategy</h3>
 
         {config && (
           <>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Mode:</label>
                 <button
@@ -235,6 +187,47 @@ export default function SettingsPage() {
                     }`}
                   />
                 </button>
+              </div>
+              {config.strategy === "settlement_arb" && (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-slate-400">Arb:</label>
+                  <button
+                    onClick={() => handleUpdateConfig({ settlement_arb_enabled: !config.settlement_arb_enabled })}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      config.settlement_arb_enabled ? "bg-emerald-600" : "bg-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                        config.settlement_arb_enabled ? "translate-x-5" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Strategy selector */}
+            <div>
+              <label className="text-sm text-slate-400 mb-2 block">Strategy</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {STRATEGIES.map((s) => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => handleUpdateConfig({ strategy: s.value })}
+                    className={`text-left p-3 rounded-lg border transition-colors ${
+                      config.strategy === s.value
+                        ? "border-emerald-500 bg-emerald-500/10"
+                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                    }`}
+                  >
+                    <span className={`text-sm font-medium block ${config.strategy === s.value ? "text-emerald-400" : "text-white"}`}>
+                      {s.label}
+                    </span>
+                    <span className="text-xs text-slate-500 block mt-0.5">{s.desc}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -294,195 +287,106 @@ export default function SettingsPage() {
               </p>
             )}
 
-            <form onSubmit={handleConfigSubmit} className="grid grid-cols-2 gap-4">
-              <ConfigField
-                label="Max Exposure"
-                description="Maximum capital tied up in open positions at once. Freed when positions settle."
-                prefix="$"
-                value={config.max_exposure_cents / 100}
-                onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
-                step={1} min={1} max={1000}
-              >
-                {kalshiBalance && kalshiBalance.cash_cents > 0 && (
-                  <span className="text-slate-400">
-                    Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
-                  </span>
-                )}
-                {kalshiBalance && kalshiBalance.cash_cents > 0 && config.max_exposure_cents > kalshiBalance.cash_cents && (
-                  <span className="text-amber-400 block">Exposure exceeds your Kalshi cash balance.</span>
-                )}
-              </ConfigField>
-              <ConfigField
-                label="Daily Budget"
-                description="Hard cap on total new position spend per calendar day. 0 = unlimited."
-                prefix="$"
-                value={config.daily_budget_cents / 100}
-                onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
-                step={1} min={0} max={1000}
-              >
-                {kalshiBalance && kalshiBalance.cash_cents > 0 && config.daily_budget_cents > 0 && config.daily_budget_cents > kalshiBalance.cash_cents && (
-                  <span className="text-amber-400">Daily budget exceeds your Kalshi cash balance.</span>
-                )}
-              </ConfigField>
-              <ConfigField
-                label="Min Edge"
-                description="Minimum fee-adjusted edge (in cents) the model must find before placing a signal. Lower = more signals but noisier."
-                suffix="cents"
-                value={config.min_edge_cents}
-                onChange={(v) => setConfig({ ...config, min_edge_cents: v })}
-                step={0.5} min={1} max={50}
-              />
-              <ConfigField
-                label="Min YES Probability"
-                description="Only buy YES when the model's probability exceeds this threshold. Filters out low-confidence longshot YES bets. 0 = no filter."
-                suffix="%"
-                value={config.min_yes_prob}
-                onChange={(v) => setConfig({ ...config, min_yes_prob: v })}
-                step={5} min={0} max={100}
-              />
-              <ConfigField
-                label="Min Liquidity"
-                description="Skip markets with fewer contracts available. Higher values avoid thin markets where fills are unreliable."
-                value={config.min_liquidity}
-                onChange={(v) => setConfig({ ...config, min_liquidity: v })}
-                step={1} min={0} max={1000}
-              />
-              <ConfigField
-                label="Max Positions/Asset"
-                description="Limit concurrent open positions per underlying asset (BTC or ETH). Prevents correlated exposure to a single price move."
-                value={config.max_positions_per_asset}
-                onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
-                step={1} min={0} max={20}
-              />
-              <ConfigField
-                label="Take Profit"
-                description="Exit early when unrealized profit per contract reaches this many cents. Locks in gains before expiry. 0 = hold to settlement."
-                suffix="cents"
-                value={config.take_profit_cents}
-                onChange={(v) => setConfig({ ...config, take_profit_cents: v })}
-                step={1} min={0} max={50}
-              />
-              <ConfigField
-                label="Stop Loss"
-                description="Exit early when unrealized loss per contract reaches this many cents. Limits downside on bad trades. 0 = hold to settlement."
-                suffix="cents"
-                value={config.stop_loss_cents}
-                onChange={(v) => setConfig({ ...config, stop_loss_cents: v })}
-                step={1} min={0} max={50}
-              />
-              <ConfigField
-                label="Expiry Exit"
-                description="Close profitable positions this many minutes before contract expiry to avoid the binary coin-flip at settlement. 0 = disabled."
-                suffix="min"
-                value={config.expiry_exit_minutes}
-                onChange={(v) => setConfig({ ...config, expiry_exit_minutes: v })}
-                step={5} min={0} max={120}
-              />
-              <ConfigField
-                label="Daily Loss Limit"
-                description="Pauses the bot for the rest of the day if realized losses exceed this amount. Prevents tilt/drawdown spirals. 0 = disabled."
-                prefix="$"
-                value={config.daily_loss_limit_cents / 100}
-                onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
-                step={1} min={0} max={1000}
-              />
-              <ConfigField
-                label="Max Signals/Hour"
-                description="Rate limit on new signals per hour. Prevents the bot from over-trading in volatile conditions. 0 = unlimited."
-                value={config.max_signals_per_hour}
-                onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
-                step={1} min={0} max={50}
-              />
-
-              {/* Position Sizing by Tier */}
-              <div className="col-span-2 border-t border-slate-800 pt-4 mt-2">
-                <h4 className="text-sm font-medium text-slate-300 mb-1">Position Sizing by Tier</h4>
-                <p className="text-xs text-slate-500 mb-3">
-                  Higher-edge signals get larger position limits. "Speculative" uses the defaults above.
-                </p>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <ConfigField
-                    label="Elite Reserve %"
-                    description="Percentage of exposure budget reserved for elite-tier signals (80c+ edge)."
-                    suffix="%"
-                    value={config.tier_budget_pct_elite}
-                    onChange={(v) => setConfig({ ...config, tier_budget_pct_elite: v })}
-                    step={1} min={0} max={50}
-                  />
-                  <ConfigField
-                    label="High Reserve %"
-                    description="Percentage of exposure budget reserved for high-tier signals (50-79c edge)."
-                    suffix="%"
-                    value={config.tier_budget_pct_high}
-                    onChange={(v) => setConfig({ ...config, tier_budget_pct_high: v })}
-                    step={1} min={0} max={50}
-                  />
+            <form onSubmit={handleConfigSubmit} className="space-y-6">
+              {/* Settlement Arb config — only shown when that strategy is active */}
+              {config.strategy === "settlement_arb" && (
+                <div className="border-t border-slate-800 pt-4">
+                  <h4 className="text-sm font-semibold text-emerald-400 mb-1">Settlement Arb Parameters</h4>
+                  <p className="text-xs text-slate-500 mb-3">
+                    These control when the bot enters near-expiry contracts. It buys the near-certain side when the market price is below fair probability value.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <ConfigField
+                      label="Max Minutes to Expiry"
+                      description="Only consider contracts expiring within this many minutes. Longer windows = more opportunities but more tail risk."
+                      suffix="min"
+                      value={config.settlement_arb_max_minutes}
+                      onChange={(v) => setConfig({ ...config, settlement_arb_max_minutes: v })}
+                      step={5} min={1} max={240}
+                    />
+                    <ConfigField
+                      label="Min Sigma Distance"
+                      description="How many standard deviations spot must be from the nearest boundary. 1.5σ = 93% win probability, 2σ = 98%."
+                      suffix="σ"
+                      value={config.settlement_arb_min_sigma}
+                      onChange={(v) => setConfig({ ...config, settlement_arb_min_sigma: v })}
+                      step={0.1} min={0.5} max={5}
+                    />
+                    <ConfigField
+                      label="Min Discount"
+                      description="Minimum cents below fair value required to enter. Higher = fewer but higher-quality signals."
+                      suffix="cents"
+                      value={config.settlement_arb_min_discount_cents}
+                      onChange={(v) => setConfig({ ...config, settlement_arb_min_discount_cents: v })}
+                      step={1} min={1} max={50}
+                    />
+                    <ConfigField
+                      label="Max Position"
+                      description="Maximum dollar value per settlement arb signal. Kelly-inspired sizing scales this down based on edge."
+                      prefix="$"
+                      value={config.settlement_arb_max_position_cents / 100}
+                      onChange={(v) => setConfig({ ...config, settlement_arb_max_position_cents: Math.round(v * 100) })}
+                      step={1} min={1} max={1000}
+                    />
+                  </div>
                 </div>
+              )}
+
+              {/* Risk Management — shared across strategies */}
+              <div className="border-t border-slate-800 pt-4">
+                <h4 className="text-sm font-semibold text-slate-300 mb-1">Risk Management</h4>
+                <p className="text-xs text-slate-500 mb-3">
+                  These limits apply to all strategies. They prevent over-exposure and control daily risk.
+                </p>
                 <div className="grid grid-cols-2 gap-4">
                   <ConfigField
-                    label="Max Position (Speculative)"
-                    description="Maximum dollar value per signal for speculative-tier trades (under 20c edge)."
+                    label="Max Exposure"
+                    description="Maximum capital tied up in open positions at once. Freed when positions settle."
                     prefix="$"
-                    value={config.max_position_cents / 100}
-                    onChange={(v) => setConfig({ ...config, max_position_cents: Math.round(v * 100) })}
-                    step={1} min={1} max={100}
-                  />
+                    value={config.max_exposure_cents / 100}
+                    onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
+                    step={1} min={1} max={1000}
+                  >
+                    {kalshiBalance && kalshiBalance.cash_cents > 0 && (
+                      <span className="text-slate-400">
+                        Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
+                      </span>
+                    )}
+                  </ConfigField>
                   <ConfigField
-                    label="Max Contracts (Speculative)"
-                    description="Maximum contracts per signal for speculative-tier trades."
-                    value={config.max_contracts_per_signal}
-                    onChange={(v) => setConfig({ ...config, max_contracts_per_signal: v })}
-                    step={1} min={1} max={100}
-                  />
-                  <ConfigField
-                    label="Max Position (Moderate)"
-                    description="Maximum dollar value per signal for moderate-tier trades (20-49c edge)."
+                    label="Daily Budget"
+                    description="Hard cap on total new position spend per calendar day. 0 = unlimited."
                     prefix="$"
-                    value={config.max_position_cents_moderate / 100}
-                    onChange={(v) => setConfig({ ...config, max_position_cents_moderate: Math.round(v * 100) })}
-                    step={1} min={1} max={100}
+                    value={config.daily_budget_cents / 100}
+                    onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
+                    step={1} min={0} max={1000}
                   />
                   <ConfigField
-                    label="Max Contracts (Moderate)"
-                    description="Maximum contracts per signal for moderate-tier trades."
-                    value={config.max_contracts_moderate}
-                    onChange={(v) => setConfig({ ...config, max_contracts_moderate: v })}
-                    step={1} min={1} max={100}
-                  />
-                  <ConfigField
-                    label="Max Position (High)"
-                    description="Maximum dollar value per signal for high-tier trades (50-79c edge)."
+                    label="Daily Loss Limit"
+                    description="Pauses the bot for the rest of the day if realized losses exceed this amount. 0 = disabled."
                     prefix="$"
-                    value={config.max_position_cents_high / 100}
-                    onChange={(v) => setConfig({ ...config, max_position_cents_high: Math.round(v * 100) })}
-                    step={1} min={1} max={100}
+                    value={config.daily_loss_limit_cents / 100}
+                    onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
+                    step={1} min={0} max={1000}
                   />
                   <ConfigField
-                    label="Max Contracts (High)"
-                    description="Maximum contracts per signal for high-tier trades."
-                    value={config.max_contracts_high}
-                    onChange={(v) => setConfig({ ...config, max_contracts_high: v })}
-                    step={1} min={1} max={100}
+                    label="Max Positions/Asset"
+                    description="Limit concurrent open positions per underlying asset (BTC or ETH). Prevents correlated exposure."
+                    value={config.max_positions_per_asset}
+                    onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
+                    step={1} min={0} max={20}
                   />
                   <ConfigField
-                    label="Max Position (Elite)"
-                    description="Maximum dollar value per signal for elite-tier trades (80c+ edge)."
-                    prefix="$"
-                    value={config.max_position_cents_elite / 100}
-                    onChange={(v) => setConfig({ ...config, max_position_cents_elite: Math.round(v * 100) })}
-                    step={1} min={1} max={500}
-                  />
-                  <ConfigField
-                    label="Max Contracts (Elite)"
-                    description="Maximum contracts per signal for elite-tier trades."
-                    value={config.max_contracts_elite}
-                    onChange={(v) => setConfig({ ...config, max_contracts_elite: v })}
-                    step={1} min={1} max={200}
+                    label="Max Signals/Hour"
+                    description="Rate limit on new signals per hour. Prevents over-trading in volatile conditions. 0 = unlimited."
+                    value={config.max_signals_per_hour}
+                    onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
+                    step={1} min={0} max={50}
                   />
                 </div>
               </div>
 
-              <div className="col-span-2">
+              <div>
                 <button
                   type="submit"
                   disabled={savingConfig}
@@ -496,260 +400,73 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Spot BTC Trading */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Spot BTC Settings</h3>
+      {/* Kalshi API Keys */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
+        <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
+        <div className="flex items-center gap-3">
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
+          />
+          <span className="text-sm text-slate-300">
+            {keysStatus?.has_keys
+              ? `Keys configured (${keysStatus.key_id_preview})`
+              : "No keys configured"}
+          </span>
+          {keysStatus?.has_keys && (
+            <button
+              onClick={handleDeleteKeys}
+              className="ml-auto text-sm text-red-400 hover:text-red-300"
+            >
+              Remove
+            </button>
+          )}
+        </div>
 
-        {config && (
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Mode:</label>
-              <span className={`text-xs font-bold px-3 py-1 rounded ${
-                config.spot_mode === "live"
-                  ? "bg-red-500/20 text-red-400"
-                  : "bg-amber-500/20 text-amber-400"
-              }`}>
-                {config.spot_mode.toUpperCase()}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-400">Enabled:</label>
-              <button
-                onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
-                className={`relative w-10 h-5 rounded-full transition-colors ${
-                  config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                    config.spot_enabled ? "translate-x-5" : ""
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
+        {keysMessage && (
+          <p
+            className={`text-sm rounded-lg p-3 ${
+              keysMessage.type === "success"
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "bg-red-400/10 text-red-400"
+            }`}
+          >
+            {keysMessage.text}
+          </p>
         )}
+
+        <form onSubmit={handleSaveKeys} className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+            <input
+              type="text"
+              value={keyId}
+              onChange={(e) => setKeyId(e.target.value)}
+              placeholder="Your Kalshi API Key ID"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">RSA Private Key (PEM)</label>
+            <textarea
+              value={privateKey}
+              onChange={(e) => setPrivateKey(e.target.value)}
+              placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
+              rows={6}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={savingKeys || !keyId || !privateKey}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+          >
+            {savingKeys ? "Saving..." : "Save API Keys"}
+          </button>
+        </form>
         <p className="text-xs text-slate-500">
-          Buy the dip strategy: automatically buys BTC when price drops from its rolling 4-hour high, and sells on recovery or stop loss.
-          Coinbase charges 0.5% per side (1% round trip) — thresholds must exceed fees to be profitable.
+          Generate API keys at kalshi.com under Account → API Keys. Required for live trading mode.
         </p>
-        {config && (
-          <form onSubmit={handleSpotConfigSubmit} className="grid grid-cols-2 gap-4">
-            <ConfigField
-              label="Dip Threshold"
-              description="Buy when BTC drops this % from its rolling 4-hour high. Lower values trigger more often. 3% is a moderate dip."
-              suffix="%"
-              value={config.spot_dip_pct}
-              onChange={(v) => setConfig({ ...config, spot_dip_pct: v })}
-              step={0.5} min={0.5} max={20}
-            >
-              {config.spot_dip_pct < 1.0 && (
-                <span className="text-amber-400 text-xs">Below 1% triggers on normal noise. Consider 2%+ for real dips.</span>
-              )}
-            </ConfigField>
-            <ConfigField
-              label="Take Profit"
-              description="Sell when price rises this % above your average entry. Must exceed 1% round-trip fees to profit. 3% is a good starting point."
-              suffix="%"
-              value={config.spot_take_profit_pct}
-              onChange={(v) => setConfig({ ...config, spot_take_profit_pct: v })}
-              step={0.5} min={1.5} max={50}
-            >
-              {config.spot_take_profit_pct < 2.0 && (
-                <span className="text-amber-400 text-xs">Thin margin after 1% round-trip fees. Consider 2%+ for reliable profit.</span>
-              )}
-            </ConfigField>
-            <ConfigField
-              label="Stop Loss"
-              description="Sell when price drops this % below your average entry. Must exceed 1% fees to be meaningful. 2% is moderate."
-              suffix="%"
-              value={config.spot_stop_loss_pct}
-              onChange={(v) => setConfig({ ...config, spot_stop_loss_pct: v })}
-              step={0.5} min={1.5} max={50}
-            >
-              {config.spot_stop_loss_pct < 2.0 && (
-                <span className="text-amber-400 text-xs">Fees are 1% round trip — a {config.spot_stop_loss_pct}% stop means fees dominate the exit cost.</span>
-              )}
-            </ConfigField>
-            <ConfigField
-              label="Buy Amount"
-              description="USD to spend on each dip buy. Smaller amounts = more averaging-in opportunities."
-              prefix="$"
-              value={config.spot_buy_amount_usd}
-              onChange={(v) => setConfig({ ...config, spot_buy_amount_usd: v })}
-              step={10} min={10} max={10000}
-            />
-            <ConfigField
-              label="Max Position"
-              description="Maximum total USD invested in BTC at any time. Prevents over-concentration in a single asset."
-              prefix="$"
-              value={config.spot_max_position_usd}
-              onChange={(v) => setConfig({ ...config, spot_max_position_usd: v })}
-              step={50} min={10} max={100000}
-            />
-            <ConfigField
-              label="Cooldown"
-              description="Minimum minutes between successive dip buys. Prevents buying repeatedly in a freefall."
-              suffix="min"
-              value={config.spot_cooldown_minutes}
-              onChange={(v) => setConfig({ ...config, spot_cooldown_minutes: v })}
-              step={5} min={5} max={1440}
-            >
-              {config.spot_cooldown_minutes < 10 && config.spot_dip_pct < 1.0 && (
-                <span className="text-amber-400 text-xs">Short cooldown + tight dip = rapid-fire losing buys in a slow decline.</span>
-              )}
-            </ConfigField>
-            <div className="col-span-2">
-              <button
-                type="submit"
-                disabled={savingConfig}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-              >
-                {savingConfig ? "Saving..." : "Save Settings"}
-              </button>
-            </div>
-          </form>
-        )}
       </section>
-
-      {/* API Keys — side by side */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Kalshi Keys */}
-        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
-          <div className="flex items-center gap-3">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
-            />
-            <span className="text-sm text-slate-300">
-              {keysStatus?.has_keys
-                ? `Keys configured (${keysStatus.key_id_preview})`
-                : "No keys configured"}
-            </span>
-            {keysStatus?.has_keys && (
-              <button
-                onClick={handleDeleteKeys}
-                className="ml-auto text-sm text-red-400 hover:text-red-300"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-
-          {keysMessage && (
-            <p
-              className={`text-sm rounded-lg p-3 ${
-                keysMessage.type === "success"
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "bg-red-400/10 text-red-400"
-              }`}
-            >
-              {keysMessage.text}
-            </p>
-          )}
-
-          <form onSubmit={handleSaveKeys} className="space-y-4">
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
-              <input
-                type="text"
-                value={keyId}
-                onChange={(e) => setKeyId(e.target.value)}
-                placeholder="Your Kalshi API Key ID"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">RSA Private Key (PEM)</label>
-              <textarea
-                value={privateKey}
-                onChange={(e) => setPrivateKey(e.target.value)}
-                placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
-                rows={6}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={savingKeys || !keyId || !privateKey}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-            >
-              {savingKeys ? "Saving..." : "Save API Keys"}
-            </button>
-          </form>
-          <p className="text-xs text-slate-500">
-            Generate API keys at kalshi.com under Account &gt; API Keys. Required for live trading mode.
-          </p>
-        </section>
-
-        {/* Coinbase Keys */}
-        <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
-          <div className="flex items-center gap-3">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${cbKeysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
-            />
-            <span className="text-sm text-slate-300">
-              {cbKeysStatus?.has_keys
-                ? `Keys configured (${cbKeysStatus.key_preview})`
-                : "No keys configured"}
-            </span>
-            {cbKeysStatus?.has_keys && (
-              <button
-                onClick={handleDeleteCbKeys}
-                className="ml-auto text-sm text-red-400 hover:text-red-300"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-
-          {cbKeysMessage && (
-            <p
-              className={`text-sm rounded-lg p-3 ${
-                cbKeysMessage.type === "success"
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "bg-red-400/10 text-red-400"
-              }`}
-            >
-              {cbKeysMessage.text}
-            </p>
-          )}
-
-          <form onSubmit={handleSaveCbKeys} className="space-y-4">
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
-              <input
-                type="text"
-                value={cbKey}
-                onChange={(e) => setCbKey(e.target.value)}
-                placeholder="Your Coinbase API Key ID"
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-400 mb-1">API Secret</label>
-              <textarea
-                value={cbSecret}
-                onChange={(e) => setCbSecret(e.target.value)}
-                placeholder={"-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----"}
-                rows={6}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={savingCbKeys || !cbKey || !cbSecret}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-            >
-              {savingCbKeys ? "Saving..." : "Save API Keys"}
-            </button>
-          </form>
-          <p className="text-xs text-slate-500">
-            Create API keys at coinbase.com under Settings &gt; API. Required for live spot trading.
-          </p>
-        </section>
-      </div>
     </div>
   );
 }

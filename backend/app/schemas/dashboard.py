@@ -1,19 +1,13 @@
 from pydantic import BaseModel
 
 from app.schemas.signal import SignalResponse
-from app.schemas.spot import SpotPnLStats
 
 
 class BotStatusResponse(BaseModel):
     mode: str
+    strategy: str = "model"
     enabled: bool
     has_kalshi_keys: bool
-    has_coinbase_keys: bool = False
-    spot_enabled: bool = False
-    spot_mode: str = "paper"
-    spot_dip_pct: float = 3.0
-    spot_take_profit_pct: float = 3.0
-    spot_stop_loss_pct: float = 2.0
     max_exposure_cents: int
     current_exposure_cents: int
     exposure_remaining_cents: int
@@ -21,6 +15,9 @@ class BotStatusResponse(BaseModel):
     daily_spent_cents: int
     signals_today: int
     active_signals: int
+    settlement_arb_enabled: bool = False
+    settlement_arb_max_minutes: int = 60
+    settlement_arb_min_sigma: float = 1.5
 
 
 class PaperPnLStats(BaseModel):
@@ -41,14 +38,18 @@ class OpportunitySummary(BaseModel):
     asset: str
     title: str
     strike_price: float | None = None
+    cap_strike: float | None = None
+    strike_type: str | None = None
     spot_price: float | None = None
     yes_price: float | None = None
+    no_price: float | None = None
+    yes_ask: float | None = None
+    no_ask: float | None = None
+    model_prob: float | None = None
     model_fair_cents: float | None = None
     model_edge_cents: float | None = None
-    implied_vol: float | None = None
     liquidity: float = 0
     close_time: str | None = None
-    quality: str = "low"
 
 
 class DailyPnLPoint(BaseModel):
@@ -74,4 +75,3 @@ class DashboardResponse(BaseModel):
     recent_signals: list[SignalResponse]
     opportunities: list[OpportunitySummary]
     stats: PaperPnLStats
-    spot_stats: SpotPnLStats | None = None
