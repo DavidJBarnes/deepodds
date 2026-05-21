@@ -22,6 +22,7 @@ class SignalResponse(BaseModel):
     market_yes_price_cents: float | None = None
     spot_price: float | None = None
     strike_price: float | None = None
+    cap_strike: float | None = None
     kalshi_order_id: str | None = None
     fill_price_cents: int | None = None
     exit_price_cents: int | None = None

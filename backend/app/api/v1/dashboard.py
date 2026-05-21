@@ -4,16 +4,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import redis
-
-from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
 from app.models.opportunity import Opportunity
 from app.models.signal import Signal
-from app.models.spot_position import SpotPosition
-from app.models.spot_trade import SpotTrade
 from app.models.user import User
 from app.schemas.dashboard import (
     BotStatusResponse,
@@ -24,7 +19,6 @@ from app.schemas.dashboard import (
     PnLChartResponse,
 )
 from app.schemas.signal import SignalResponse
-from app.schemas.spot import SpotPnLStats
 
 router = APIRouter(tags=["dashboard"])
 
@@ -85,14 +79,9 @@ async def get_dashboard(
 
     bot_status = BotStatusResponse(
         mode=config.mode,
+        strategy=config.strategy,
         enabled=config.enabled,
         has_kalshi_keys=bool(user.kalshi_api_key_id),
-        has_coinbase_keys=bool(user.coinbase_api_key),
-        spot_enabled=config.spot_enabled,
-        spot_mode=config.spot_mode,
-        spot_dip_pct=config.spot_dip_pct,
-        spot_take_profit_pct=config.spot_take_profit_pct,
-        spot_stop_loss_pct=config.spot_stop_loss_pct,
         max_exposure_cents=config.max_exposure_cents,
         current_exposure_cents=current_exposure,
         exposure_remaining_cents=max(0, config.max_exposure_cents - current_exposure),
@@ -100,6 +89,9 @@ async def get_dashboard(
         daily_spent_cents=daily_spent,
         signals_today=signals_today,
         active_signals=active_signals,
+        settlement_arb_enabled=config.settlement_arb_enabled,
+        settlement_arb_max_minutes=config.settlement_arb_max_minutes,
+        settlement_arb_min_sigma=config.settlement_arb_min_sigma,
     )
 
     recent = (await db.execute(
@@ -126,6 +118,7 @@ async def get_dashboard(
             model_edge_cents=s.model_edge_cents, edge_tier=s.edge_tier,
             implied_vol=s.implied_vol, market_yes_price_cents=s.market_yes_price_cents,
             spot_price=s.spot_price, strike_price=s.strike_price,
+            cap_strike=s.cap_strike,
             kalshi_order_id=s.kalshi_order_id, fill_price_cents=s.fill_price_cents,
             exit_price_cents=s.exit_price_cents, filled_at=s.filled_at,
             unrealized_pnl_cents=_unrealized_pnl(s, opp_map),
@@ -185,53 +178,31 @@ async def get_dashboard(
         .where(
             (Opportunity.close_time.is_(None)) | (Opportunity.close_time > now_iso)
         )
-        .order_by(Opportunity.model_edge_cents.desc().nullslast())
-        .limit(20)
+        .order_by(Opportunity.close_time.asc().nullslast())
+        .limit(30)
     )).scalars().all()
 
     opportunities = [
         OpportunitySummary(
             ticker=o.ticker, asset=o.asset, title=o.title,
-            strike_price=o.strike_price, spot_price=o.spot_price,
-            yes_price=o.yes_price, model_fair_cents=o.model_fair_cents,
-            model_edge_cents=o.model_edge_cents, implied_vol=o.implied_vol,
-            liquidity=o.liquidity, close_time=o.close_time, quality=o.quality,
+            strike_price=o.strike_price, cap_strike=o.cap_strike,
+            strike_type=o.strike_type,
+            spot_price=o.spot_price,
+            yes_price=o.yes_price, no_price=o.no_price,
+            yes_ask=o.yes_ask, no_ask=o.no_ask,
+            model_prob=o.model_prob,
+            model_fair_cents=o.model_fair_cents,
+            model_edge_cents=o.model_edge_cents,
+            liquidity=o.liquidity, close_time=o.close_time,
         )
         for o in opps
     ]
-
-    spot_trade_count = (await db.execute(
-        select(func.count()).select_from(SpotTrade).where(SpotTrade.user_id == user.id)
-    )).scalar()
-    spot_realized = (await db.execute(
-        select(func.coalesce(func.sum(SpotTrade.pnl_usd), 0.0))
-        .where(SpotTrade.user_id == user.id, SpotTrade.pnl_usd.isnot(None))
-    )).scalar()
-    spot_pos = (await db.execute(
-        select(SpotPosition).where(SpotPosition.user_id == user.id, SpotPosition.status == "open")
-    )).scalar_one_or_none()
-
-    spot_unrealized = 0.0
-    if spot_pos:
-        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
-        price_str = r.get("spot:btc:price")
-        if price_str:
-            spot_unrealized = round((float(price_str) - spot_pos.entry_price_usd) * spot_pos.quantity_btc, 2)
-
-    spot_stats = SpotPnLStats(
-        total_trades=spot_trade_count,
-        open_position_btc=round(spot_pos.quantity_btc, 8) if spot_pos else 0.0,
-        open_position_usd=round(spot_pos.cost_basis_usd, 2) if spot_pos else 0.0,
-        unrealized_pnl_usd=spot_unrealized,
-        realized_pnl_usd=round(spot_realized, 2),
-    )
 
     return DashboardResponse(
         bot_status=bot_status,
         recent_signals=recent_signals,
         opportunities=opportunities,
         stats=stats,
-        spot_stats=spot_stats,
     )
 
 

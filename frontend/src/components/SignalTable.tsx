@@ -1,12 +1,5 @@
 import type { Signal } from "@/api/bot";
 
-const TIER_STYLES: Record<string, { label: string; className: string }> = {
-  elite: { label: "ELITE", className: "bg-emerald-500/20 text-emerald-400" },
-  high: { label: "HIGH", className: "bg-amber-500/20 text-amber-400" },
-  moderate: { label: "MOD", className: "bg-blue-500/20 text-blue-400" },
-  speculative: { label: "SPEC", className: "bg-slate-500/20 text-slate-400" },
-};
-
 const SERIES_SLUGS: Record<string, string> = {
   KXBTC: "bitcoin-range",
   KXBTCD: "bitcoin-price",
@@ -43,13 +36,9 @@ function timeRemaining(closeTime: string | null) {
   const close = new Date(closeTime).getTime();
   const diff = close - now;
   if (diff <= 0) return "expired";
-  const hours = Math.floor(diff / 3600000);
-  const mins = Math.floor((diff % 3600000) / 60000);
-  if (hours >= 24) {
-    const days = Math.floor(hours / 24);
-    return `${days}d ${hours % 24}h`;
-  }
-  if (hours > 0) return `${hours}h ${mins}m`;
+  const mins = Math.floor(diff / 60000);
+  if (mins >= 1440) return `${Math.floor(mins / 1440)}d`;
+  if (mins >= 60) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
   return `${mins}m`;
 }
 
@@ -64,7 +53,9 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
   if (signals.length === 0) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
-        <p className="text-slate-400">No signals yet. The bot will generate signals when it finds mispriced markets.</p>
+        <p className="text-slate-400">
+          No signals yet. The bot places signals when settlement arb opportunities appear — near-expiry contracts with high sigma distance and market discount.
+        </p>
       </div>
     );
   }
@@ -72,23 +63,23 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
       <div className="px-4 py-3 border-b border-slate-800">
-        <h3 className="text-sm font-semibold text-white">Recent Signals</h3>
+        <h3 className="text-sm font-semibold text-white">Signals</h3>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-slate-500 uppercase tracking-wide border-b border-slate-800">
-              <th className="text-left px-4 py-2">Created</th>
-              <th className="text-left px-4 py-2">Ticker</th>
+              <th className="text-left px-4 py-2">Time</th>
+              <th className="text-left px-4 py-2">Contract</th>
               <th className="text-left px-4 py-2">Side</th>
-              <th className="text-right px-4 py-2">Edge</th>
-              <th className="text-left px-4 py-2">Tier</th>
-              <th className="text-right px-4 py-2">Price</th>
+              <th className="text-right px-4 py-2">Win Prob</th>
+              <th className="text-right px-4 py-2">Discount</th>
+              <th className="text-right px-4 py-2">Entry</th>
               <th className="text-right px-4 py-2">Qty</th>
               <th className="text-right px-4 py-2">Cost</th>
               <th className="text-left px-4 py-2">Status</th>
               <th className="text-right px-4 py-2">Expires</th>
-              <th className="text-right px-4 py-2">P&L</th>
+              <th className="text-right px-4 py-2">P&amp;L</th>
             </tr>
           </thead>
           <tbody>
@@ -111,16 +102,12 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300">
-                  {s.model_edge_cents != null ? `${Number(s.model_edge_cents.toFixed(1))}c` : "—"}
+                  {s.model_prob != null ? `${(s.model_prob * 100).toFixed(1)}%` : "—"}
                 </td>
-                <td className="px-4 py-2">
-                  {s.edge_tier && TIER_STYLES[s.edge_tier] ? (
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${TIER_STYLES[s.edge_tier].className}`}>
-                      {TIER_STYLES[s.edge_tier].label}
-                    </span>
-                  ) : (
-                    <span className="text-slate-600">—</span>
-                  )}
+                <td className={`px-4 py-2 text-right font-medium ${
+                  s.model_edge_cents != null && s.model_edge_cents >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}>
+                  {s.model_edge_cents != null ? `${s.model_edge_cents.toFixed(1)}c` : "—"}
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300">
                   {s.fill_price_cents != null ? (

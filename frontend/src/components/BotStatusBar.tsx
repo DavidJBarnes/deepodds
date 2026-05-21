@@ -1,9 +1,16 @@
 import type { BotStatus } from "@/api/bot";
 
+const STRATEGY_LABELS: Record<string, string> = {
+  settlement_arb: "Settlement Arb",
+  model: "BSM Model",
+  naive_no: "Naive NO",
+};
+
 export default function BotStatusBar({ status }: { status: BotStatus }) {
   const exposurePct = status.max_exposure_cents > 0
     ? Math.min(100, (status.current_exposure_cents / status.max_exposure_cents) * 100)
     : 0;
+  const strategyLabel = STRATEGY_LABELS[status.strategy] || status.strategy;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -17,6 +24,9 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
             }`}
           >
             {status.mode.toUpperCase()}
+          </span>
+          <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
+            {strategyLabel}
           </span>
           <span
             className={`w-2.5 h-2.5 rounded-full ${
@@ -66,16 +76,14 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
               </span>
             </div>
           )}
-          {status.spot_enabled && (
+          {status.strategy === "settlement_arb" && (
             <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">Spot: </span>
-              <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                status.spot_mode === "live"
-                  ? "bg-red-500/20 text-red-400"
-                  : "bg-amber-500/20 text-amber-400"
-              }`}>
-                {status.spot_mode.toUpperCase()}
+              <span className="text-slate-500">Sigma:</span>
+              <span className="text-emerald-400 font-medium">
+                &ge;{status.settlement_arb_min_sigma}&sigma;
               </span>
+              <span className="text-slate-600">&middot;</span>
+              <span className="text-slate-500">&le;{status.settlement_arb_max_minutes}m</span>
             </div>
           )}
         </div>
