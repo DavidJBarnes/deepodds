@@ -176,6 +176,7 @@ export default function SettingsPage() {
       max_contracts_elite: config.max_contracts_elite,
       take_profit_cents: config.take_profit_cents,
       stop_loss_cents: config.stop_loss_cents,
+      expiry_exit_minutes: config.expiry_exit_minutes,
       daily_loss_limit_cents: config.daily_loss_limit_cents,
       max_signals_per_hour: config.max_signals_per_hour,
       tier_budget_pct_elite: config.tier_budget_pct_elite,
@@ -369,6 +370,14 @@ export default function SettingsPage() {
                 value={config.stop_loss_cents}
                 onChange={(v) => setConfig({ ...config, stop_loss_cents: v })}
                 step={1} min={0} max={50}
+              />
+              <ConfigField
+                label="Expiry Exit"
+                description="Close profitable positions this many minutes before contract expiry to avoid the binary coin-flip at settlement. 0 = disabled."
+                suffix="min"
+                value={config.expiry_exit_minutes}
+                onChange={(v) => setConfig({ ...config, expiry_exit_minutes: v })}
+                step={5} min={0} max={120}
               />
               <ConfigField
                 label="Daily Loss Limit"

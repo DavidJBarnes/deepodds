@@ -36,5 +36,7 @@ class SpotPnLStats(BaseModel):
 class SpotPriceResponse(BaseModel):
     price: float | None = None
     high_1h: float | None = None
+    high_4h: float | None = None
     dip_pct: float | None = None
+    dip_pct_4h: float | None = None
     updated: float | None = None

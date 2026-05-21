@@ -21,7 +21,7 @@ function TriggerMeter({
   stopLossPct,
   position,
   currentPrice,
-  high1h,
+  high4h,
 }: {
   dipPct: number | null;
   dipThreshold: number;
@@ -29,7 +29,7 @@ function TriggerMeter({
   stopLossPct: number;
   position: SpotPosition | null;
   currentPrice: number | null;
-  high1h: number | null;
+  high4h: number | null;
 }) {
   const hasPosition = position !== null && currentPrice !== null;
 
@@ -53,10 +53,10 @@ function TriggerMeter({
   const leftTriggered = pct < 0 && Math.abs(pct) >= leftMax;
   const rightTriggered = pct > 0 && pct >= rightMax;
 
-  const high1hStr = high1h ? ` ($${high1h.toLocaleString(undefined, { maximumFractionDigits: 0 })})` : "";
+  const high4hStr = high4h ? ` ($${high4h.toLocaleString(undefined, { maximumFractionDigits: 0 })})` : "";
   const statusText = hasPosition
     ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% from entry`
-    : `${(dipPct ?? 0).toFixed(2)}% dip from 1h high${high1hStr}`;
+    : `${(dipPct ?? 0).toFixed(2)}% dip from 4h high${high4hStr}`;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -193,7 +193,7 @@ function TradeRow({ trade }: { trade: SpotTrade }) {
 }
 
 export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, takeProfitPct = 3.0, stopLossPct = 2.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number; takeProfitPct?: number; stopLossPct?: number }) {
-  const { spotPrice, spotHigh1h, spotDipPct, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
+  const { spotPrice, spotHigh1h, spotHigh4h, spotDipPct, spotDipPct4h, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
   const prevPriceRef = useRef<number | null>(null);
   const prevPrice = prevPriceRef.current;
 
@@ -238,7 +238,7 @@ export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, ta
         </div>
       </div>
 
-      <TriggerMeter dipPct={spotDipPct} dipThreshold={dipThreshold} takeProfitPct={takeProfitPct} stopLossPct={stopLossPct} position={spotPosition} currentPrice={spotPrice} high1h={spotHigh1h} />
+      <TriggerMeter dipPct={spotDipPct4h} dipThreshold={dipThreshold} takeProfitPct={takeProfitPct} stopLossPct={stopLossPct} position={spotPosition} currentPrice={spotPrice} high4h={spotHigh4h} />
       <PositionCard position={spotPosition} currentPrice={spotPrice} />
 
       {spotTrades.length > 0 && (
