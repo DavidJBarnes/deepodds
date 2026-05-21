@@ -23,13 +23,18 @@ def _get_redis():
 async def get_spot_price():
     r = _get_redis()
     price_str = r.get("spot:btc:price")
-    high_str = r.get("spot:btc:high_1h")
+    high_1h_str = r.get("spot:btc:high_1h")
+    high_4h_str = r.get("spot:btc:high_4h")
     updated_str = r.get("spot:btc:updated")
     price = float(price_str) if price_str else None
-    high = float(high_str) if high_str else None
-    dip = ((high - price) / high * 100) if price and high and high > 0 else None
+    high_1h = float(high_1h_str) if high_1h_str else None
+    high_4h = float(high_4h_str) if high_4h_str else None
+    dip_1h = ((high_1h - price) / high_1h * 100) if price and high_1h and high_1h > 0 else None
+    dip_4h = ((high_4h - price) / high_4h * 100) if price and high_4h and high_4h > 0 else None
     return SpotPriceResponse(
-        price=price, high_1h=high, dip_pct=round(dip, 2) if dip else None,
+        price=price, high_1h=high_1h, high_4h=high_4h,
+        dip_pct=round(dip_1h, 2) if dip_1h else None,
+        dip_pct_4h=round(dip_4h, 2) if dip_4h else None,
         updated=float(updated_str) if updated_str else None,
     )
 
@@ -44,18 +49,23 @@ async def stream_spot_price(user: User = Depends(get_current_user)):
         last_price = None
         while True:
             price_str = r.get("spot:btc:price")
-            high_str = r.get("spot:btc:high_1h")
+            high_1h_str = r.get("spot:btc:high_1h")
+            high_4h_str = r.get("spot:btc:high_4h")
             price = float(price_str) if price_str else None
             if price and price != last_price:
-                high = float(high_str) if high_str else None
-                dip = ((high - price) / high * 100) if high and high > 0 else None
+                high_1h = float(high_1h_str) if high_1h_str else None
+                high_4h = float(high_4h_str) if high_4h_str else None
+                dip = ((high_1h - price) / high_1h * 100) if high_1h and high_1h > 0 else None
+                dip_4h = ((high_4h - price) / high_4h * 100) if high_4h and high_4h > 0 else None
                 last_price = price
                 yield {
                     "event": "price",
                     "data": json.dumps({
                         "price": price,
-                        "high_1h": high,
+                        "high_1h": high_1h,
+                        "high_4h": high_4h,
                         "dip_pct": round(dip, 2) if dip else None,
+                        "dip_pct_4h": round(dip_4h, 2) if dip_4h else None,
                     }),
                 }
             await asyncio.sleep(1)

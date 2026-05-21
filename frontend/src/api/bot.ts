@@ -112,7 +112,9 @@ export interface SpotPosition {
 export interface SpotPrice {
   price: number | null;
   high_1h: number | null;
+  high_4h: number | null;
   dip_pct: number | null;
+  dip_pct_4h: number | null;
   updated: number | null;
 }
 
@@ -147,6 +149,7 @@ export interface BotConfig {
   tier_budget_pct_high: number;
   max_positions_per_asset: number;
   min_yes_prob: number;
+  expiry_exit_minutes: number;
   spot_enabled: boolean;
   spot_mode: string;
   spot_dip_pct: number;

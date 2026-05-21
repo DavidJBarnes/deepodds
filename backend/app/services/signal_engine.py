@@ -511,6 +511,29 @@ def check_take_profits(session: Session) -> int:
             )
             continue
 
+        # Expiry proximity exit: close profitable positions near expiry to avoid the binary coin flip
+        if cfg.expiry_exit_minutes > 0 and sig.close_time and unrealized_per_contract > 0:
+            try:
+                expiry_dt = datetime.fromisoformat(sig.close_time.replace("Z", "+00:00"))
+                minutes_left = (expiry_dt - now).total_seconds() / 60
+                if 0 < minutes_left <= cfg.expiry_exit_minutes:
+                    exit_price = int(current_bid)
+                    qty = sig.fill_quantity or sig.quantity
+                    gross_pnl = (exit_price - sig.fill_price_cents) * qty
+                    fees = _estimate_fee(sig.fill_price_cents, exit_price, qty)
+                    sig.status = "settled_win"
+                    sig.exit_price_cents = exit_price
+                    sig.pnl_cents = gross_pnl - fees
+                    sig.resolved_at = now
+                    exited += 1
+                    logger.info(
+                        "Expiry exit: %s %s exit @ %d¢ (entry %d¢, %.0f min left, net +%d¢)",
+                        sig.ticker, sig.side, exit_price, sig.fill_price_cents, minutes_left, sig.pnl_cents,
+                    )
+                    continue
+            except (ValueError, TypeError):
+                pass
+
         # Stop-loss check — skip for cheap entries (binary lottery bets should ride to expiry)
         if cfg.stop_loss_cents > 0 and sig.fill_price_cents >= 15 and unrealized_per_contract <= -cfg.stop_loss_cents:
             exit_price = int(current_bid)

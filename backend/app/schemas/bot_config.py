@@ -25,6 +25,7 @@ class BotConfigResponse(BaseModel):
     tier_budget_pct_high: int
     max_positions_per_asset: int = 3
     min_yes_prob: int = 20
+    expiry_exit_minutes: int = 15
     spot_enabled: bool = False
     spot_mode: str = "paper"
     spot_dip_pct: float = 3.0
@@ -59,6 +60,7 @@ class BotConfigUpdate(BaseModel):
     tier_budget_pct_high: int | None = Field(None, ge=0, le=50)
     max_positions_per_asset: int | None = Field(None, ge=0, le=20)
     min_yes_prob: int | None = Field(None, ge=0, le=100)
+    expiry_exit_minutes: int | None = Field(None, ge=0, le=120)
     spot_enabled: bool | None = None
     spot_mode: str | None = None
     spot_dip_pct: float | None = Field(None, ge=0.1, le=20.0)

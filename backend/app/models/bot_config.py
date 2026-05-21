@@ -36,6 +36,7 @@ class BotConfig(Base):
     tier_budget_pct_high: Mapped[int] = mapped_column(Integer, default=20)
     max_positions_per_asset: Mapped[int] = mapped_column(Integer, default=3)
     min_yes_prob: Mapped[int] = mapped_column(Integer, default=35)
+    expiry_exit_minutes: Mapped[int] = mapped_column(Integer, default=15)
     spot_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     spot_mode: Mapped[str] = mapped_column(String(8), default="paper")
     spot_dip_pct: Mapped[float] = mapped_column(Float, default=3.0)

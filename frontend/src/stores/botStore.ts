@@ -9,7 +9,9 @@ interface BotState {
   lastRefreshed: Date | null;
   spotPrice: number | null;
   spotHigh1h: number | null;
+  spotHigh4h: number | null;
   spotDipPct: number | null;
+  spotDipPct4h: number | null;
   spotTrades: botApi.SpotTrade[];
   spotPosition: botApi.SpotPosition | null;
   fetchDashboard: () => Promise<void>;
@@ -25,7 +27,9 @@ export const useBotStore = create<BotState>((set, get) => ({
   lastRefreshed: null,
   spotPrice: null,
   spotHigh1h: null,
+  spotHigh4h: null,
   spotDipPct: null,
+  spotDipPct4h: null,
   spotTrades: [],
   spotPosition: null,
 
@@ -65,7 +69,9 @@ export const useBotStore = create<BotState>((set, get) => ({
         set({
           spotPrice: data.price,
           spotHigh1h: data.high_1h,
+          spotHigh4h: data.high_4h,
           spotDipPct: data.dip_pct,
+          spotDipPct4h: data.dip_pct_4h,
         });
       } catch {
         // silent

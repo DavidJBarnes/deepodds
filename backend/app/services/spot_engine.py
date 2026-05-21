@@ -22,22 +22,24 @@ def _get_redis():
     return redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 
-def _get_btc_price() -> tuple[float | None, float | None]:
+def _get_btc_price() -> tuple[float | None, float | None, float | None]:
     r = _get_redis()
     price_str = r.get("spot:btc:price")
-    high_str = r.get("spot:btc:high_1h")
+    high_1h_str = r.get("spot:btc:high_1h")
+    high_4h_str = r.get("spot:btc:high_4h")
     price = float(price_str) if price_str else None
-    high = float(high_str) if high_str else None
-    return price, high
+    high_1h = float(high_1h_str) if high_1h_str else None
+    high_4h = float(high_4h_str) if high_4h_str else None
+    return price, high_1h, high_4h
 
 
 def check_dip_buys(session: Session) -> int:
-    price, high_1h = _get_btc_price()
-    if price is None or high_1h is None or high_1h <= 0:
+    price, _high_1h, high_4h = _get_btc_price()
+    if price is None or high_4h is None or high_4h <= 0:
         logger.debug("No BTC price in Redis, skipping dip check")
         return 0
 
-    dip_pct = (high_1h - price) / high_1h * 100
+    dip_pct = (high_4h - price) / high_4h * 100
 
     configs = session.execute(
         select(BotConfig).where(BotConfig.spot_enabled.is_(True))
