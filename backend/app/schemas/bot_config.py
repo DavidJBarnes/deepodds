@@ -34,6 +34,11 @@ class BotConfigResponse(BaseModel):
     spot_buy_amount_usd: int = 50
     spot_max_position_usd: int = 500
     spot_cooldown_minutes: int = 60
+    settlement_arb_enabled: bool = False
+    settlement_arb_max_minutes: int = 60
+    settlement_arb_min_sigma: float = 1.5
+    settlement_arb_min_discount_cents: int = 5
+    settlement_arb_max_position_cents: int = 5000
 
 
 class BotConfigUpdate(BaseModel):
@@ -69,6 +74,11 @@ class BotConfigUpdate(BaseModel):
     spot_buy_amount_usd: int | None = Field(None, ge=10, le=10000)
     spot_max_position_usd: int | None = Field(None, ge=10, le=100000)
     spot_cooldown_minutes: int | None = Field(None, ge=5, le=1440)
+    settlement_arb_enabled: bool | None = None
+    settlement_arb_max_minutes: int | None = Field(None, ge=1, le=240)
+    settlement_arb_min_sigma: float | None = Field(None, ge=0.5, le=5.0)
+    settlement_arb_min_discount_cents: int | None = Field(None, ge=1, le=50)
+    settlement_arb_max_position_cents: int | None = Field(None, ge=100, le=100000)
 
     @model_validator(mode="after")
     def check_fee_sanity(self):

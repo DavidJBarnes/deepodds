@@ -12,6 +12,7 @@ from app.services.signal_engine import (
     check_take_profits,
     evaluate_naive_no,
     evaluate_opportunities,
+    evaluate_settlement_arb,
     settle_signals,
     simulate_fills,
     sync_live_orders,
@@ -42,6 +43,8 @@ def evaluate_all_users_task(self):
             try:
                 if config.strategy == "naive_no":
                     signals = evaluate_naive_no(config.user_id, session)
+                elif config.strategy == "settlement_arb":
+                    signals = evaluate_settlement_arb(config.user_id, session, kalshi)
                 else:
                     signals = evaluate_opportunities(config.user_id, session, kalshi)
                 if signals:
