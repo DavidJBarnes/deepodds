@@ -193,7 +193,9 @@ function TradeRow({ trade }: { trade: SpotTrade }) {
 }
 
 export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, takeProfitPct = 3.0, stopLossPct = 2.0 }: { spotStats: SpotPnLStats | null; spotEnabled: boolean; dipThreshold?: number; takeProfitPct?: number; stopLossPct?: number }) {
-  const { spotPrice, spotHigh4h, spotDipPct4h, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
+  const { spotPrice, spotHigh1h, spotHigh4h, spotDipPct, spotDipPct4h, spotTrades, spotPosition, fetchSpotData, startPriceStream } = useBotStore();
+  const effectiveHigh = spotHigh4h ?? spotHigh1h;
+  const effectiveDipPct = spotDipPct4h ?? spotDipPct;
   const prevPriceRef = useRef<number | null>(null);
   const prevPrice = prevPriceRef.current;
 
@@ -238,7 +240,7 @@ export default function SpotTab({ spotStats, spotEnabled, dipThreshold = 3.0, ta
         </div>
       </div>
 
-      <TriggerMeter dipPct={spotDipPct4h} dipThreshold={dipThreshold} takeProfitPct={takeProfitPct} stopLossPct={stopLossPct} position={spotPosition} currentPrice={spotPrice} high4h={spotHigh4h} />
+      <TriggerMeter dipPct={effectiveDipPct} dipThreshold={dipThreshold} takeProfitPct={takeProfitPct} stopLossPct={stopLossPct} position={spotPosition} currentPrice={spotPrice} high4h={effectiveHigh} />
       <PositionCard position={spotPosition} currentPrice={spotPrice} />
 
       {spotTrades.length > 0 && (
