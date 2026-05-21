@@ -72,7 +72,7 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
               <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                 status.spot_mode === "live"
                   ? "bg-red-500/20 text-red-400"
-                  : "bg-blue-500/20 text-blue-400"
+                  : "bg-amber-500/20 text-amber-400"
               }`}>
                 {status.spot_mode.toUpperCase()}
               </span>
