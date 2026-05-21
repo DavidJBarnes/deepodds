@@ -45,11 +45,6 @@ function spotInRange(o: Opportunity) {
   return null;
 }
 
-function marketPrice(o: Opportunity, side: string) {
-  if (side === "yes") return o.yes_ask ?? o.yes_price;
-  return o.no_ask ?? o.no_price;
-}
-
 export default function OpportunityList({ opportunities }: { opportunities: Opportunity[] }) {
   // Filter to near-expiry only (< 2 hours) for settlement arb relevance
   const nearExpiry = opportunities

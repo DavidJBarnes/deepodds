@@ -60,14 +60,12 @@ def _config_response(config: BotConfig) -> BotConfigResponse:
         tier_budget_pct_high=config.tier_budget_pct_high,
         max_positions_per_asset=config.max_positions_per_asset,
         min_yes_prob=config.min_yes_prob,
-        spot_enabled=config.spot_enabled,
-        spot_mode=config.spot_mode,
-        spot_dip_pct=config.spot_dip_pct,
-        spot_take_profit_pct=config.spot_take_profit_pct,
-        spot_stop_loss_pct=config.spot_stop_loss_pct,
-        spot_buy_amount_usd=config.spot_buy_amount_usd,
-        spot_max_position_usd=config.spot_max_position_usd,
-        spot_cooldown_minutes=config.spot_cooldown_minutes,
+        expiry_exit_minutes=config.expiry_exit_minutes,
+        settlement_arb_enabled=config.settlement_arb_enabled,
+        settlement_arb_max_minutes=config.settlement_arb_max_minutes,
+        settlement_arb_min_sigma=config.settlement_arb_min_sigma,
+        settlement_arb_min_discount_cents=config.settlement_arb_min_discount_cents,
+        settlement_arb_max_position_cents=config.settlement_arb_max_position_cents,
     )
 
 

@@ -26,14 +26,7 @@ class BotConfigResponse(BaseModel):
     max_positions_per_asset: int = 3
     min_yes_prob: int = 20
     expiry_exit_minutes: int = 15
-    spot_enabled: bool = False
-    spot_mode: str = "paper"
-    spot_dip_pct: float = 3.0
-    spot_take_profit_pct: float = 3.0
-    spot_stop_loss_pct: float = 2.0
-    spot_buy_amount_usd: int = 50
-    spot_max_position_usd: int = 500
-    spot_cooldown_minutes: int = 60
+    expiry_exit_minutes: int = 15
     settlement_arb_enabled: bool = False
     settlement_arb_max_minutes: int = 60
     settlement_arb_min_sigma: float = 1.5

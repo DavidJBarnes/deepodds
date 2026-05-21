@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import ConfirmModal from "@/components/ConfirmModal";
 import * as settingsApi from "@/api/settings";
 import * as botApi from "@/api/bot";
@@ -10,6 +10,7 @@ function ConfigField({
   suffix,
   value,
   onChange,
+  onBlur,
   step,
   min,
   max,
@@ -21,6 +22,7 @@ function ConfigField({
   suffix?: string;
   value: number;
   onChange: (v: number) => void;
+  onBlur?: () => void;
   step: number;
   min: number;
   max: number;
@@ -56,6 +58,7 @@ function ConfigField({
           type="number"
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
+          onBlur={onBlur}
           step={step}
           min={min}
           max={max}
@@ -82,7 +85,7 @@ export default function SettingsPage() {
   const [keysMessage, setKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const [config, setConfig] = useState<botApi.BotConfig | null>(null);
-  const [savingConfig, setSavingConfig] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [configMessage, setConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [modeModal, setModeModal] = useState<"paper" | "live" | null>(null);
   const [kalshiBalance, setKalshiBalance] = useState<settingsApi.KalshiBalance | null>(null);
@@ -93,7 +96,7 @@ export default function SettingsPage() {
     settingsApi.getKalshiBalance().then(setKalshiBalance).catch(() => {});
   }, []);
 
-  async function handleSaveKeys(e: FormEvent) {
+  async function handleSaveKeys(e: React.FormEvent) {
     e.preventDefault();
     setSavingKeys(true);
     setKeysMessage(null);
@@ -117,36 +120,19 @@ export default function SettingsPage() {
     setKeysMessage({ type: "success", text: "Kalshi keys removed." });
   }
 
-  async function handleUpdateConfig(updates: Partial<botApi.BotConfig>) {
-    setSavingConfig(true);
+  async function saveConfig(updates: Partial<botApi.BotConfig>) {
+    setSaving(true);
     setConfigMessage(null);
     try {
       const result = await botApi.updateBotConfig(updates);
       setConfig(result);
-      setConfigMessage({ type: "success", text: "Settings saved." });
+      setConfigMessage({ type: "success", text: "Saved." });
+      setTimeout(() => setConfigMessage(null), 2000);
     } catch {
-      setConfigMessage({ type: "error", text: "Failed to save settings." });
+      setConfigMessage({ type: "error", text: "Failed to save." });
     } finally {
-      setSavingConfig(false);
+      setSaving(false);
     }
-  }
-
-  function handleConfigSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!config) return;
-    handleUpdateConfig({
-      strategy: config.strategy,
-      settlement_arb_enabled: config.settlement_arb_enabled,
-      settlement_arb_max_minutes: config.settlement_arb_max_minutes,
-      settlement_arb_min_sigma: config.settlement_arb_min_sigma,
-      settlement_arb_min_discount_cents: config.settlement_arb_min_discount_cents,
-      settlement_arb_max_position_cents: config.settlement_arb_max_position_cents,
-      max_exposure_cents: config.max_exposure_cents,
-      daily_budget_cents: config.daily_budget_cents,
-      max_positions_per_asset: config.max_positions_per_asset,
-      max_signals_per_hour: config.max_signals_per_hour,
-      daily_loss_limit_cents: config.daily_loss_limit_cents,
-    });
   }
 
   return (
@@ -155,7 +141,15 @@ export default function SettingsPage() {
 
       {/* Strategy Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white">Strategy</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Strategy</h3>
+          {saving && <span className="text-xs text-amber-400">Saving...</span>}
+          {configMessage && (
+            <span className={`text-xs ${configMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+              {configMessage.text}
+            </span>
+          )}
+        </div>
 
         {config && (
           <>
@@ -176,7 +170,7 @@ export default function SettingsPage() {
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Enabled:</label>
                 <button
-                  onClick={() => handleUpdateConfig({ enabled: !config.enabled })}
+                  onClick={() => saveConfig({ enabled: !config.enabled })}
                   className={`relative w-10 h-5 rounded-full transition-colors ${
                     config.enabled ? "bg-amber-600" : "bg-slate-700"
                   }`}
@@ -192,7 +186,7 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-slate-400">Arb:</label>
                   <button
-                    onClick={() => handleUpdateConfig({ settlement_arb_enabled: !config.settlement_arb_enabled })}
+                    onClick={() => saveConfig({ settlement_arb_enabled: !config.settlement_arb_enabled })}
                     className={`relative w-10 h-5 rounded-full transition-colors ${
                       config.settlement_arb_enabled ? "bg-emerald-600" : "bg-slate-700"
                     }`}
@@ -215,7 +209,7 @@ export default function SettingsPage() {
                   <button
                     key={s.value}
                     type="button"
-                    onClick={() => handleUpdateConfig({ strategy: s.value })}
+                    onClick={() => saveConfig({ strategy: s.value })}
                     className={`text-left p-3 rounded-lg border transition-colors ${
                       config.strategy === s.value
                         ? "border-emerald-500 bg-emerald-500/10"
@@ -237,7 +231,7 @@ export default function SettingsPage() {
               confirmLabel="Switch to Live"
               confirmClass="bg-red-600 hover:bg-red-500"
               onConfirm={() => {
-                handleUpdateConfig({ mode: "live" });
+                saveConfig({ mode: "live" });
                 setModeModal(null);
               }}
               onCancel={() => setModeModal(null)}
@@ -261,7 +255,7 @@ export default function SettingsPage() {
               title="Switch to Paper Mode"
               confirmLabel="Switch to Paper"
               onConfirm={() => {
-                handleUpdateConfig({ mode: "paper" });
+                saveConfig({ mode: "paper" });
                 setModeModal(null);
               }}
               onCancel={() => setModeModal(null)}
@@ -275,127 +269,110 @@ export default function SettingsPage() {
               <p className="mt-2 text-slate-500">Use this to test strategy changes without risking capital.</p>
             </ConfirmModal>
 
-            {configMessage && (
-              <p
-                className={`text-sm rounded-lg p-3 ${
-                  configMessage.type === "success"
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "bg-red-400/10 text-red-400"
-                }`}
-              >
-                {configMessage.text}
-              </p>
-            )}
-
-            <form onSubmit={handleConfigSubmit} className="space-y-6">
-              {/* Settlement Arb config — only shown when that strategy is active */}
-              {config.strategy === "settlement_arb" && (
-                <div className="border-t border-slate-800 pt-4">
-                  <h4 className="text-sm font-semibold text-emerald-400 mb-1">Settlement Arb Parameters</h4>
-                  <p className="text-xs text-slate-500 mb-3">
-                    These control when the bot enters near-expiry contracts. It buys the near-certain side when the market price is below fair probability value.
-                  </p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <ConfigField
-                      label="Max Minutes to Expiry"
-                      description="Only consider contracts expiring within this many minutes. Longer windows = more opportunities but more tail risk."
-                      suffix="min"
-                      value={config.settlement_arb_max_minutes}
-                      onChange={(v) => setConfig({ ...config, settlement_arb_max_minutes: v })}
-                      step={5} min={1} max={240}
-                    />
-                    <ConfigField
-                      label="Min Sigma Distance"
-                      description="How many standard deviations spot must be from the nearest boundary. 1.5σ = 93% win probability, 2σ = 98%."
-                      suffix="σ"
-                      value={config.settlement_arb_min_sigma}
-                      onChange={(v) => setConfig({ ...config, settlement_arb_min_sigma: v })}
-                      step={0.1} min={0.5} max={5}
-                    />
-                    <ConfigField
-                      label="Min Discount"
-                      description="Minimum cents below fair value required to enter. Higher = fewer but higher-quality signals."
-                      suffix="cents"
-                      value={config.settlement_arb_min_discount_cents}
-                      onChange={(v) => setConfig({ ...config, settlement_arb_min_discount_cents: v })}
-                      step={1} min={1} max={50}
-                    />
-                    <ConfigField
-                      label="Max Position"
-                      description="Maximum dollar value per settlement arb signal. Kelly-inspired sizing scales this down based on edge."
-                      prefix="$"
-                      value={config.settlement_arb_max_position_cents / 100}
-                      onChange={(v) => setConfig({ ...config, settlement_arb_max_position_cents: Math.round(v * 100) })}
-                      step={1} min={1} max={1000}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Risk Management — shared across strategies */}
+            {/* Settlement Arb params */}
+            {config.strategy === "settlement_arb" && (
               <div className="border-t border-slate-800 pt-4">
-                <h4 className="text-sm font-semibold text-slate-300 mb-1">Risk Management</h4>
+                <h4 className="text-sm font-semibold text-emerald-400 mb-1">Settlement Arb Parameters</h4>
                 <p className="text-xs text-slate-500 mb-3">
-                  These limits apply to all strategies. They prevent over-exposure and control daily risk.
+                  Controls when the bot enters near-expiry contracts. Changes save automatically when you click away from a field.
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <ConfigField
-                    label="Max Exposure"
-                    description="Maximum capital tied up in open positions at once. Freed when positions settle."
+                    label="Max Minutes to Expiry"
+                    description="Only consider contracts expiring within this many minutes."
+                    suffix="min"
+                    value={config.settlement_arb_max_minutes}
+                    onChange={(v) => setConfig({ ...config, settlement_arb_max_minutes: v })}
+                    onBlur={() => saveConfig({ settlement_arb_max_minutes: config.settlement_arb_max_minutes })}
+                    step={5} min={1} max={240}
+                  />
+                  <ConfigField
+                    label="Min Sigma Distance"
+                    description="How many standard deviations spot must be from the nearest boundary. 1.5σ = 93% win probability."
+                    suffix="σ"
+                    value={config.settlement_arb_min_sigma}
+                    onChange={(v) => setConfig({ ...config, settlement_arb_min_sigma: v })}
+                    onBlur={() => saveConfig({ settlement_arb_min_sigma: config.settlement_arb_min_sigma })}
+                    step={0.1} min={0.5} max={5}
+                  />
+                  <ConfigField
+                    label="Min Discount"
+                    description="Minimum cents below fair value required to enter."
+                    suffix="cents"
+                    value={config.settlement_arb_min_discount_cents}
+                    onChange={(v) => setConfig({ ...config, settlement_arb_min_discount_cents: v })}
+                    onBlur={() => saveConfig({ settlement_arb_min_discount_cents: config.settlement_arb_min_discount_cents })}
+                    step={1} min={1} max={50}
+                  />
+                  <ConfigField
+                    label="Max Position"
+                    description="Maximum dollar value per settlement arb signal."
                     prefix="$"
-                    value={config.max_exposure_cents / 100}
-                    onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
+                    value={config.settlement_arb_max_position_cents / 100}
+                    onChange={(v) => setConfig({ ...config, settlement_arb_max_position_cents: Math.round(v * 100) })}
+                    onBlur={() => saveConfig({ settlement_arb_max_position_cents: config.settlement_arb_max_position_cents })}
                     step={1} min={1} max={1000}
-                  >
-                    {kalshiBalance && kalshiBalance.cash_cents > 0 && (
-                      <span className="text-slate-400">
-                        Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
-                      </span>
-                    )}
-                  </ConfigField>
-                  <ConfigField
-                    label="Daily Budget"
-                    description="Hard cap on total new position spend per calendar day. 0 = unlimited."
-                    prefix="$"
-                    value={config.daily_budget_cents / 100}
-                    onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
-                    step={1} min={0} max={1000}
-                  />
-                  <ConfigField
-                    label="Daily Loss Limit"
-                    description="Pauses the bot for the rest of the day if realized losses exceed this amount. 0 = disabled."
-                    prefix="$"
-                    value={config.daily_loss_limit_cents / 100}
-                    onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
-                    step={1} min={0} max={1000}
-                  />
-                  <ConfigField
-                    label="Max Positions/Asset"
-                    description="Limit concurrent open positions per underlying asset (BTC or ETH). Prevents correlated exposure."
-                    value={config.max_positions_per_asset}
-                    onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
-                    step={1} min={0} max={20}
-                  />
-                  <ConfigField
-                    label="Max Signals/Hour"
-                    description="Rate limit on new signals per hour. Prevents over-trading in volatile conditions. 0 = unlimited."
-                    value={config.max_signals_per_hour}
-                    onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
-                    step={1} min={0} max={50}
                   />
                 </div>
               </div>
+            )}
 
-              <div>
-                <button
-                  type="submit"
-                  disabled={savingConfig}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+            {/* Risk Management */}
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-slate-300 mb-1">Risk Management</h4>
+              <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigField
+                  label="Max Exposure"
+                  description="Maximum capital tied up in open positions at once."
+                  prefix="$"
+                  value={config.max_exposure_cents / 100}
+                  onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
+                  onBlur={() => saveConfig({ max_exposure_cents: config.max_exposure_cents })}
+                  step={1} min={1} max={1000}
                 >
-                  {savingConfig ? "Saving..." : "Save Settings"}
-                </button>
+                  {kalshiBalance && kalshiBalance.cash_cents > 0 && (
+                    <span className="text-slate-400">
+                      Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
+                    </span>
+                  )}
+                </ConfigField>
+                <ConfigField
+                  label="Daily Budget"
+                  description="Hard cap on total new position spend per day. 0 = unlimited."
+                  prefix="$"
+                  value={config.daily_budget_cents / 100}
+                  onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
+                  onBlur={() => saveConfig({ daily_budget_cents: config.daily_budget_cents })}
+                  step={1} min={0} max={1000}
+                />
+                <ConfigField
+                  label="Daily Loss Limit"
+                  description="Pauses the bot for the day if realized losses exceed this. 0 = disabled."
+                  prefix="$"
+                  value={config.daily_loss_limit_cents / 100}
+                  onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
+                  onBlur={() => saveConfig({ daily_loss_limit_cents: config.daily_loss_limit_cents })}
+                  step={1} min={0} max={1000}
+                />
+                <ConfigField
+                  label="Max Positions/Asset"
+                  description="Limit concurrent open positions per BTC or ETH."
+                  value={config.max_positions_per_asset}
+                  onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
+                  onBlur={() => saveConfig({ max_positions_per_asset: config.max_positions_per_asset })}
+                  step={1} min={0} max={20}
+                />
+                <ConfigField
+                  label="Max Signals/Hour"
+                  description="Rate limit on new signals. 0 = unlimited."
+                  value={config.max_signals_per_hour}
+                  onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
+                  onBlur={() => saveConfig({ max_signals_per_hour: config.max_signals_per_hour })}
+                  step={1} min={0} max={50}
+                />
               </div>
-            </form>
+            </div>
           </>
         )}
       </section>
@@ -404,32 +381,19 @@ export default function SettingsPage() {
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
         <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
         <div className="flex items-center gap-3">
-          <span
-            className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`}
-          />
+          <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`} />
           <span className="text-sm text-slate-300">
-            {keysStatus?.has_keys
-              ? `Keys configured (${keysStatus.key_id_preview})`
-              : "No keys configured"}
+            {keysStatus?.has_keys ? `Keys configured (${keysStatus.key_id_preview})` : "No keys configured"}
           </span>
           {keysStatus?.has_keys && (
-            <button
-              onClick={handleDeleteKeys}
-              className="ml-auto text-sm text-red-400 hover:text-red-300"
-            >
+            <button onClick={handleDeleteKeys} className="ml-auto text-sm text-red-400 hover:text-red-300">
               Remove
             </button>
           )}
         </div>
 
         {keysMessage && (
-          <p
-            className={`text-sm rounded-lg p-3 ${
-              keysMessage.type === "success"
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-red-400/10 text-red-400"
-            }`}
-          >
+          <p className={`text-sm rounded-lg p-3 ${keysMessage.type === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
             {keysMessage.text}
           </p>
         )}
