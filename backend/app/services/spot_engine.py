@@ -34,7 +34,7 @@ def _get_btc_price() -> tuple[float | None, float | None, float | None]:
 
 
 def check_dip_buys(session: Session) -> int:
-    price, _high_1h, high_4h = _get_btc_price()
+    price, high_1h, high_4h = _get_btc_price()
     if not price or price <= 0 or high_4h is None or high_4h <= 0:
         logger.debug("No BTC price in Redis, skipping dip check")
         return 0
@@ -49,6 +49,18 @@ def check_dip_buys(session: Session) -> int:
     for config in configs:
         if dip_pct < config.spot_dip_pct:
             continue
+
+        # Trend filter: skip if the asset has been drifting lower for the past hour.
+        # A genuine dip rebounds quickly; sustained downward drift indicates a
+        # trend continuation, not a buying opportunity.
+        if high_1h and high_1h > 0:
+            drift_1h_pct = (high_1h - price) / high_1h * 100
+            if drift_1h_pct > config.spot_dip_pct * 2:
+                logger.debug(
+                    "Skipping dip buy: 1h drift %.1f%% > %.1f%% (2x dip threshold), trending down",
+                    drift_1h_pct, config.spot_dip_pct * 2,
+                )
+                continue
 
         open_position = session.execute(
             select(SpotPosition).where(
