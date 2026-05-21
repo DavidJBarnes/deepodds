@@ -220,14 +220,13 @@ export default function SettingsPage() {
                 >
                   {config.mode.toUpperCase()}
                 </button>
-                <span className="text-xs text-slate-500">click to switch</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Enabled:</label>
                 <button
                   onClick={() => handleUpdateConfig({ enabled: !config.enabled })}
                   className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.enabled ? "bg-emerald-600" : "bg-slate-700"
+                    config.enabled ? "bg-amber-600" : "bg-slate-700"
                   }`}
                 >
                   <span
@@ -498,68 +497,80 @@ export default function SettingsPage() {
       </section>
 
       {/* Spot BTC Trading */}
-      <section className="bg-slate-900 border border-amber-500/20 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Spot BTC Trading</h3>
-          {config && (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Mode:</label>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                  config.spot_mode === "live"
-                    ? "bg-red-500/20 text-red-400"
-                    : "bg-amber-500/20 text-amber-400"
-                }`}>
-                  {config.spot_mode.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Enabled:</label>
-                <button
-                  onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
-                  className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      config.spot_enabled ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-              </div>
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white">Spot BTC Settings</h3>
+
+        {config && (
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Mode:</label>
+              <span className={`text-xs font-bold px-3 py-1 rounded ${
+                config.spot_mode === "live"
+                  ? "bg-red-500/20 text-red-400"
+                  : "bg-amber-500/20 text-amber-400"
+              }`}>
+                {config.spot_mode.toUpperCase()}
+              </span>
             </div>
-          )}
-        </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-400">Enabled:</label>
+              <button
+                onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
+                className={`relative w-10 h-5 rounded-full transition-colors ${
+                  config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    config.spot_enabled ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+        )}
         <p className="text-xs text-slate-500">
-          Buy the dip strategy: automatically buys BTC when price drops from its rolling 1-hour high, and sells on recovery or stop loss.
+          Buy the dip strategy: automatically buys BTC when price drops from its rolling 4-hour high, and sells on recovery or stop loss.
+          Coinbase charges 0.5% per side (1% round trip) — thresholds must exceed fees to be profitable.
         </p>
         {config && (
           <form onSubmit={handleSpotConfigSubmit} className="grid grid-cols-2 gap-4">
             <ConfigField
               label="Dip Threshold"
-              description="Buy when BTC drops this % from its rolling 1-hour high. Lower values trigger more often. 3% is a moderate dip."
+              description="Buy when BTC drops this % from its rolling 4-hour high. Lower values trigger more often. 3% is a moderate dip."
               suffix="%"
               value={config.spot_dip_pct}
               onChange={(v) => setConfig({ ...config, spot_dip_pct: v })}
-              step={0.5} min={0.1} max={20}
-            />
+              step={0.5} min={0.5} max={20}
+            >
+              {config.spot_dip_pct < 1.0 && (
+                <span className="text-amber-400 text-xs">Below 1% triggers on normal noise. Consider 2%+ for real dips.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Take Profit"
-              description="Sell when price rises this % above your average entry. Locks in gains. 2% is conservative."
+              description="Sell when price rises this % above your average entry. Must exceed 1% round-trip fees to profit. 3% is a good starting point."
               suffix="%"
               value={config.spot_take_profit_pct}
               onChange={(v) => setConfig({ ...config, spot_take_profit_pct: v })}
-              step={0.5} min={0.1} max={50}
-            />
+              step={0.5} min={1.5} max={50}
+            >
+              {config.spot_take_profit_pct < 2.0 && (
+                <span className="text-amber-400 text-xs">Thin margin after 1% round-trip fees. Consider 2%+ for reliable profit.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Stop Loss"
-              description="Sell when price drops this % below your average entry. Limits downside. 5% is standard."
+              description="Sell when price drops this % below your average entry. Must exceed 1% fees to be meaningful. 2% is moderate."
               suffix="%"
               value={config.spot_stop_loss_pct}
               onChange={(v) => setConfig({ ...config, spot_stop_loss_pct: v })}
-              step={0.5} min={0.5} max={50}
-            />
+              step={0.5} min={1.5} max={50}
+            >
+              {config.spot_stop_loss_pct < 2.0 && (
+                <span className="text-amber-400 text-xs">Fees are 1% round trip — a {config.spot_stop_loss_pct}% stop means fees dominate the exit cost.</span>
+              )}
+            </ConfigField>
             <ConfigField
               label="Buy Amount"
               description="USD to spend on each dip buy. Smaller amounts = more averaging-in opportunities."
@@ -582,8 +593,12 @@ export default function SettingsPage() {
               suffix="min"
               value={config.spot_cooldown_minutes}
               onChange={(v) => setConfig({ ...config, spot_cooldown_minutes: v })}
-              step={5} min={1} max={1440}
-            />
+              step={5} min={5} max={1440}
+            >
+              {config.spot_cooldown_minutes < 10 && config.spot_dip_pct < 1.0 && (
+                <span className="text-amber-400 text-xs">Short cooldown + tight dip = rapid-fire losing buys in a slow decline.</span>
+              )}
+            </ConfigField>
             <div className="col-span-2">
               <button
                 type="submit"
