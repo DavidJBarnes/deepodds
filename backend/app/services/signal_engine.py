@@ -140,6 +140,15 @@ def _recently_lost(session: Session, user_id, ticker: str) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+def _detect_asset_prefix(ticker: str) -> str:
+    """Map a ticker to its Kalshi series prefix for asset concentration checks."""
+    upper = ticker.upper()
+    for prefix in ("KXDOGE", "KXXRP", "KXSOL", "KXETH", "KXBTC"):
+        if upper.startswith(prefix):
+            return prefix
+    return "KXBTC"
+
+
 def _asset_position_count(session: Session, user_id, asset_prefix: str) -> int:
     """Count open positions on tickers starting with asset prefix (e.g., 'KXBTC', 'KXETH')."""
     result = session.execute(
@@ -199,7 +208,7 @@ def evaluate_naive_no(user_id, session: Session) -> list[Signal]:
 
         # Per-asset position limit (same guard as model strategy)
         if config.max_positions_per_asset > 0:
-            asset_prefix = "KXETH" if "ETH" in opp.ticker.upper() else "KXBTC"
+            asset_prefix = _detect_asset_prefix(opp.ticker)
             if _asset_position_count(session, user_id, asset_prefix) >= config.max_positions_per_asset:
                 continue
 
@@ -317,7 +326,7 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
             continue
 
         if config.max_positions_per_asset > 0:
-            asset_prefix = "KXETH" if "ETH" in opp.ticker.upper() else "KXBTC"
+            asset_prefix = _detect_asset_prefix(opp.ticker)
             if _asset_position_count(session, user_id, asset_prefix) >= config.max_positions_per_asset:
                 continue
 
@@ -936,7 +945,7 @@ def evaluate_settlement_arb(
 
         # Per-asset position limit
         if config.max_positions_per_asset > 0:
-            asset_prefix = "KXETH" if "ETH" in opp.ticker.upper() else "KXBTC"
+            asset_prefix = _detect_asset_prefix(opp.ticker)
             if _asset_position_count(session, user_id, asset_prefix) >= config.max_positions_per_asset:
                 continue
 

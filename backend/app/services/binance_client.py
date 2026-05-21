@@ -11,7 +11,7 @@ async def get_crypto_prices() -> dict[str, float]:
         try:
             resp = await client.get(
                 "https://api.binance.us/api/v3/ticker/price",
-                params={"symbols": "[" + ",".join('"' + s + '"' for s in ["BTCUSDT", "ETHUSDT"]) + "]"},
+                params={"symbols": "[" + ",".join('"' + s + '"' for s in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]) + "]"},
             )
             resp.raise_for_status()
             return {item["symbol"].replace("USDT", ""): float(item["price"]) for item in resp.json()}
@@ -21,7 +21,7 @@ async def get_crypto_prices() -> dict[str, float]:
         try:
             resp = await client.get(
                 "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "bitcoin,ethereum", "vs_currencies": "usd"},
+                params={"ids": "bitcoin,ethereum,solana,ripple,dogecoin", "vs_currencies": "usd"},
             )
             resp.raise_for_status()
             data = resp.json()
@@ -30,6 +30,12 @@ async def get_crypto_prices() -> dict[str, float]:
                 result["BTC"] = float(data["bitcoin"]["usd"])
             if "ethereum" in data:
                 result["ETH"] = float(data["ethereum"]["usd"])
+            if "solana" in data:
+                result["SOL"] = float(data["solana"]["usd"])
+            if "ripple" in data:
+                result["XRP"] = float(data["ripple"]["usd"])
+            if "dogecoin" in data:
+                result["DOGE"] = float(data["dogecoin"]["usd"])
             return result
         except Exception:
             logger.warning("All crypto price sources failed")

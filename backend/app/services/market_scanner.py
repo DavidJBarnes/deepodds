@@ -13,7 +13,23 @@ from app.services.probability_model import compute_edge, prob_above, prob_below,
 
 logger = logging.getLogger(__name__)
 
-CRYPTO_SERIES = ["KXBTC", "KXBTCD", "KXETH", "KXETHD"]
+# Kalshi series tickers for crypto event contracts
+CRYPTO_SERIES = [
+    "KXBTC", "KXBTCD",   # Bitcoin
+    "KXETH", "KXETHD",   # Ethereum
+    "KXSOL", "KXSOLD",   # Solana
+    "KXXRP", "KXXRPD",   # XRP
+    "KXDOGE", "KXDOGED", # Dogecoin
+]
+
+# Map Kalshi series prefixes to asset symbols
+SERIES_ASSET_MAP = {
+    "KXBTC": "BTC", "KXBTCD": "BTC",
+    "KXETH": "ETH", "KXETHD": "ETH",
+    "KXSOL": "SOL", "KXSOLD": "SOL",
+    "KXXRP": "XRP", "KXXRPD": "XRP",
+    "KXDOGE": "DOGE", "KXDOGED": "DOGE",
+}
 
 STRIKE_RE = re.compile(r"[\$]?([\d,]+(?:\.\d+)?)")
 
@@ -39,9 +55,21 @@ def _parse_strike(market: dict) -> float | None:
 
 
 def _detect_asset(event_ticker: str) -> str:
+    """Extract asset symbol from Kalshi event ticker."""
     upper = event_ticker.upper()
+    # Try series prefix match first (e.g., KXBTC-... → BTC)
+    for prefix, asset in SERIES_ASSET_MAP.items():
+        if upper.startswith(prefix):
+            return asset
+    # Fallback: substring match
     if "ETH" in upper:
         return "ETH"
+    if "SOL" in upper:
+        return "SOL"
+    if "XRP" in upper:
+        return "XRP"
+    if "DOGE" in upper:
+        return "DOGE"
     return "BTC"
 
 
@@ -156,7 +184,7 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
 
     iv_surfaces: dict[str, dict] = {}
     realized_vols: dict[str, float | None] = {}
-    for currency in ("BTC", "ETH"):
+    for currency in ("BTC", "ETH", "SOL", "XRP", "DOGE"):
         try:
             iv_surfaces[currency] = await get_iv_surface(currency)
         except Exception:
