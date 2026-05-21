@@ -8,6 +8,8 @@ export interface BotStatus {
   spot_enabled: boolean;
   spot_mode: string;
   spot_dip_pct: number;
+  spot_take_profit_pct: number;
+  spot_stop_loss_pct: number;
   max_exposure_cents: number;
   current_exposure_cents: number;
   exposure_remaining_cents: number;

@@ -91,6 +91,8 @@ async def get_dashboard(
         spot_enabled=config.spot_enabled,
         spot_mode=config.spot_mode,
         spot_dip_pct=config.spot_dip_pct,
+        spot_take_profit_pct=config.spot_take_profit_pct,
+        spot_stop_loss_pct=config.spot_stop_loss_pct,
         max_exposure_cents=config.max_exposure_cents,
         current_exposure_cents=current_exposure,
         exposure_remaining_cents=max(0, config.max_exposure_cents - current_exposure),
