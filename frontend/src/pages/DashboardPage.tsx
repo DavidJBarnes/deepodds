@@ -14,6 +14,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
+  const [tab, setTab] = useState<"near-expiry" | "signals">("near-expiry");
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -51,6 +52,13 @@ export default function DashboardPage() {
 
   const status = dashboard.bot_status;
   const needsSetup = !status.enabled || !status.has_kalshi_keys;
+
+  // Count near-expiry opportunities (within 2 hours)
+  const nearExpiryCount = dashboard.opportunities.filter((o) => {
+    if (!o.close_time) return false;
+    const diff = new Date(o.close_time).getTime() - Date.now();
+    return diff > 0 && diff < 2 * 60 * 60 * 1000;
+  }).length;
 
   return (
     <div className="space-y-6">
@@ -95,9 +103,34 @@ export default function DashboardPage() {
       <StatsCard stats={dashboard.stats} />
       <PnLChart />
 
-      <OpportunityList opportunities={dashboard.opportunities} />
+      <div className="flex gap-1 border-b border-slate-800">
+        <button
+          onClick={() => setTab("near-expiry")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "near-expiry"
+              ? "text-emerald-400 border-b-2 border-emerald-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          Near-Expiry ({nearExpiryCount})
+        </button>
+        <button
+          onClick={() => setTab("signals")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "signals"
+              ? "text-emerald-400 border-b-2 border-emerald-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          Signals ({dashboard.recent_signals.length})
+        </button>
+      </div>
 
-      <SignalTable signals={dashboard.recent_signals} />
+      {tab === "near-expiry" ? (
+        <OpportunityList opportunities={dashboard.opportunities} />
+      ) : (
+        <SignalTable signals={dashboard.recent_signals} />
+      )}
     </div>
   );
 }
