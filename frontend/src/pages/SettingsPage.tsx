@@ -381,9 +381,9 @@ export default function SettingsPage() {
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
         <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
         <div className="flex items-center gap-3">
-          <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.has_keys ? "bg-emerald-500" : "bg-red-500"}`} />
+          <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.valid ? "bg-emerald-500" : keysStatus?.has_keys ? "bg-amber-500" : "bg-red-500"}`} />
           <span className="text-sm text-slate-300">
-            {keysStatus?.has_keys ? `Keys configured (${keysStatus.key_id_preview})` : "No keys configured"}
+            {keysStatus?.valid ? `Keys valid (${keysStatus.key_id_preview})` : keysStatus?.has_keys ? `Keys invalid — re-enter them (${keysStatus.key_id_preview})` : "No keys configured"}
           </span>
           {keysStatus?.has_keys && (
             <button onClick={handleDeleteKeys} className="ml-auto text-sm text-red-400 hover:text-red-300">

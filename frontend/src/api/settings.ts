@@ -3,6 +3,7 @@ import client from "./client";
 export interface KalshiKeysStatus {
   has_keys: boolean;
   key_id_preview: string | null;
+  valid: boolean;
 }
 
 export async function getKalshiKeysStatus() {
