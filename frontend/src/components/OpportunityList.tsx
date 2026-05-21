@@ -83,7 +83,10 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
               <th className="text-right px-4 py-2">YES</th>
               <th className="text-right px-4 py-2">NO</th>
               <th className="text-right px-4 py-2">Predict</th>
+              <th className="text-right px-4 py-2">Sigma</th>
+              <th className="text-right px-4 py-2">Discount</th>
               <th className="text-right px-4 py-2">Expires</th>
+              <th className="text-center px-2 py-2">Signal?</th>
             </tr>
           </thead>
           <tbody>
@@ -130,11 +133,36 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
                       <span className="text-slate-600">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-2 text-right font-mono text-xs">
+                    {o.sigma_distance != null ? (
+                      <span className={o.sigma_distance >= 1.5 ? "text-emerald-400" : "text-slate-400"}>
+                        {o.sigma_distance.toFixed(1)}σ
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right font-mono text-xs">
+                    {o.discount_cents != null ? (
+                      <span className={o.would_signal ? "text-emerald-400" : "text-slate-400"}>
+                        {o.discount_cents.toFixed(1)}c
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     {o.close_time ? (
                       <Countdown closeTime={o.close_time} />
                     ) : (
                       <span className="text-slate-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    {o.would_signal ? (
+                      <span className="text-emerald-400 text-lg leading-none" title={`${o.sigma_distance?.toFixed(1)}σ, ${o.discount_cents?.toFixed(1)}c discount`}>◆</span>
+                    ) : (
+                      <span className="text-slate-700">—</span>
                     )}
                   </td>
                 </tr>

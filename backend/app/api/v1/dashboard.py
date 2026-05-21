@@ -19,6 +19,7 @@ from app.schemas.dashboard import (
     PnLChartResponse,
 )
 from app.schemas.signal import SignalResponse
+from app.services.signal_engine import _net_win_cents, _sigma_distance
 
 router = APIRouter(tags=["dashboard"])
 
@@ -182,8 +183,54 @@ async def get_dashboard(
         .limit(30)
     )).scalars().all()
 
-    opportunities = [
-        OpportunitySummary(
+    opportunities = []
+    now = datetime.now(timezone.utc)
+    arb_sigma = config.settlement_arb_min_sigma
+    arb_discount = config.settlement_arb_min_discount_cents
+    # Default realized vol for UI display (bot uses real Binance data)
+    DEFAULT_RV = 0.65
+
+    for o in opps:
+        sigma = None
+        discount = None
+        would = False
+
+        if o.close_time and o.spot_price and o.strike_price:
+            try:
+                expiry_dt = datetime.fromisoformat(o.close_time.replace("Z", "+00:00"))
+                minutes_left = (expiry_dt - now).total_seconds() / 60
+                if minutes_left > 0:
+                    sigma = _sigma_distance(
+                        o.spot_price, o.strike_price, o.cap_strike,
+                        o.strike_type, DEFAULT_RV, minutes_left,
+                    )
+                    abs_sigma = abs(sigma) if sigma else 0
+                    if abs_sigma >= arb_sigma:
+                        # Determine near-certain side and discount
+                        win_prob = float(__import__('scipy').stats.norm.cdf(abs_sigma))
+                        fair_cents = win_prob * 100
+                        inside = None
+                        if o.strike_type == "between" and o.cap_strike:
+                            inside = o.strike_price < o.spot_price < o.cap_strike
+                        elif o.strike_type == "above":
+                            inside = o.spot_price > o.strike_price
+                        elif o.strike_type == "below":
+                            inside = o.spot_price < o.strike_price
+                        if inside is not None:
+                            if inside:
+                                market_cents = o.yes_ask or o.yes_price
+                                target_fair = win_prob * 100
+                            else:
+                                market_cents = o.no_ask or o.no_price
+                                target_fair = (1 - win_prob) * 100
+                            if market_cents and market_cents > 0:
+                                discount = target_fair - market_cents
+                                ev = win_prob * _net_win_cents(int(market_cents)) - market_cents
+                                would = discount >= arb_discount and ev > 0
+            except Exception:
+                pass
+
+        opportunities.append(OpportunitySummary(
             ticker=o.ticker, asset=o.asset, title=o.title,
             strike_price=o.strike_price, cap_strike=o.cap_strike,
             strike_type=o.strike_type,
@@ -194,9 +241,10 @@ async def get_dashboard(
             model_fair_cents=o.model_fair_cents,
             model_edge_cents=o.model_edge_cents,
             liquidity=o.liquidity, close_time=o.close_time,
-        )
-        for o in opps
-    ]
+            sigma_distance=round(abs(sigma), 2) if sigma is not None else None,
+            discount_cents=round(discount, 1) if discount else None,
+            would_signal=would,
+        ))
 
     return DashboardResponse(
         bot_status=bot_status,

@@ -50,6 +50,9 @@ class OpportunitySummary(BaseModel):
     model_edge_cents: float | None = None
     liquidity: float = 0
     close_time: str | None = None
+    sigma_distance: float | None = None
+    discount_cents: float | None = None
+    would_signal: bool = False
 
 
 class DailyPnLPoint(BaseModel):
