@@ -74,7 +74,22 @@ def settle_signals_task(self):
     engine = create_engine(settings.DATABASE_URL_SYNC)
     with Session(engine) as session:
         try:
-            settled = settle_signals(session)
+            # Build Kalshi clients for users with API keys (for authoritative settlement)
+            from app.models.user import User
+            kalshi_clients = {}
+            users_with_keys = session.execute(
+                select(User).where(
+                    User.kalshi_api_key_id.isnot(None),
+                    User.kalshi_api_private_key.isnot(None),
+                )
+            ).scalars().all()
+            for user in users_with_keys:
+                try:
+                    kalshi_clients[user.id] = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+                except Exception:
+                    pass
+
+            settled = settle_signals(session, kalshi_clients)
             if settled:
                 logger.info("Settled %d signals", settled)
         except Exception:

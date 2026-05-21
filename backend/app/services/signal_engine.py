@@ -575,7 +575,9 @@ def check_take_profits(session: Session) -> int:
     return exited
 
 
-def settle_signals(session: Session) -> int:
+def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
+    """Settle expired signals. Checks Kalshi's published market result first;
+    falls back to spot-vs-strike computation if Kalshi hasn't published yet."""
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
@@ -587,31 +589,52 @@ def settle_signals(session: Session) -> int:
         )
     ).scalars().all()
 
+    # Group signals by user for Kalshi lookups
+    user_ids = {s.user_id for s in open_signals}
+    if kalshi_clients is None:
+        kalshi_clients = {}
+
     settled = 0
     for sig in open_signals:
-        opp = session.execute(
-            select(Opportunity).where(Opportunity.ticker == sig.ticker)
-        ).scalar_one_or_none()
+        kalshi = kalshi_clients.get(sig.user_id)
 
-        current_spot = opp.spot_price if opp else sig.spot_price
-        strike = sig.strike_price
-        cap = sig.cap_strike
-        s_type = opp.strike_type if opp else ("between" if sig.cap_strike else None)
+        # Try Kalshi's published result first (authoritative)
+        kalshi_result = None
+        if kalshi:
+            try:
+                market = asyncio.run(kalshi.get_market(sig.ticker))
+                mkt = market.get("market", market)
+                if mkt.get("status") in ("closed", "settled", "finalized"):
+                    kalshi_result = mkt.get("result")
+            except Exception:
+                pass
 
-        if current_spot is not None and strike is not None:
-            if s_type == "between" and cap is not None:
-                won_side = "yes" if strike < current_spot < cap else "no"
-            elif s_type == "below":
-                won_side = "yes" if current_spot < strike else "no"
-            else:
-                won_side = "yes" if current_spot > strike else "no"
+        if kalshi_result:
+            won_side = kalshi_result
+            logger.info("Kalshi result for %s: %s", sig.ticker, won_side)
         else:
-            won_side = None
+            # Fallback: compute from spot vs strike
+            opp = session.execute(
+                select(Opportunity).where(Opportunity.ticker == sig.ticker)
+            ).scalar_one_or_none()
+            current_spot = opp.spot_price if opp else sig.spot_price
+            strike = sig.strike_price
+            cap = sig.cap_strike
+            s_type = opp.strike_type if opp else ("between" if sig.cap_strike else None)
 
-        if won_side is None:
-            continue
+            if current_spot is not None and strike is not None:
+                if s_type == "between" and cap is not None:
+                    won_side = "yes" if float(strike) < float(current_spot) < float(cap) else "no"
+                elif s_type == "below":
+                    won_side = "yes" if float(current_spot) < float(strike) else "no"
+                else:
+                    won_side = "yes" if float(current_spot) > float(strike) else "no"
+            else:
+                continue
 
-        sig.spot_price = current_spot
+            sig.spot_price = current_spot
+            logger.info("Spot settlement for %s: spot=%s strike=%s cap=%s → %s",
+                        sig.ticker, current_spot, strike, cap, won_side)
 
         entry_price = sig.fill_price_cents or sig.limit_price_cents
         qty = sig.fill_quantity or sig.quantity
