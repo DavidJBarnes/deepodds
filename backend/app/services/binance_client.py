@@ -47,19 +47,23 @@ async def get_fear_greed() -> dict:
         }
 
 
-async def get_realized_vol(symbol: str = "BTC", hours: int = 4) -> float | None:
-    """Compute annualized realized volatility from Binance 1-minute klines.
+_INTERVAL_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+
+
+async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = "1m") -> float | None:
+    """Compute annualized realized volatility from Binance klines.
 
     Uses close-to-close log returns over the specified window.
     Returns annualized vol as a decimal (e.g. 0.65 = 65%).
     """
     pair = f"{symbol}USDT"
-    limit = hours * 60
+    bar_minutes = _INTERVAL_MINUTES.get(interval, 1)
+    limit = min((hours * 60) // bar_minutes, 1000)
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             resp = await client.get(
                 "https://api.binance.us/api/v3/klines",
-                params={"symbol": pair, "interval": "1m", "limit": limit},
+                params={"symbol": pair, "interval": interval, "limit": limit},
             )
             resp.raise_for_status()
             klines = resp.json()
@@ -67,12 +71,12 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4) -> float | None:
             try:
                 resp = await client.get(
                     "https://api.binance.com/api/v3/klines",
-                    params={"symbol": pair, "interval": "1m", "limit": limit},
+                    params={"symbol": pair, "interval": interval, "limit": limit},
                 )
                 resp.raise_for_status()
                 klines = resp.json()
             except Exception:
-                logger.warning("Failed to fetch klines for realized vol (%s)", symbol)
+                logger.warning("Failed to fetch klines for realized vol (%s, %s)", symbol, interval)
                 return None
 
     if len(klines) < 30:
@@ -86,6 +90,7 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4) -> float | None:
 
     mean_r = sum(log_returns) / len(log_returns)
     variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
-    vol_per_minute = math.sqrt(variance)
-    annualized = vol_per_minute * math.sqrt(365.25 * 24 * 60)
+    vol_per_bar = math.sqrt(variance)
+    bars_per_year = 365.25 * 24 * 60 / bar_minutes
+    annualized = vol_per_bar * math.sqrt(bars_per_year)
     return annualized
