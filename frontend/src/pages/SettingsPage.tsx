@@ -220,14 +220,13 @@ export default function SettingsPage() {
                 >
                   {config.mode.toUpperCase()}
                 </button>
-                <span className="text-xs text-slate-500">click to switch</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Enabled:</label>
                 <button
                   onClick={() => handleUpdateConfig({ enabled: !config.enabled })}
                   className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.enabled ? "bg-emerald-600" : "bg-slate-700"
+                    config.enabled ? "bg-amber-600" : "bg-slate-700"
                   }`}
                 >
                   <span
@@ -518,7 +517,7 @@ export default function SettingsPage() {
               <button
                 onClick={() => handleUpdateConfig({ spot_enabled: !config.spot_enabled })}
                 className={`relative w-10 h-5 rounded-full transition-colors ${
-                  config.spot_enabled ? "bg-emerald-600" : "bg-slate-700"
+                  config.spot_enabled ? "bg-amber-600" : "bg-slate-700"
                 }`}
               >
                 <span
