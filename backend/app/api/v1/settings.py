@@ -88,8 +88,8 @@ async def update_bot_config(
     updates = body.model_dump(exclude_unset=True)
     if "mode" in updates and updates["mode"] not in ("paper", "live"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mode must be 'paper' or 'live'")
-    if "strategy" in updates and updates["strategy"] not in ("model", "naive_no"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strategy must be 'model' or 'naive_no'")
+    if "strategy" in updates and updates["strategy"] not in ("model", "naive_no", "settlement_arb"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strategy must be 'model', 'naive_no', or 'settlement_arb'")
     if "spot_mode" in updates and updates["spot_mode"] not in ("paper", "live"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Spot mode must be 'paper' or 'live'")
 

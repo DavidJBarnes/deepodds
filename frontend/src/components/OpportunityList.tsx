@@ -42,7 +42,6 @@ function spotInRange(o: Opportunity) {
 }
 
 export default function OpportunityList({ opportunities }: { opportunities: Opportunity[] }) {
-  // Filter to near-expiry only (< 2 hours) for settlement arb relevance
   const nearExpiry = opportunities
     .filter((o) => {
       if (!o.close_time) return false;
@@ -91,7 +90,6 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
             {nearExpiry.map((o) => {
               const inside = spotInRange(o);
               const urgent = isUrgent(o.close_time);
-              // Predict winning side based on spot position
               const predictSide = inside === true ? "yes" : inside === false ? "no" : null;
 
               return (
@@ -141,6 +139,8 @@ export default function OpportunityList({ opportunities }: { opportunities: Oppo
                   </td>
                 </tr>
               );
+            })}
+          </tbody>
         </table>
       </div>
     </div>
