@@ -53,6 +53,7 @@ class OpportunitySummary(BaseModel):
     model_edge_cents: float | None = None
     edge_direction: str | None = None
     liquidity: float = 0
+    volume: float = 0
     close_time: str | None = None
     sigma_distance: float | None = None
     discount_cents: float | None = None

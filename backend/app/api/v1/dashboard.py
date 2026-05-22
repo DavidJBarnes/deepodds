@@ -255,7 +255,7 @@ async def get_dashboard(
             model_fair_cents=o.model_fair_cents,
             model_edge_cents=edge_cents,
             edge_direction=o.edge_direction,
-            liquidity=o.liquidity, close_time=o.close_time,
+            liquidity=o.liquidity, volume=o.volume, close_time=o.close_time,
             sigma_distance=round(abs(sigma), 2) if sigma is not None else None,
             discount_cents=round(discount, 1) if discount else None,
             would_signal=would,
