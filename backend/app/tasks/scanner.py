@@ -38,15 +38,13 @@ async def _run_scan():
         logger.warning("No user with Kalshi keys found — skipping scan")
         return 0
 
-    # Validate keys before scanning
+    # Validate keys — warn if invalid but don't block (network hiccups happen)
     try:
-        valid = asyncio.run(kalshi.validate())
+        valid = await kalshi.validate()
         if not valid:
-            logger.warning("Kalshi keys invalid or API unreachable — skipping scan")
-            return 0
+            logger.warning("Kalshi keys returned invalid — scanning anyway (could be transient)")
     except Exception:
-        logger.warning("Kalshi key validation failed — skipping scan")
-        return 0
+        logger.warning("Kalshi key validation failed (network?) — scanning anyway")
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     session = SyncSession(engine)
