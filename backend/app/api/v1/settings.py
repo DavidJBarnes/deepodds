@@ -11,7 +11,7 @@ from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
 from app.models.user import User
 from app.schemas.bot_config import BotConfigResponse, BotConfigUpdate
-from app.schemas.settings import CoinbaseKeysStatus, CoinbaseKeysUpdate, KalshiKeysStatus, KalshiKeysUpdate
+from app.schemas.settings import KalshiKeysStatus, KalshiKeysUpdate
 from app.services.kalshi_client import KalshiClient
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,9 @@ def _config_response(config: BotConfig) -> BotConfigResponse:
         settlement_arb_min_sigma=config.settlement_arb_min_sigma,
         settlement_arb_min_discount_cents=config.settlement_arb_min_discount_cents,
         settlement_arb_max_position_cents=config.settlement_arb_max_position_cents,
+        settlement_arb_regime_filter=config.settlement_arb_regime_filter,
+        settlement_arb_min_fear_greed=config.settlement_arb_min_fear_greed,
+        max_portfolio_risk_cents=config.max_portfolio_risk_cents,
     )
 
 
@@ -90,9 +93,6 @@ async def update_bot_config(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mode must be 'paper' or 'live'")
     if "strategy" in updates and updates["strategy"] not in ("model", "naive_no", "settlement_arb"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Strategy must be 'model', 'naive_no', or 'settlement_arb'")
-    if "spot_mode" in updates and updates["spot_mode"] not in ("paper", "live"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Spot mode must be 'paper' or 'live'")
-
     for key, value in updates.items():
         setattr(config, key, value)
 
@@ -168,37 +168,6 @@ async def get_kalshi_balance(user: User = Depends(get_current_user)):
         logger.exception("Failed to fetch Kalshi balance")
         return KalshiBalanceResponse(cash_cents=0, portfolio_cents=0)
 
-
-@router.put("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def update_coinbase_keys(
-    body: CoinbaseKeysUpdate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    user.coinbase_api_key = body.api_key
-    user.coinbase_api_secret = body.api_secret
-    await db.commit()
-    return CoinbaseKeysStatus(has_keys=True, key_preview=body.api_key[:8] + "...")
-
-
-@router.get("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def get_coinbase_keys(user: User = Depends(get_current_user)):
-    if user.coinbase_api_key:
-        return CoinbaseKeysStatus(has_keys=True, key_preview=user.coinbase_api_key[:8] + "...")
-    return CoinbaseKeysStatus(has_keys=False)
-
-
-@router.delete("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def delete_coinbase_keys(
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    user.coinbase_api_key = None
-    user.coinbase_api_secret = None
-    await db.commit()
-    return CoinbaseKeysStatus(has_keys=False)
-
-
 @router.post("/reset-data")
 async def reset_data(
     user: User = Depends(get_current_user),
@@ -206,7 +175,7 @@ async def reset_data(
 ):
     """One-time endpoint to clear all signal, opportunity, and spot data."""
     from sqlalchemy import text
-    tables = ["signals", "spot_trades", "spot_positions", "archived_signals", "opportunities"]
+    tables = ["signals", "archived_signals", "opportunities"]
     for t in tables:
         await db.execute(text(f"DELETE FROM {t}"))
     await db.commit()

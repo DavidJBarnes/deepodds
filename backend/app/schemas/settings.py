@@ -10,13 +10,3 @@ class KalshiKeysStatus(BaseModel):
     has_keys: bool
     key_id_preview: str | None = None
     valid: bool = False
-
-
-class CoinbaseKeysUpdate(BaseModel):
-    api_key: str
-    api_secret: str
-
-
-class CoinbaseKeysStatus(BaseModel):
-    has_keys: bool
-    key_preview: str | None = None

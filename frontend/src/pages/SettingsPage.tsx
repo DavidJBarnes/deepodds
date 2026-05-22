@@ -314,6 +314,37 @@ export default function SettingsPage() {
                     step={1} min={1} max={1000}
                   />
                 </div>
+
+                {/* Regime filter toggles */}
+                <div className="mt-3 pt-3 border-t border-slate-700/50">
+                  <h5 className="text-xs font-semibold text-slate-400 mb-2">Regime Filter</h5>
+                  <div className="flex items-center gap-3 mb-2">
+                    <label className="text-sm text-slate-400">Fear &amp; Greed Filter</label>
+                    <button
+                      onClick={() => saveConfig({ settlement_arb_regime_filter: !config.settlement_arb_regime_filter })}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                        config.settlement_arb_regime_filter ? "bg-emerald-600" : "bg-slate-700"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                          config.settlement_arb_regime_filter ? "translate-x-5" : ""
+                        }`}
+                      />
+                    </button>
+                    <span className="text-xs text-slate-500">Pause arb during extreme fear (prevents trading into panic volatility)</span>
+                  </div>
+                  {config.settlement_arb_regime_filter && (
+                    <ConfigField
+                      label="Min Fear &amp; Greed"
+                      description="Pause settlement arb when Fear &amp; Greed Index falls below this value. Extreme fear (&lt;25) typically means volatility spikes that shrink sigma distances."
+                      value={config.settlement_arb_min_fear_greed}
+                      onChange={(v) => setConfig({ ...config, settlement_arb_min_fear_greed: v })}
+                      onBlur={() => saveConfig({ settlement_arb_min_fear_greed: config.settlement_arb_min_fear_greed })}
+                      step={1} min={0} max={100}
+                    />
+                  )}
+                </div>
               </div>
             )}
 
@@ -370,6 +401,15 @@ export default function SettingsPage() {
                   onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
                   onBlur={() => saveConfig({ max_signals_per_hour: config.max_signals_per_hour })}
                   step={1} min={0} max={50}
+                />
+                <ConfigField
+                  label="Max Portfolio Risk"
+                  description="Maximum correlated risk on a single asset in cents. Accounts for correlation between positions on the same underlying. 0 = disabled."
+                  prefix="$"
+                  value={config.max_portfolio_risk_cents / 100}
+                  onChange={(v) => setConfig({ ...config, max_portfolio_risk_cents: Math.round(v * 100) })}
+                  onBlur={() => saveConfig({ max_portfolio_risk_cents: config.max_portfolio_risk_cents })}
+                  step={1} min={0} max={1000}
                 />
               </div>
             </div>
