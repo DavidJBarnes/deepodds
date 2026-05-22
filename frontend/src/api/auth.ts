@@ -8,7 +8,7 @@ export interface TokenResponse {
 export interface User {
   id: string;
   email: string;
-  has_kalshi_keys: boolean;
+  has_coinbase_keys: boolean;
   created_at: string;
 }
 

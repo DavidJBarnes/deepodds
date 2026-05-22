@@ -30,11 +30,11 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
       <p className="text-slate-300 font-medium mb-1">{formatDate(d.date)}</p>
-      <p className={d.pnl_cents >= 0 ? "text-emerald-400" : "text-red-400"}>
-        Day: {d.pnl_cents >= 0 ? "+" : ""}${(d.pnl_cents / 100).toFixed(2)}
+      <p className={d.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
+        Day: {d.pnl_usd >= 0 ? "+" : ""}${d.pnl_usd.toFixed(2)}
       </p>
-      <p className={d.cumulative_pnl_cents >= 0 ? "text-emerald-400" : "text-red-400"}>
-        Total: {d.cumulative_pnl_cents >= 0 ? "+" : ""}${(d.cumulative_pnl_cents / 100).toFixed(2)}
+      <p className={d.cumulative_pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
+        Total: {d.cumulative_pnl_usd >= 0 ? "+" : ""}${d.cumulative_pnl_usd.toFixed(2)}
       </p>
       <p className="text-slate-400 mt-1">
         {d.signals_count} signals · {d.wins}W / {d.losses}L
@@ -71,8 +71,8 @@ export default function PnLChart() {
 
   const chartData = data.daily.map((d) => ({
     ...d,
-    pnlDollars: d.pnl_cents / 100,
-    cumulativeDollars: d.cumulative_pnl_cents / 100,
+    pnlDollars: d.pnl_usd,
+    cumulativeDollars: d.cumulative_pnl_usd,
   }));
 
   return (
@@ -130,9 +130,9 @@ export default function PnLChart() {
             <Area
               type="monotone"
               dataKey="cumulativeDollars"
-              stroke={data.total_pnl_cents >= 0 ? "#34d399" : "#f87171"}
+              stroke={data.total_pnl_usd >= 0 ? "#34d399" : "#f87171"}
               strokeWidth={2}
-              fill={data.total_pnl_cents >= 0 ? "url(#pnlGradientPos)" : "url(#pnlGradientNeg)"}
+              fill={data.total_pnl_usd >= 0 ? "url(#pnlGradientPos)" : "url(#pnlGradientNeg)"}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -141,14 +141,14 @@ export default function PnLChart() {
       <div className="grid grid-cols-4 gap-3 text-center">
         <div>
           <p className="text-xs text-slate-500">Best Day</p>
-          <p className={`text-sm font-medium ${data.best_day_cents >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {data.best_day_cents >= 0 ? "+" : ""}${(data.best_day_cents / 100).toFixed(2)}
+          <p className={`text-sm font-medium ${data.best_day_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {data.best_day_usd >= 0 ? "+" : ""}${data.best_day_usd.toFixed(2)}
           </p>
         </div>
         <div>
           <p className="text-xs text-slate-500">Worst Day</p>
-          <p className={`text-sm font-medium ${data.worst_day_cents >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-            {data.worst_day_cents >= 0 ? "+" : ""}${(data.worst_day_cents / 100).toFixed(2)}
+          <p className={`text-sm font-medium ${data.worst_day_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+            {data.worst_day_usd >= 0 ? "+" : ""}${data.worst_day_usd.toFixed(2)}
           </p>
         </div>
         <div>

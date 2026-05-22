@@ -2,20 +2,15 @@ import client from "./client";
 
 export interface BotStatus {
   mode: string;
-  strategy: string;
   enabled: boolean;
-  has_kalshi_keys: boolean;
-  kalshi_keys_valid: boolean;
-  max_exposure_cents: number;
-  current_exposure_cents: number;
-  exposure_remaining_cents: number;
-  daily_budget_cents: number;
-  daily_spent_cents: number;
-  signals_today: number;
-  active_signals: number;
-  settlement_arb_enabled: boolean;
-  settlement_arb_max_minutes: number;
-  settlement_arb_min_sigma: number;
+  has_coinbase_keys: boolean;
+  coinbase_keys_valid: boolean;
+  pairs: string;
+  open_positions: number;
+  max_open_positions: number;
+  entry_z_score: number;
+  exit_z_score: number;
+  stop_loss_pct: number;
 }
 
 export interface PnLStats {
@@ -24,113 +19,77 @@ export interface PnLStats {
   wins: number;
   losses: number;
   win_rate: number;
-  total_pnl_cents: number;
-  total_cost_cents: number;
+  total_pnl_usd: number;
+  total_cost_usd: number;
   roi_pct: number;
-  unrealized_pnl_cents: number;
+  unrealized_pnl_usd: number;
   open_positions: number;
 }
 
 export interface Signal {
   id: string;
-  ticker: string;
+  pair: string;
   side: string;
-  action: string;
-  limit_price_cents: number;
-  quantity: number;
-  cost_cents: number;
   signal_type: string;
   status: string;
-  model_prob: number | null;
-  model_fair_cents: number | null;
-  model_edge_cents: number | null;
-  edge_tier: string | null;
-  market_yes_price_cents: number | null;
-  spot_price: number | null;
-  strike_price: number | null;
-  cap_strike: number | null;
-  kalshi_order_id: string | null;
-  fill_price_cents: number | null;
-  exit_price_cents: number | null;
+  entry_price: number;
+  quantity: number;
+  cost_usd: number;
+  z_score: number | null;
+  vwap: number | null;
+  coinbase_order_id: string | null;
+  fill_price: number | null;
+  fill_quantity: number | null;
   filled_at: string | null;
-  unrealized_pnl_cents: number | null;
-  pnl_cents: number | null;
-  settled_side: string | null;
-  close_time: string | null;
+  exit_price: number | null;
+  exit_z_score: number | null;
+  pnl_usd: number | null;
+  pnl_pct: number | null;
+  unrealized_pnl_usd: number | null;
   created_at: string;
   resolved_at: string | null;
 }
 
-export interface Opportunity {
-  source: string;
-  ticker: string;
-  asset: string;
-  title: string;
-  subtitle: string | null;
-  strike_price: number | null;
-  cap_strike: number | null;
-  spot_price: number | null;
-  yes_price: number | null;
-  no_price: number | null;
-  yes_ask: number | null;
-  no_ask: number | null;
-  model_prob: number | null;
-  model_fair_cents: number | null;
-  model_edge_cents: number | null;
-  edge_direction: string | null;
-  liquidity: number;
-  volume: number;
-  close_time: string | null;
-  strike_type: string | null;
-  sigma_distance: number | null;
-  discount_cents: number | null;
+export interface MarketSnapshot {
+  pair: string;
+  price: number;
+  vwap: number;
+  z_score: number;
+  std_dev: number;
   would_signal: boolean;
 }
 
 export interface DashboardData {
   bot_status: BotStatus;
   recent_signals: Signal[];
-  opportunities: Opportunity[];
+  markets: MarketSnapshot[];
   stats: PnLStats;
   scanner_health: ScannerHealth | null;
 }
 
 export interface ScannerHealth {
   last_scan: string;
-  opportunities: number;
-  keys_valid: boolean;
-  error: string | null;
+  status: string;
 }
 
 export interface BotConfig {
   mode: string;
-  strategy: string;
   enabled: boolean;
-  max_exposure_cents: number;
-  daily_budget_cents: number;
-  min_edge_cents: number;
-  min_liquidity: number;
-  max_positions_per_asset: number;
+  pairs: string;
+  lookback_periods: number;
+  entry_z_score: number;
+  exit_z_score: number;
+  position_size_usd: number;
+  max_open_positions: number;
+  stop_loss_pct: number;
+  daily_loss_limit_usd: number;
   max_signals_per_hour: number;
-  daily_loss_limit_cents: number;
-  settlement_arb_enabled: boolean;
-  settlement_arb_max_minutes: number;
-  settlement_arb_min_sigma: number;
-  settlement_arb_min_discount_cents: number;
-  settlement_arb_max_position_cents: number;
-  settlement_arb_regime_filter: boolean;
-  settlement_arb_min_fear_greed: number;
-  max_portfolio_risk_cents: number;
-  polymarket_enabled: boolean;
-  polymarket_min_edge_cents: number;
-  polymarket_max_exposure_cents: number;
-  polymarket_min_liquidity: number;
 }
 
 export interface DailyPnLPoint {
   date: string;
-  pnl_cents: number;
-  cumulative_pnl_cents: number;
+  pnl_usd: number;
+  cumulative_pnl_usd: number;
   signals_count: number;
   wins: number;
   losses: number;
@@ -138,9 +97,9 @@ export interface DailyPnLPoint {
 
 export interface PnLChartData {
   daily: DailyPnLPoint[];
-  total_pnl_cents: number;
-  best_day_cents: number;
-  worst_day_cents: number;
+  total_pnl_usd: number;
+  best_day_usd: number;
+  worst_day_usd: number;
   winning_days: number;
   losing_days: number;
 }

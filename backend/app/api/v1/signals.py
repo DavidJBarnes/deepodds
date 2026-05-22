@@ -14,6 +14,31 @@ from app.services.archive import archive_signals_async
 router = APIRouter(prefix="/signals", tags=["signals"])
 
 
+def _signal_response(s) -> SignalResponse:
+    return SignalResponse(
+        id=getattr(s, "original_id", s.id),
+        pair=s.pair,
+        side=s.side,
+        signal_type=s.signal_type,
+        status=s.status,
+        entry_price=s.entry_price,
+        quantity=s.quantity,
+        cost_usd=s.cost_usd,
+        z_score=s.z_score,
+        vwap=s.vwap,
+        coinbase_order_id=s.coinbase_order_id,
+        fill_price=s.fill_price,
+        fill_quantity=s.fill_quantity,
+        filled_at=s.filled_at,
+        exit_price=s.exit_price,
+        exit_z_score=s.exit_z_score,
+        pnl_usd=s.pnl_usd,
+        pnl_pct=s.pnl_pct,
+        created_at=s.created_at,
+        resolved_at=s.resolved_at,
+    )
+
+
 @router.get("", response_model=SignalListResponse)
 async def list_signals(
     status: str | None = Query(None),
@@ -30,29 +55,12 @@ async def list_signals(
         count_stmt = count_stmt.where(Signal.status == status)
 
     total = (await db.execute(count_stmt)).scalar()
-    results = (await db.execute(
-        stmt.order_by(desc(Signal.created_at)).limit(limit).offset(offset)
-    )).scalars().all()
+    results = (
+        await db.execute(stmt.order_by(desc(Signal.created_at)).limit(limit).offset(offset))
+    ).scalars().all()
 
     return SignalListResponse(
-        items=[
-            SignalResponse(
-                id=s.id, ticker=s.ticker, side=s.side, action=s.action,
-                limit_price_cents=s.limit_price_cents, quantity=s.quantity,
-                cost_cents=s.cost_cents, signal_type=s.signal_type, status=s.status,
-                model_prob=s.model_prob, model_fair_cents=s.model_fair_cents,
-                model_edge_cents=s.model_edge_cents, edge_tier=s.edge_tier,
-                implied_vol=s.implied_vol,
-                market_yes_price_cents=s.market_yes_price_cents,
-                spot_price=s.spot_price, strike_price=s.strike_price,
-                kalshi_order_id=s.kalshi_order_id, fill_price_cents=s.fill_price_cents,
-                exit_price_cents=s.exit_price_cents, filled_at=s.filled_at,
-                pnl_cents=s.pnl_cents, settled_side=s.settled_side,
-                close_time=s.close_time, created_at=s.created_at,
-                resolved_at=s.resolved_at,
-            )
-            for s in results
-        ],
+        items=[_signal_response(s) for s in results],
         total=total,
     )
 
@@ -69,6 +77,7 @@ async def archive_signals(
 ):
     import uuid
     from datetime import datetime, timezone
+
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
     count = await archive_signals_async(db, user_id=user.id, run_id=run_id)
     return ArchiveResponse(archived=count, run_id=run_id)
@@ -96,36 +105,21 @@ async def list_archived_signals(
         count_stmt = count_stmt.where(ArchivedSignal.run_id == run_id)
 
     total = (await db.execute(count_stmt)).scalar()
-    results = (await db.execute(
-        stmt.order_by(desc(ArchivedSignal.created_at)).limit(limit).offset(offset)
-    )).scalars().all()
+    results = (
+        await db.execute(stmt.order_by(desc(ArchivedSignal.created_at)).limit(limit).offset(offset))
+    ).scalars().all()
 
-    run_ids_result = (await db.execute(
-        select(ArchivedSignal.run_id)
-        .where(ArchivedSignal.user_id == user.id)
-        .distinct()
-        .order_by(desc(ArchivedSignal.run_id))
-    )).scalars().all()
+    run_ids_result = (
+        await db.execute(
+            select(ArchivedSignal.run_id)
+            .where(ArchivedSignal.user_id == user.id)
+            .distinct()
+            .order_by(desc(ArchivedSignal.run_id))
+        )
+    ).scalars().all()
 
     return ArchiveListResponse(
-        items=[
-            SignalResponse(
-                id=s.original_id, ticker=s.ticker, side=s.side, action=s.action,
-                limit_price_cents=s.limit_price_cents, quantity=s.quantity,
-                cost_cents=s.cost_cents, signal_type=s.signal_type, status=s.status,
-                model_prob=s.model_prob, model_fair_cents=s.model_fair_cents,
-                model_edge_cents=s.model_edge_cents, edge_tier=s.edge_tier,
-                implied_vol=s.implied_vol,
-                market_yes_price_cents=s.market_yes_price_cents,
-                spot_price=s.spot_price, strike_price=s.strike_price,
-                kalshi_order_id=s.kalshi_order_id, fill_price_cents=s.fill_price_cents,
-                exit_price_cents=s.exit_price_cents, filled_at=s.filled_at,
-                pnl_cents=s.pnl_cents, settled_side=s.settled_side,
-                close_time=s.close_time, created_at=s.created_at,
-                resolved_at=s.resolved_at,
-            )
-            for s in results
-        ],
+        items=[_signal_response(s) for s in results],
         total=total,
         run_ids=run_ids_result,
     )

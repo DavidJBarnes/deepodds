@@ -5,65 +5,43 @@ from app.schemas.signal import SignalResponse
 
 class BotStatusResponse(BaseModel):
     mode: str
-    strategy: str = "model"
     enabled: bool
-    has_kalshi_keys: bool
-    kalshi_keys_valid: bool = False
-    max_exposure_cents: int
-    current_exposure_cents: int
-    exposure_remaining_cents: int
-    daily_budget_cents: int
-    daily_spent_cents: int
-    signals_today: int
-    active_signals: int
-    settlement_arb_enabled: bool = False
-    settlement_arb_max_minutes: int = 60
-    settlement_arb_min_sigma: float = 2.0
+    has_coinbase_keys: bool
+    coinbase_keys_valid: bool = False
+    pairs: str
+    open_positions: int
+    max_open_positions: int
+    entry_z_score: float
+    exit_z_score: float
+    stop_loss_pct: float
 
 
-class PaperPnLStats(BaseModel):
+class PnLStats(BaseModel):
     total_signals: int
     settled_count: int
     wins: int
     losses: int
     win_rate: float
-    total_pnl_cents: int
-    total_cost_cents: int
+    total_pnl_usd: float
+    total_cost_usd: float
     roi_pct: float
-    unrealized_pnl_cents: int = 0
+    unrealized_pnl_usd: float = 0.0
     open_positions: int = 0
 
 
-class OpportunitySummary(BaseModel):
-    source: str = "kalshi"
-    ticker: str
-    asset: str
-    title: str
-    subtitle: str | None = None
-    strike_price: float | None = None
-    cap_strike: float | None = None
-    strike_type: str | None = None
-    spot_price: float | None = None
-    yes_price: float | None = None
-    no_price: float | None = None
-    yes_ask: float | None = None
-    no_ask: float | None = None
-    model_prob: float | None = None
-    model_fair_cents: float | None = None
-    model_edge_cents: float | None = None
-    edge_direction: str | None = None
-    liquidity: float = 0
-    volume: float = 0
-    close_time: str | None = None
-    sigma_distance: float | None = None
-    discount_cents: float | None = None
-    would_signal: bool = False
+class MarketSnapshot(BaseModel):
+    pair: str
+    price: float
+    vwap: float
+    z_score: float
+    std_dev: float
+    would_signal: bool
 
 
 class DailyPnLPoint(BaseModel):
     date: str
-    pnl_cents: int
-    cumulative_pnl_cents: int
+    pnl_usd: float
+    cumulative_pnl_usd: float
     signals_count: int
     wins: int
     losses: int
@@ -71,9 +49,9 @@ class DailyPnLPoint(BaseModel):
 
 class PnLChartResponse(BaseModel):
     daily: list[DailyPnLPoint]
-    total_pnl_cents: int
-    best_day_cents: int
-    worst_day_cents: int
+    total_pnl_usd: float
+    best_day_usd: float
+    worst_day_usd: float
     winning_days: int
     losing_days: int
 
@@ -81,6 +59,6 @@ class PnLChartResponse(BaseModel):
 class DashboardResponse(BaseModel):
     bot_status: BotStatusResponse
     recent_signals: list[SignalResponse]
-    opportunities: list[OpportunitySummary]
-    stats: PaperPnLStats
+    markets: list[MarketSnapshot]
+    stats: PnLStats
     scanner_health: dict | None = None

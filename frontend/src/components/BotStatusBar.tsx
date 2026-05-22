@@ -1,16 +1,9 @@
 import type { BotStatus } from "@/api/bot";
 
-const STRATEGY_LABELS: Record<string, string> = {
-  settlement_arb: "Settlement Arb",
-  model: "BSM Model",
-  naive_no: "Naive NO",
-};
-
 export default function BotStatusBar({ status }: { status: BotStatus }) {
-  const exposurePct = status.max_exposure_cents > 0
-    ? Math.min(100, (status.current_exposure_cents / status.max_exposure_cents) * 100)
+  const posPct = status.max_open_positions > 0
+    ? Math.min(100, (status.open_positions / status.max_open_positions) * 100)
     : 0;
-  const strategyLabel = STRATEGY_LABELS[status.strategy] || status.strategy;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -26,7 +19,7 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
             {status.mode.toUpperCase()}
           </span>
           <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-            {strategyLabel}
+            Mean Reversion
           </span>
           <span
             className={`w-2.5 h-2.5 rounded-full ${
@@ -42,17 +35,17 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
 
         <div className="flex-1 min-w-48">
           <div className="flex justify-between text-xs text-slate-400 mb-1">
-            <span>Exposure</span>
+            <span>Positions</span>
             <span>
-              ${(status.current_exposure_cents / 100).toFixed(2)} / ${(status.max_exposure_cents / 100).toFixed(2)}
+              {status.open_positions} / {status.max_open_positions}
             </span>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
-                exposurePct > 90 ? "bg-red-500" : exposurePct > 70 ? "bg-amber-500" : "bg-emerald-500"
+                posPct > 90 ? "bg-red-500" : posPct > 60 ? "bg-amber-500" : "bg-emerald-500"
               }`}
-              style={{ width: `${exposurePct}%` }}
+              style={{ width: `${posPct}%` }}
             />
           </div>
         </div>
@@ -61,31 +54,17 @@ export default function BotStatusBar({ status }: { status: BotStatus }) {
 
         <div className="flex gap-4 text-sm">
           <div>
-            <span className="text-slate-500">Today: </span>
-            <span className="text-white font-medium">{status.signals_today}</span>
+            <span className="text-slate-500">Entry: </span>
+            <span className="text-white font-medium">&le;{status.entry_z_score}z</span>
           </div>
           <div>
-            <span className="text-slate-500">Active: </span>
-            <span className="text-white font-medium">{status.active_signals}</span>
+            <span className="text-slate-500">Exit: </span>
+            <span className="text-white font-medium">&ge;{status.exit_z_score}z</span>
           </div>
-          {status.daily_budget_cents > 0 && (
-            <div>
-              <span className="text-slate-500">Budget: </span>
-              <span className="text-white font-medium">
-                ${(status.daily_spent_cents / 100).toFixed(0)}/${(status.daily_budget_cents / 100).toFixed(0)}
-              </span>
-            </div>
-          )}
-          {status.strategy === "settlement_arb" && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500">Sigma:</span>
-              <span className="text-emerald-400 font-medium">
-                &ge;{status.settlement_arb_min_sigma}&sigma;
-              </span>
-              <span className="text-slate-600">&middot;</span>
-              <span className="text-slate-500">&le;{status.settlement_arb_max_minutes}m</span>
-            </div>
-          )}
+          <div>
+            <span className="text-slate-500">Stop: </span>
+            <span className="text-red-400 font-medium">-{status.stop_loss_pct}%</span>
+          </div>
         </div>
       </div>
     </div>

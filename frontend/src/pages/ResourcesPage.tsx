@@ -1,82 +1,129 @@
-const glossary = [
-  { term: "Settlement Arbitrage", definition: "A strategy that buys near-certain Kalshi contracts close to expiry when market makers still price tail risk into the premium. No directional prediction — pure mechanical edge from the temporal decay of risk premiums." },
-  { term: "Binary Contract", definition: "A yes/no contract that pays out $1 (100 cents) if the condition is met, $0 if not. You buy at a price between 1-99 cents reflecting the market's implied probability. For example, 'BTC between $84,000 and $86,000 at 4pm' — if spot is in that range at expiry, YES wins." },
-  { term: "Sigma Distance (σ)", definition: "How many standard deviations of price movement separate the current spot price from the nearest strike boundary, given the remaining time. 1σ = 84% chance of the boundary holding, 2σ = 98%, 3σ = 99.9%. Higher sigma means the outcome is more certain. The bot enters at 1.5σ+." },
-  { term: "Realized Volatility", definition: "A measure of how much the price has actually been moving, computed from recent Binance trades. Unlike implied volatility (which is inflated by risk premiums), realized vol reflects actual recent price behavior. Used in the sigma distance calculation." },
-  { term: "Volatility Risk Premium (VRP)", definition: "Option sellers demand extra compensation for bearing tail risk, so implied volatility systematically exceeds realized volatility by 10-30 points. This is why the old BSM model generated phantom edges — it used inflated IV as input. The settlement arb strategy avoids this entirely." },
-  { term: "Fair Value", definition: "What a contract is worth based on the actual probability of winning. Computed as P(win) × 100¢, where P(win) comes from the sigma distance. If sigma = 2.0, P(win) = 97.7%, so fair value = 97.7¢." },
-  { term: "Discount", definition: "The difference between fair value and the market ask price. If fair value is 97¢ and the market asks 90¢, the discount is 7¢. This is our edge — we buy below fair value. The bot requires a minimum discount of 5¢ to enter." },
-  { term: "Expected Value (EV)", definition: "The average profit per contract after accounting for win probability, payout, and Kalshi fees. The bot only enters when EV is positive. Example: 97.7% chance of winning 8¢ net = +7.8¢ EV per contract." },
-  { term: "Spot Price", definition: "The current market price of the underlying asset (e.g., Bitcoin at $85,500). Sourced from Binance in real-time via websocket." },
-  { term: "Strike Price / Range", definition: "The threshold or range in the contract. 'BTC above $84,000' has strike = $84,000. 'BTC between $84,000 and $86,000' has a low strike and a cap strike. Contracts can be 'above', 'below', or 'between' (range)." },
-  { term: "Max Exposure", definition: "The maximum total dollar amount tied up in open (unsettled) positions at any time. When positions settle, that capital is freed for new trades. Acts as a rolling risk cap." },
-  { term: "Daily Budget", definition: "An optional hard cap on total spending per calendar day, regardless of outcomes. 0 = unlimited. When enabled, no new signals are created once the day's spend hits this limit." },
-  { term: "Daily Loss Limit", definition: "A circuit breaker that pauses the bot for the rest of the day if realized losses exceed this threshold. Prevents a bad day from spiraling. 0 = disabled." },
-  { term: "Limit Price", definition: "The maximum price you're willing to pay for a contract. In settlement arb, this is typically the ask price of the near-certain side — since we're buying at a discount, the ask IS below fair value." },
-  { term: "Kelly-Inspired Sizing", definition: "Position sizing that allocates more capital to higher-edge trades. The bot uses 5-25% of the configured max position, proportional to the discount. A 15¢ discount gets a bigger bet than a 5¢ discount." },
-  { term: "Paper Mode", definition: "Simulated trading that doesn't use real money. Signals are generated and fills are simulated against actual market ask prices. Settlement uses real spot vs strike. Use this to evaluate the strategy before going live." },
-  { term: "Live Mode", definition: "Real trading with actual money on Kalshi. Orders are placed via the Kalshi API using your RSA-signed API keys. Losses are real and irreversible." },
-  { term: "Kalshi Fees", definition: "Kalshi charges 7% of profit per contract on winning trades, with a minimum of 2 cents per contract. Losing trades are not charged fees. The bot accounts for this in every expected value calculation — it won't enter a trade unless EV is positive after fees." },
-  { term: "Max Signals Per Hour", definition: "A pacing control that caps how many new signals can be created in any rolling 60-minute window. Settlement arb is naturally low-frequency (2-8 trades/day), so this mainly acts as a safety valve in unusual market conditions." },
-  { term: "Settled", definition: "A contract that has reached its expiry time. The outcome is determined by comparing the final spot price vs the strike price or range at settlement time. Most settlement arb positions resolve in 15-60 minutes." },
-  { term: "P&L (Profit & Loss)", definition: "Net earnings or losses on a trade: (payout - entry cost - Kalshi fees). Displayed in dollars across the dashboard, signal table, and P&L chart." },
-  { term: "ROI (Return on Investment)", definition: "Total P&L divided by total capital invested, as a percentage. Shows how efficiently your capital is being deployed. Settlement arb targets 1-8% per trade over short holding periods." },
-  { term: "Win Rate", definition: "Percentage of settled trades that won. Settlement arb targets 85-95% win rates — most trades win small amounts, with occasional losses on the rare tail events that breach the sigma distance." },
-  { term: "Near-Expiry Contracts", definition: "The dashboard table showing contracts expiring within 2 hours. These are candidates the bot is evaluating. The predicted side (YES/NO) is shown based on current spot position relative to strike boundaries." },
+const sections: { heading: string; terms: { term: string; definition: string }[] }[] = [
+  {
+    heading: "Core Concepts",
+    terms: [
+      { term: "Asset / Pair", definition: "The thing you're trading. BTC-USD means you're buying or selling Bitcoin priced in US dollars. Also called a trading pair or product." },
+      { term: "Position", definition: "An active trade you haven't closed yet. If you bought $25 of BTC, you have an open position in BTC. Closing (selling) the position realizes your profit or loss." },
+      { term: "Long", definition: "Buying an asset expecting its price to go up. This bot only goes long — it buys crypto when it thinks the price is temporarily low, then sells when it recovers." },
+      { term: "Short", definition: "Selling an asset you don't own, expecting the price to drop so you can buy it back cheaper. This bot does NOT short — it only buys and sells." },
+      { term: "Entry", definition: "The moment you open a trade. Your entry price is what you paid. A good entry means buying at a low price relative to where it's headed." },
+      { term: "Exit", definition: "The moment you close a trade by selling. The difference between your entry price and exit price determines your profit or loss." },
+      { term: "Fill", definition: "When your order actually executes on the exchange. A market order fills immediately at the best available price. The fill price may differ slightly from what you saw." },
+    ],
+  },
+  {
+    heading: "Price & Market Data",
+    terms: [
+      { term: "Candle / Candlestick", definition: "A snapshot of price action over a time period. Each candle has an open (starting price), close (ending price), high, low, and volume. The bot uses 15-minute candles." },
+      { term: "VWAP (Volume-Weighted Average Price)", definition: "The average price weighted by how much volume traded at each level. A better 'fair price' than a simple average because it reflects where real money actually changed hands." },
+      { term: "Bid / Ask", definition: "The bid is the highest price a buyer is willing to pay. The ask is the lowest price a seller will accept. The difference between them is the spread." },
+      { term: "Spread", definition: "The gap between the best bid and best ask price. Tighter spreads mean lower trading costs. BTC-USD typically has a very tight spread; smaller coins have wider spreads." },
+      { term: "Slippage", definition: "The difference between the price you expected and the price you actually got. Happens with market orders, especially in fast-moving or illiquid markets." },
+      { term: "Liquidity", definition: "How easily you can buy or sell without moving the price. High liquidity (BTC, ETH) means tight spreads and minimal slippage. Low liquidity means wider spreads and your orders can move the market." },
+      { term: "Volume", definition: "How much of an asset is being traded over a period. High volume means lots of buyers and sellers — more liquid, more reliable signals. Low volume can produce misleading price moves." },
+      { term: "Volatility", definition: "How much the price swings. High volatility means big moves up and down. Mean reversion works best in volatile but range-bound markets — the swings create entry opportunities, but the price keeps coming back." },
+    ],
+  },
+  {
+    heading: "Statistics & Signals",
+    terms: [
+      { term: "Z-Score", definition: "How many standard deviations the current price is from the VWAP. Negative = below average (oversold), positive = above average (overbought). The bot buys when z-score drops below -2.0 (a statistically extreme dip) and sells when it reverts to 0.0." },
+      { term: "Standard Deviation (Std Dev)", definition: "A measure of how spread out prices are from their average. If BTC's std dev is $500 over the last 4 hours, a $1,000 drop is a 2-sigma event (z-score of -2). Higher std dev = more volatile." },
+      { term: "Mean Reversion", definition: "The tendency for prices to return to their average after extreme moves. The bot exploits this: when price drops far below the volume-weighted average, it buys — betting the price snaps back." },
+      { term: "Oversold", definition: "When an asset's price has dropped significantly and may be due for a bounce. A z-score below -2.0 is considered oversold. Doesn't guarantee a bounce — markets can stay oversold." },
+      { term: "Overbought", definition: "When an asset's price has risen significantly above average. A high positive z-score suggests overbought conditions. The bot sells (exits) when this happens." },
+      { term: "Signal", definition: "A trade recommendation generated by the bot's algorithm. In paper mode, signals are simulated. In live mode, they trigger real Coinbase orders." },
+      { term: "Lookback Period", definition: "How many 15-minute candles the bot uses to compute VWAP and std dev. 16 bars = 4 hours, 32 = 8 hours. Shorter = faster reaction but more noise. Longer = smoother but slower to adapt." },
+    ],
+  },
+  {
+    heading: "Risk Management",
+    terms: [
+      { term: "Stop Loss", definition: "An automatic exit that closes your position if losses exceed a threshold (default 3%). Protects you when mean reversion fails and the price keeps falling." },
+      { term: "Position Size", definition: "How much money you risk per trade (default $25). Keeping this small and consistent means no single bad trade can wipe you out." },
+      { term: "Daily Loss Limit", definition: "A circuit breaker that pauses all trading for the rest of the day if your total realized losses exceed a threshold. Prevents one bad day from spiraling." },
+      { term: "Risk/Reward Ratio", definition: "How much you stand to gain vs. how much you could lose on a trade. A 2:1 ratio means you're targeting $2 of profit for every $1 of risk. Higher is better." },
+      { term: "Drawdown", definition: "The decline from your peak account value to the lowest point before a new high. A 10% drawdown means you were down 10% from your best. Smaller drawdowns are easier to recover from." },
+      { term: "Max Open Positions", definition: "The most positions the bot can hold at once (default 3). Limits how much capital is at risk simultaneously. If all 3 slots are filled, the bot won't enter new trades until one exits." },
+      { term: "Diversification", definition: "Spreading risk across multiple assets. Trading both BTC-USD and ETH-USD is basic diversification — if one drops, the other might not. But crypto assets tend to be correlated." },
+    ],
+  },
+  {
+    heading: "Orders & Execution",
+    terms: [
+      { term: "Market Order", definition: "An order to buy or sell immediately at the best available price. Guaranteed to fill, but you might get a slightly worse price than shown. This is what the bot uses." },
+      { term: "Limit Order", definition: "An order to buy or sell at a specific price or better. Gives you price control but might not fill if the market doesn't reach your price." },
+      { term: "Maker / Taker", definition: "A maker adds liquidity by placing a limit order that sits on the order book. A taker removes liquidity by filling an existing order. Makers pay lower fees (0.4%) than takers (0.6%) on Coinbase." },
+      { term: "Order Book", definition: "The list of all open buy and sell orders on an exchange. Shows the depth of supply and demand at each price level." },
+    ],
+  },
+  {
+    heading: "Performance",
+    terms: [
+      { term: "P&L (Profit & Loss)", definition: "Your net earnings or losses: (exit price - entry price) x quantity. Positive P&L = profit. Negative = loss. Displayed in dollars across the dashboard." },
+      { term: "Realized P&L", definition: "Profit or loss from trades you've closed. This is real money gained or lost." },
+      { term: "Unrealized P&L", definition: "Profit or loss on positions you still hold. Also called paper gains/losses. It's not real until you sell." },
+      { term: "ROI (Return on Investment)", definition: "Total P&L divided by total capital deployed, as a percentage. 5% ROI on $100 invested means you made $5." },
+      { term: "Win Rate", definition: "The percentage of trades that were profitable. A 60% win rate means 6 out of 10 trades made money. Win rate alone doesn't tell the whole story — you also need to consider how much you win vs. lose per trade." },
+    ],
+  },
+  {
+    heading: "Bot Modes",
+    terms: [
+      { term: "Paper Mode", definition: "Simulated trading with no real money. The bot generates signals and simulates fills against actual market prices. Use this to test your settings and build confidence before going live." },
+      { term: "Live Mode", definition: "Real trading with real money on Coinbase. Orders are placed through the Coinbase API. Losses are real and irreversible. Requires API keys with trading permissions." },
+    ],
+  },
 ];
 
 const faqs = [
   {
-    q: "How does the bot decide what to buy?",
-    a: "Every 60 seconds, the scanner fetches all active crypto contracts from Kalshi. For contracts expiring within the configured window (default 60 minutes), it computes a sigma distance — how many standard deviations of price movement separate spot from the nearest strike boundary. If sigma ≥ 1.5 (93%+ win probability) and the near-certain side trades below fair value by the minimum discount, a buy signal is generated.",
+    q: "How does the bot decide when to buy?",
+    a: "Every 60 seconds, the bot fetches the last 4 hours of 15-minute candles from Coinbase for each trading pair. It computes the VWAP (fair price) and standard deviation (how spread out prices are), then calculates the z-score (how far the current price is from fair). If the z-score drops below -2.0 — meaning price is unusually low — it generates a buy signal. Think of it like a rubber band: the further you stretch it (lower z-score), the harder it snaps back.",
   },
   {
-    q: "What's sigma distance and why does it matter?",
-    a: "Sigma distance measures how statistically safe a bet is. If BTC is at $85,500 and the contract says 'BTC above $84,000' with 45 minutes left, that's about 2-3σ away — meaning there's a 98-99.9% chance BTC stays above $84K. The bot enters when sigma is high enough that the edge from market mispricing outweighs the tiny risk of a fat-tail event.",
+    q: "How does it decide when to sell?",
+    a: "Two conditions, checked every 60 seconds: (1) Mean reversion — the z-score rises back above 0.0, meaning price has returned to its volume-weighted average. The rubber band snapped back. (2) Stop loss — the position has lost more than 3% of its value. This is the safety net for when the rubber band breaks instead of snapping back.",
   },
   {
-    q: "How does settlement work?",
-    a: "At the contract's close time, the bot compares the final spot price against the strike or range. If you bought YES on 'BTC between $84K-$86K' and spot is $85,500 at expiry, you win — the $1 contract pays out. If spot is $83,000 (below the range), you lose. Most positions resolve in 15-60 minutes.",
+    q: "What does the z-score on the dashboard mean?",
+    a: "The z-score tells you how far the current price is from 'normal.' Zero means price is at the average. Negative means below average (potentially a buying opportunity). Positive means above average. The bot buys at -2.0 or lower — this means the price has dropped to a level that only happens ~2.3% of the time statistically. The more negative, the more oversold.",
   },
   {
     q: "Can I lose money?",
-    a: "Yes. Even at 97% win probability, 3% of trades will lose. That's the nature of probability — sigma distance measures likelihood, not certainty. A sudden 5% BTC wick (the 'fat tail') can breach even a 3σ boundary. This is why position sizing and risk controls exist: you win most trades by small amounts and occasionally lose one. Over time, the expected value is positive.",
+    a: "Yes. Mean reversion works most of the time in range-bound markets, but markets can trend in one direction for extended periods. If Bitcoin crashes 20% and keeps going, the stop-loss limits each trade to a 3% loss, but multiple trades can still add up. The daily loss limit acts as a final circuit breaker. Always start with paper mode and small position sizes.",
   },
   {
     q: "What's the difference between paper and live mode?",
-    a: "Paper mode simulates everything — fills against real ask prices, settlement against real spot at expiry. No real money at risk. Live mode places actual Kalshi orders using your API keys. Use paper mode to verify the strategy works before committing capital.",
+    a: "Paper mode simulates everything against real market prices but never touches real money. It's a sandbox. Live mode places actual buy and sell orders on Coinbase — real money is at risk. Paper mode is for learning and testing. Switch to live only when you understand the behavior and are comfortable with the risk.",
   },
   {
-    q: "Why do I need Kalshi API keys?",
-    a: "API keys are needed for live trading — they allow the bot to place and manage orders on your behalf. They use RSA signing for security and are stored server-side. Generate them at kalshi.com under Account → API Keys. The bot also uses them to display your Kalshi account balance.",
+    q: "What pairs should I trade?",
+    a: "Start with the defaults: BTC-USD and ETH-USD. They're the most liquid pairs on Coinbase, which means tighter spreads and less slippage. Mean reversion works best on liquid, volatile, range-bound assets. You can add others (SOL-USD, AVAX-USD, etc.) but smaller coins have wider spreads and can trend harder.",
   },
   {
-    q: "How are Kalshi fees calculated?",
-    a: "Kalshi charges 7% of profit per contract, with a 2¢ minimum. If you buy at 90¢ and win (payout 100¢), profit is 10¢, fee is max(2, 10×0.07) = 2¢, net = 8¢. On a losing trade (profit = 0), there's no fee. The bot accounts for this in every expected value calculation.",
+    q: "What are the fees?",
+    a: "Coinbase Advanced Trade charges ~0.6% per market order (taker fee) below $10K monthly volume. Since the bot buys and sells, that's ~1.2% round trip. This means a trade needs to capture at least a 1.2% move to break even after fees. The bot targets z-score moves of 2+ standard deviations, which in volatile crypto markets typically correspond to moves well above 1.2%.",
   },
   {
-    q: "Why did you switch from the old BSM model to settlement arb?",
-    a: "The old model used Black-Scholes with Deribit implied volatility to compute 'fair' probabilities. But implied volatility is systematically 10-30 points higher than what actually happens — option sellers charge a premium for tail risk. This created phantom edges: the model thought it found underpriced contracts, but the market was right and the model was wrong. Settlement arb avoids this entirely — no probability model, no IV dependency.",
+    q: "How do I set up my Coinbase API keys?",
+    a: "Go to coinbase.com, navigate to Settings > API, and create a new CDP API key. Select 'Trading' permissions. You'll receive an API key name (starts with 'organizations/...') and a private key in PEM format. Paste both into the Settings page here. The bot will validate them automatically.",
   },
   {
-    q: "How does the bot protect against big losses?",
-    a: "Three layers: (1) Max exposure caps total capital in open positions. (2) The daily loss circuit breaker pauses all trading if realized losses exceed your limit. (3) Per-ticker cooldowns prevent re-entering a contract you just lost on. Plus, settlement arb's high win rate means you're taking many small wins and occasional small losses — there shouldn't be 'big' losses unless you size positions too aggressively.",
+    q: "What if the bot buys and the price keeps dropping?",
+    a: "The stop loss catches this. If the position loses more than 3% (configurable), it automatically sells to limit the damage. Without a stop loss, a mean-reversion bet can turn into a large loss if the market trends instead of reverting. The stop loss is your emergency exit.",
   },
   {
-    q: "What's the difference between the near-expiry table and the signals table?",
-    a: "The near-expiry table (top) shows contracts the scanner found that expire within 2 hours — these are candidates the bot is evaluating. The signals table (bottom) shows actual trades the bot placed. Think of the near-expiry table as your 'watch list' and the signals table as your 'trade history.'",
+    q: "How should I tune the parameters?",
+    a: "Start with defaults and watch for a week in paper mode. If you want fewer but higher-conviction trades, make the entry z-score more negative (e.g., -2.5). If you want to capture more of each bounce, set the exit z-score above 0 (e.g., 0.5) — but the trade stays open longer. Increase the lookback period for smoother signals, decrease it for faster reactions. Never increase position size beyond what you're willing to lose.",
   },
   {
-    q: "How many trades should I expect?",
-    a: "Settlement arb is naturally low-frequency. Expect 2-8 signals per day across all BTC and ETH contracts. This isn't a high-frequency strategy — it's about finding specific moments where market prices lag reality. Each trade resolves in 15-60 minutes, so capital turns over quickly.",
+    q: "Why did the bot not buy during a dip?",
+    a: "Several possible reasons: (1) The z-score didn't reach the entry threshold — the dip wasn't statistically extreme enough. (2) A position is already open for that pair. (3) Max open positions reached. (4) Daily loss limit was hit. (5) Rate limit (max signals per hour). Check the dashboard for current z-scores and the settings page for your limits.",
   },
   {
-    q: "What are the three strategies in settings?",
-    a: "Settlement Arb is the primary strategy described above. Naive NO is a baseline control — it buys NO on any range contract under 8¢ with no model at all, to test if the alpha is structural. BSM Model (V1) is the old Black-Scholes approach kept for historical comparison. Only one is active at a time.",
-  },
-  {
-    q: "Where do prices and volatility data come from?",
-    a: "Spot BTC and ETH prices stream in real-time from Binance via websocket. Realized volatility is computed from Binance 1-hour klines at 1-minute granularity. Contract data (strikes, prices, close times) comes from Kalshi's public API.",
+    q: "Is this guaranteed to make money?",
+    a: "No. No trading strategy is. Mean reversion has a statistical edge in range-bound markets, but crypto can trend violently in one direction. Black swan events, exchange outages, and flash crashes can all cause losses beyond what the stop loss targets. Only trade with money you can afford to lose.",
   },
 ];
 
@@ -85,16 +132,23 @@ export default function ResourcesPage() {
     <div className="space-y-8 max-w-3xl">
       <h2 className="text-2xl font-bold text-white">Resources</h2>
 
-      <section className="space-y-4">
+      <section className="space-y-6">
         <h3 className="text-lg font-semibold text-white">Glossary</h3>
-        <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
-          {glossary.map((g) => (
-            <div key={g.term} className="px-5 py-3">
-              <dt className="text-sm font-medium text-emerald-400">{g.term}</dt>
-              <dd className="text-sm text-slate-400 mt-0.5">{g.definition}</dd>
+        {sections.map((section) => (
+          <div key={section.heading}>
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-2 px-1">
+              {section.heading}
+            </h4>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl divide-y divide-slate-800">
+              {section.terms.map((g) => (
+                <div key={g.term} className="px-5 py-3">
+                  <dt className="text-sm font-medium text-white">{g.term}</dt>
+                  <dd className="text-sm text-slate-400 mt-0.5">{g.definition}</dd>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </section>
 
       <section className="space-y-4">
