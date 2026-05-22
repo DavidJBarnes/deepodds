@@ -284,7 +284,7 @@ export default function SettingsPage() {
                     value={config.settlement_arb_max_minutes}
                     onChange={(v) => setConfig({ ...config, settlement_arb_max_minutes: v })}
                     onBlur={() => saveConfig({ settlement_arb_max_minutes: config.settlement_arb_max_minutes })}
-                    step={5} min={1} max={240}
+                    step={5} min={1} max={480}
                   />
                   <ConfigField
                     label="Min Sigma Distance"
@@ -412,6 +412,57 @@ export default function SettingsPage() {
                   step={1} min={0} max={1000}
                 />
               </div>
+            </div>
+
+            {/* Polymarket — neg-risk arb */}
+            <div className="border-t border-slate-800 pt-4">
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="text-sm font-semibold text-purple-400">Polymarket Neg-Risk Arb</h4>
+                <button
+                  onClick={() => saveConfig({ polymarket_enabled: !config.polymarket_enabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    config.polymarket_enabled ? "bg-purple-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                    config.polymarket_enabled ? "translate-x-5" : ""
+                  }`} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Multi-outcome markets where prices must sum to $1.00. Buy/short all outcomes when sum diverges.
+              </p>
+              {config.polymarket_enabled && (
+                <div className="grid grid-cols-2 gap-4">
+                  <ConfigField
+                    label="Min Edge"
+                    description="Minimum divergence from $1.00 to enter (in cents). 3c = sum ≥ $1.03 or ≤ $0.97."
+                    suffix="cents"
+                    value={config.polymarket_min_edge_cents}
+                    onChange={(v) => setConfig({ ...config, polymarket_min_edge_cents: v })}
+                    onBlur={() => saveConfig({ polymarket_min_edge_cents: config.polymarket_min_edge_cents })}
+                    step={0.5} min={0.5} max={50}
+                  />
+                  <ConfigField
+                    label="Max Exposure"
+                    description="Maximum capital in polymarket positions."
+                    prefix="$"
+                    value={config.polymarket_max_exposure_cents / 100}
+                    onChange={(v) => setConfig({ ...config, polymarket_max_exposure_cents: Math.round(v * 100) })}
+                    onBlur={() => saveConfig({ polymarket_max_exposure_cents: config.polymarket_max_exposure_cents })}
+                    step={1} min={1} max={1000}
+                  />
+                  <ConfigField
+                    label="Min Liquidity"
+                    description="Minimum combined liquidity across all outcomes to consider."
+                    prefix="$"
+                    value={config.polymarket_min_liquidity}
+                    onChange={(v) => setConfig({ ...config, polymarket_min_liquidity: v })}
+                    onBlur={() => saveConfig({ polymarket_min_liquidity: config.polymarket_min_liquidity })}
+                    step={100} min={0} max={10000}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}

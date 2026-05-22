@@ -11,6 +11,7 @@ from app.models.bot_config import BotConfig
 from app.models.user import User
 from app.services.kalshi_client import KalshiClient
 from app.services.market_scanner import prune_settled_batch, scan_opportunities
+from app.services.polymarket_scanner import scan_polymarket
 from app.services.signal_engine import (
     check_take_profits,
     evaluate_naive_no,
@@ -38,6 +39,19 @@ def _scanner_kalshi() -> KalshiClient | None:
         if not user:
             return None
         return KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+
+
+def _run_polymarket_scan_sync() -> int:
+    """Discover Polymarket neg-risk opportunities."""
+    with Session(_sync_engine) as session:
+        try:
+            count = run_async(scan_polymarket(session))
+            if count:
+                logger.info("Polymarket scan: %d opportunities", count)
+            return count
+        except Exception:
+            logger.exception("Polymarket scan failed")
+            return 0
 
 
 def _run_scan_sync() -> int:
@@ -180,6 +194,7 @@ async def start_scheduler():
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_scan_sync)
+                await asyncio.to_thread(_run_polymarket_scan_sync)
                 await asyncio.to_thread(_run_evaluate_all_sync)
                 await asyncio.to_thread(_run_process_paper_sync)
             except Exception:

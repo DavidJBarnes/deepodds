@@ -14,7 +14,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"near-expiry" | "signals">("near-expiry");
+  const [tab, setTab] = useState<"near-expiry" | "polymarket" | "signals">("near-expiry");
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -59,6 +59,8 @@ export default function DashboardPage() {
     const diff = new Date(o.close_time).getTime() - Date.now();
     return diff > 0 && diff < 2 * 60 * 60 * 1000;
   }).length;
+
+  const polymarketCount = dashboard.opportunities.filter((o) => o.source === "polymarket").length;
 
   return (
     <div className="space-y-6">
@@ -116,6 +118,16 @@ export default function DashboardPage() {
           Near-Expiry ({nearExpiryCount})
         </button>
         <button
+          onClick={() => setTab("polymarket")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "polymarket"
+              ? "text-purple-400 border-b-2 border-purple-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          Polymarket ({polymarketCount})
+        </button>
+        <button
           onClick={() => setTab("signals")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             tab === "signals"
@@ -127,9 +139,13 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {tab === "near-expiry" ? (
-        <OpportunityList opportunities={dashboard.opportunities} />
-      ) : (
+      {tab === "near-expiry" && (
+        <OpportunityList opportunities={dashboard.opportunities.filter((o) => o.source !== "polymarket")} />
+      )}
+      {tab === "polymarket" && (
+        <OpportunityList opportunities={dashboard.opportunities.filter((o) => o.source === "polymarket")} />
+      )}
+      {tab === "signals" && (
         <SignalTable signals={dashboard.recent_signals} />
       )}
     </div>

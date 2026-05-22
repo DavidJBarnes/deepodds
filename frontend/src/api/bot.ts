@@ -62,9 +62,11 @@ export interface Signal {
 }
 
 export interface Opportunity {
+  source: string;
   ticker: string;
   asset: string;
   title: string;
+  subtitle: string | null;
   strike_price: number | null;
   cap_strike: number | null;
   spot_price: number | null;
@@ -75,6 +77,7 @@ export interface Opportunity {
   model_prob: number | null;
   model_fair_cents: number | null;
   model_edge_cents: number | null;
+  edge_direction: string | null;
   liquidity: number;
   close_time: string | null;
   strike_type: string | null;
@@ -117,6 +120,10 @@ export interface BotConfig {
   settlement_arb_regime_filter: boolean;
   settlement_arb_min_fear_greed: number;
   max_portfolio_risk_cents: number;
+  polymarket_enabled: boolean;
+  polymarket_min_edge_cents: number;
+  polymarket_max_exposure_cents: number;
+  polymarket_min_liquidity: number;
 }
 
 export interface DailyPnLPoint {

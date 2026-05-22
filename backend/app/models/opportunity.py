@@ -12,6 +12,7 @@ class Opportunity(Base):
     __tablename__ = "opportunities"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source: Mapped[str] = mapped_column(String(16), default="kalshi")
     event_ticker: Mapped[str] = mapped_column(String(64), index=True)
     ticker: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     title: Mapped[str] = mapped_column(Text)

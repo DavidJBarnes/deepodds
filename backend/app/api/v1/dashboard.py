@@ -190,8 +190,8 @@ async def get_dashboard(
         .where(
             (Opportunity.close_time.is_(None)) | (Opportunity.close_time > now_iso)
         )
-        .order_by(Opportunity.close_time.asc().nullslast())
-        .limit(30)
+        .order_by(Opportunity.source.desc(), Opportunity.close_time.asc().nullslast())
+        .limit(50)
     )).scalars().all()
 
     opportunities = []
@@ -241,8 +241,11 @@ async def get_dashboard(
             except Exception:
                 pass
 
+        edge_cents = o.model_edge_cents if o.source == "kalshi" else (o.edge or 0)
+
         opportunities.append(OpportunitySummary(
-            ticker=o.ticker, asset=o.asset, title=o.title,
+            source=o.source, ticker=o.ticker, asset=o.asset, title=o.title,
+            subtitle=o.subtitle,
             strike_price=o.strike_price, cap_strike=o.cap_strike,
             strike_type=o.strike_type,
             spot_price=o.spot_price,
@@ -250,7 +253,8 @@ async def get_dashboard(
             yes_ask=o.yes_ask, no_ask=o.no_ask,
             model_prob=o.model_prob,
             model_fair_cents=o.model_fair_cents,
-            model_edge_cents=o.model_edge_cents,
+            model_edge_cents=edge_cents,
+            edge_direction=o.edge_direction,
             liquidity=o.liquidity, close_time=o.close_time,
             sigma_distance=round(abs(sigma), 2) if sigma is not None else None,
             discount_cents=round(discount, 1) if discount else None,

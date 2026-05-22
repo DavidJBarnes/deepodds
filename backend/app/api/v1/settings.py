@@ -69,6 +69,10 @@ def _config_response(config: BotConfig) -> BotConfigResponse:
         settlement_arb_regime_filter=config.settlement_arb_regime_filter,
         settlement_arb_min_fear_greed=config.settlement_arb_min_fear_greed,
         max_portfolio_risk_cents=config.max_portfolio_risk_cents,
+        polymarket_enabled=config.polymarket_enabled,
+        polymarket_min_edge_cents=config.polymarket_min_edge_cents,
+        polymarket_max_exposure_cents=config.polymarket_max_exposure_cents,
+        polymarket_min_liquidity=config.polymarket_min_liquidity,
     )
 
 
