@@ -1,3 +1,5 @@
+import type { ScannerHealth } from "@/api/bot";
+
 function formatTime(d: Date) {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
@@ -7,12 +9,17 @@ interface Props {
   lastRefreshed: Date | null;
   countdown: number;
   onRefresh: () => void;
+  scannerHealth: ScannerHealth | null;
 }
 
-export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRefresh }: Props) {
+export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRefresh, scannerHealth }: Props) {
+  const scannerDead = !scannerHealth;
+  const scannerStale = scannerHealth && (Date.now() - new Date(scannerHealth.last_scan).getTime() > 120_000);
+  const scannerError = scannerHealth?.error;
+
   return (
-    <div className="flex items-center justify-between text-xs text-slate-500">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center gap-3">
         {refreshing && (
           <span className="flex items-center gap-1.5 text-emerald-400">
             <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -23,11 +30,28 @@ export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRef
           </span>
         )}
         {!refreshing && lastRefreshed && (
-          <span>Updated {formatTime(lastRefreshed)}</span>
+          <span className="text-slate-500">Updated {formatTime(lastRefreshed)}</span>
+        )}
+
+        {/* Scanner health — integrated, not a separate bar */}
+        {scannerDead && (
+          <span className="text-red-400">Scanner offline</span>
+        )}
+        {scannerStale && !scannerDead && (
+          <span className="text-amber-400">Scanner stale</span>
+        )}
+        {!scannerDead && !scannerStale && scannerHealth && (
+          <span className="text-slate-500">
+            {scannerHealth.opportunities} contracts
+            {!scannerHealth.keys_valid && <span className="text-amber-400 ml-1">· keys invalid</span>}
+          </span>
+        )}
+        {scannerError && (
+          <span className="text-red-400 truncate max-w-xs" title={scannerError}>{scannerError}</span>
         )}
       </div>
       <div className="flex items-center gap-3">
-        <span className="tabular-nums">
+        <span className="tabular-nums text-slate-500">
           Next refresh in {countdown}s
         </span>
         <button
