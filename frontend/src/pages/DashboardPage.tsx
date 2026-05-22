@@ -6,7 +6,6 @@ import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
 import OpportunityList from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
-import ScannerHealthBar from "@/components/ScannerHealthBar";
 import RefreshBar from "@/components/RefreshBar";
 
 const REFRESH_INTERVAL = 60;
@@ -68,6 +67,7 @@ export default function DashboardPage() {
         lastRefreshed={lastRefreshed}
         countdown={countdown}
         onRefresh={refresh}
+        scannerHealth={dashboard.scanner_health}
       />
 
       {needsSetup && (
@@ -101,7 +101,6 @@ export default function DashboardPage() {
       )}
 
       <BotStatusBar status={status} />
-      <ScannerHealthBar health={dashboard.scanner_health} />
       <StatsCard stats={dashboard.stats} />
       <PnLChart />
 
