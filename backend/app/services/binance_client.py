@@ -6,47 +6,6 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
-async def get_metals_prices() -> dict[str, float]:
-    """Fetch gold and silver spot prices from free APIs."""
-    async with httpx.AsyncClient(timeout=10) as client:
-        # Try metals.live first (free, no key)
-        try:
-            resp = await client.get("https://api.metals.live/v1/spot")
-            resp.raise_for_status()
-            data = resp.json()
-            result = {}
-            for item in data:
-                if item.get("currency") == "USD":
-                    metal = item.get("metal", "").upper()
-                    if metal in ("GOLD", "SILVER"):
-                        result[metal] = float(item["price"])
-            if result:
-                return result
-        except Exception:
-            pass
-
-        # Fallback: try exchangerate API
-        try:
-            resp = await client.get(
-                "https://api.exchangerate-api.com/v4/latest/USD"
-            )
-            resp.raise_for_status()
-            rates = resp.json().get("rates", {})
-            result = {}
-            # XAU = gold (troy ounce), XAG = silver (troy ounce)
-            # These are inverse: 1 USD = X/XAU, so price = 1 / rate
-            if "XAU" in rates:
-                result["GOLD"] = 1.0 / float(rates["XAU"])
-            if "XAG" in rates:
-                result["SILVER"] = 1.0 / float(rates["XAG"])
-            return result
-        except Exception:
-            pass
-
-        logger.warning("All metals price sources failed")
-        return {}
-
-
 async def get_crypto_prices() -> dict[str, float]:
     async with httpx.AsyncClient(timeout=10) as client:
         try:

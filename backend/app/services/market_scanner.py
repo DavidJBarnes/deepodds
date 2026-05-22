@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.opportunity import Opportunity
-from app.services.binance_client import get_crypto_prices, get_fear_greed, get_metals_prices, get_realized_vol
+from app.services.binance_client import get_crypto_prices, get_fear_greed, get_realized_vol
 from app.services.deribit_client import get_iv_surface
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, prob_above, prob_below, prob_between, time_to_expiry
@@ -17,28 +17,16 @@ logger = logging.getLogger(__name__)
 CRYPTO_SERIES = [
     "KXBTC", "KXBTCD",   # Bitcoin
     "KXETH", "KXETHD",   # Ethereum
-    "KXSOL", "KXSOLD",   # Solana
     "KXXRP", "KXXRPD",   # XRP
     "KXDOGE", "KXDOGED", # Dogecoin
-    "KXGOLD", "KXGOLDD", # Gold
-    "KXSILVER",           # Silver
 ]
 
 # Map Kalshi series prefixes to asset symbols
 SERIES_ASSET_MAP = {
     "KXBTC": "BTC", "KXBTCD": "BTC",
     "KXETH": "ETH", "KXETHD": "ETH",
-    "KXSOL": "SOL", "KXSOLD": "SOL",
     "KXXRP": "XRP", "KXXRPD": "XRP",
     "KXDOGE": "DOGE", "KXDOGED": "DOGE",
-    "KXGOLD": "GOLD", "KXGOLDD": "GOLD",
-    "KXSILVER": "SILVER",
-}
-
-# Default realized volatilities for assets without Binance klines
-DEFAULT_VOLS = {
-    "GOLD": 0.18,   # ~18% annualized
-    "SILVER": 0.30, # ~30% annualized
 }
 
 STRIKE_RE = re.compile(r"[\$]?([\d,]+(?:\.\d+)?)")
@@ -188,45 +176,29 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
         prices = {}
 
     try:
-        metals = await get_metals_prices()
-        prices.update(metals)
-    except Exception:
-        logger.warning("Failed to fetch metals prices")
-
-    try:
         fg = await get_fear_greed()
     except Exception:
         fg = {"value": 50, "label": "Neutral"}
 
     iv_surfaces: dict[str, dict] = {}
     realized_vols: dict[str, float | None] = {}
-    for currency in ("BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD", "SILVER"):
-        # IV surfaces only available from Deribit (crypto only)
-        if currency in ("BTC", "ETH"):
-            try:
-                iv_surfaces[currency] = await get_iv_surface(currency)
-            except Exception:
-                logger.warning("Failed to fetch IV surface for %s", currency)
-                iv_surfaces[currency] = {}
-        else:
+    for currency in ("BTC", "ETH", "SOL", "XRP", "DOGE"):
+        try:
+            iv_surfaces[currency] = await get_iv_surface(currency)
+        except Exception:
+            logger.warning("Failed to fetch IV surface for %s", currency)
             iv_surfaces[currency] = {}
-
-        # Realized vol: Binance klines for crypto, defaults for metals
-        if currency in DEFAULT_VOLS:
-            realized_vols[currency] = DEFAULT_VOLS[currency]
-            logger.info("Using default vol for %s: %.0f%%", currency, DEFAULT_VOLS[currency] * 100)
-        else:
-            try:
-                base_vol = await get_realized_vol(currency, hours=24, interval="5m")
-                recent_vol = await get_realized_vol(currency, hours=4, interval="1m")
-                if base_vol and recent_vol:
-                    regime_ratio = recent_vol / base_vol
-                    realized_vols[currency] = base_vol * min(regime_ratio, 1.5)
-                else:
-                    realized_vols[currency] = base_vol or recent_vol
-            except Exception:
-                logger.warning("Failed to fetch realized vol for %s", currency)
-                realized_vols[currency] = None
+        try:
+            base_vol = await get_realized_vol(currency, hours=24, interval="5m")
+            recent_vol = await get_realized_vol(currency, hours=4, interval="1m")
+            if base_vol and recent_vol:
+                regime_ratio = recent_vol / base_vol
+                realized_vols[currency] = base_vol * min(regime_ratio, 1.5)
+            else:
+                realized_vols[currency] = base_vol or recent_vol
+        except Exception:
+            logger.warning("Failed to fetch realized vol for %s", currency)
+            realized_vols[currency] = None
 
     upserted = 0
 
