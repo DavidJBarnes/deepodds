@@ -381,7 +381,6 @@ async def scan_opportunities(kalshi: KalshiClient, session: Session) -> int:
 
         session.commit()
 
-    _prune_settled(session)
     return upserted
 
 
@@ -413,29 +412,41 @@ def _pick_best_contracts(markets: list[dict], spot: float | None, top_n: int = 3
     return [m for _, m in scored[:top_n]]
 
 
-def _prune_settled(session: Session):
-    from sqlalchemy import exists, update
+def prune_settled_batch(session: Session) -> int:
+    """Bulk-prune expired opportunities that have no open signals.
+
+    Uses a single LEFT JOIN + WHERE NULL query instead of N+1 subqueries.
+    Call this from the settlement task (every 5 min), not from the scanner.
+    """
+    from sqlalchemy import and_, delete, update
     from app.models.signal import Signal
 
     OPEN_STATUSES = ("signaled", "placed", "filled")
-    now = datetime.now(timezone.utc)
-    all_opps = session.execute(select(Opportunity)).scalars().all()
-    for opp in all_opps:
-        expired = opp.close_time and datetime.fromisoformat(opp.close_time.replace("Z", "+00:00")) < now
-        dead = opp.quality == "low" and opp.volume == 0 and opp.liquidity == 0
-        if expired or dead:
-            has_open = session.execute(
-                select(exists().where(
-                    Signal.ticker == opp.ticker,
-                    Signal.status.in_(OPEN_STATUSES),
-                ))
-            ).scalar()
-            if has_open:
-                continue
-            session.execute(
-                update(Signal)
-                .where(Signal.opportunity_id == opp.id)
-                .values(opportunity_id=None)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    dead_opp_ids = session.execute(
+        select(Opportunity.id).outerjoin(
+            Signal,
+            and_(
+                Signal.opportunity_id == Opportunity.id,
+                Signal.status.in_(OPEN_STATUSES),
+            ),
+        ).where(
+            and_(
+                Opportunity.close_time.isnot(None),
+                Opportunity.close_time < now_iso,
+                Signal.id.is_(None),
             )
-            session.delete(opp)
+        )
+    ).scalars().all()
+
+    if dead_opp_ids:
+        session.execute(
+            update(Signal)
+            .where(Signal.opportunity_id.in_(dead_opp_ids))
+            .values(opportunity_id=None)
+        )
+        session.execute(delete(Opportunity).where(Opportunity.id.in_(dead_opp_ids)))
+
     session.commit()
+    return len(dead_opp_ids)

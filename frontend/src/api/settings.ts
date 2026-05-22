@@ -34,29 +34,6 @@ export async function getKalshiBalance() {
   return data;
 }
 
-export interface CoinbaseKeysStatus {
-  has_keys: boolean;
-  key_preview: string | null;
-}
-
-export async function getCoinbaseKeysStatus() {
-  const { data } = await client.get<CoinbaseKeysStatus>("/settings/coinbase-keys");
-  return data;
-}
-
-export async function updateCoinbaseKeys(apiKey: string, apiSecret: string) {
-  const { data } = await client.put<CoinbaseKeysStatus>("/settings/coinbase-keys", {
-    api_key: apiKey,
-    api_secret: apiSecret,
-  });
-  return data;
-}
-
-export async function deleteCoinbaseKeys() {
-  const { data } = await client.delete<CoinbaseKeysStatus>("/settings/coinbase-keys");
-  return data;
-}
-
 export async function resetData() {
   const { data } = await client.post<{ status: string; cleared: string[] }>("/settings/reset-data");
   return data;

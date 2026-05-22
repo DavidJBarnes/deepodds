@@ -1,12 +1,13 @@
-import asyncio
 import logging
 import math
+import time
 from datetime import date, datetime, timedelta, timezone
 
 from scipy.stats import norm
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.async_util import run_async
 from app.models.bot_config import BotConfig
 from app.models.opportunity import Opportunity
 from app.models.signal import Signal
@@ -54,8 +55,8 @@ def _tier_limits(config: BotConfig, tier: str) -> tuple[int, int]:
 def _estimate_fee(entry_price: int, exit_price: int, quantity: int) -> int:
     profit_per_contract = exit_price - entry_price
     if profit_per_contract <= 0:
-        return KALSHI_MIN_FEE_CENTS * quantity
-    fee_per_contract = max(KALSHI_MIN_FEE_CENTS, int(profit_per_contract * KALSHI_FEE_RATE))
+        return 0
+    fee_per_contract = max(KALSHI_MIN_FEE_CENTS, math.ceil(profit_per_contract * KALSHI_FEE_RATE))
     return fee_per_contract * quantity
 
 
@@ -405,7 +406,7 @@ def evaluate_opportunities(user_id, session: Session, kalshi: KalshiClient | Non
 
         if config.mode == "live" and kalshi:
             try:
-                result = asyncio.run(kalshi.place_order(opp.ticker, side, "buy", limit_price, quantity))
+                result = run_async(kalshi.place_order(opp.ticker, side, "buy", limit_price, quantity))
                 signal.kalshi_order_id = result.get("order", {}).get("order_id")
                 signal.status = "placed"
                 logger.info("Live order placed: %s %s @ %d¢ x%d", opp.ticker, side, limit_price, quantity)
@@ -607,7 +608,7 @@ def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
         kalshi_result = None
         if kalshi:
             try:
-                market = asyncio.run(kalshi.get_market(sig.ticker))
+                market = run_async(kalshi.get_market(sig.ticker))
                 mkt = market.get("market", market)
                 if mkt.get("status") in ("closed", "settled", "finalized"):
                     kalshi_result = mkt.get("result")
@@ -678,7 +679,7 @@ def sync_live_orders(session: Session, user_id, kalshi: "KalshiClient") -> dict:
 
     for sig in live_signals:
         try:
-            order = asyncio.run(kalshi.get_order(sig.kalshi_order_id))
+            order = run_async(kalshi.get_order(sig.kalshi_order_id))
         except Exception:
             logger.warning("Failed to fetch order %s for %s", sig.kalshi_order_id, sig.ticker)
             continue
@@ -708,7 +709,7 @@ def sync_live_orders(session: Session, user_id, kalshi: "KalshiClient") -> dict:
             continue
 
         try:
-            market = asyncio.run(kalshi.get_market(sig.ticker))
+            market = run_async(kalshi.get_market(sig.ticker))
         except Exception:
             logger.warning("Failed to fetch market %s", sig.ticker)
             continue
@@ -774,7 +775,14 @@ def _sigma_distance(
 
     Returns sigma distance. Values < 0 mean the contract is out of the money.
     """
-    if not spot or spot <= 0 or not realized_vol or realized_vol <= 0 or minutes_left <= 0:
+    if not spot or spot <= 0:
+        logger.debug("_sigma_distance: invalid spot=%s", spot)
+        return 0.0
+    if not realized_vol or realized_vol <= 0:
+        logger.debug("_sigma_distance: invalid realized_vol=%s", realized_vol)
+        return 0.0
+    if minutes_left <= 0:
+        logger.debug("_sigma_distance: invalid minutes_left=%s", minutes_left)
         return 0.0
 
     # Expected fractional move over remaining time: vol * sqrt(T)
@@ -803,12 +811,73 @@ def _net_win_cents(entry_cents: int) -> int:
     Kalshi charges 7% of profit, minimum 2c per contract.
     For a contract bought at P cents that settles at $1.00 (100c):
       profit = 100 - P
-      fee = max(2, floor(0.07 * profit))
+      fee = max(2, ceil(0.07 * profit))
       net = 100 - fee
     """
     profit = 100 - entry_cents
-    fee = max(KALSHI_MIN_FEE_CENTS, int(profit * KALSHI_FEE_RATE))
+    fee = max(KALSHI_MIN_FEE_CENTS, math.ceil(profit * KALSHI_FEE_RATE))
     return 100 - fee
+
+
+# Volatility cache shared across users in the same scan cycle.
+# Key: asset symbol, Value: (annualized_vol, cache_timestamp)
+_vol_cache: dict[str, tuple[float, float]] = {}
+_VOL_CACHE_TTL = 60  # seconds — one scanner cycle
+
+
+def _cached_realized_vol(asset: str) -> float:
+    now = time.time()
+    entry = _vol_cache.get(asset)
+    if entry is not None and now - entry[1] < _VOL_CACHE_TTL:
+        return entry[0]
+    try:
+        rv = run_async(get_realized_vol(asset, hours=1, interval="1m"))
+    except Exception:
+        logger.warning("Failed to fetch realized vol for %s, using default", asset)
+        rv = None
+    if rv is None or rv <= 0:
+        rv = 0.65
+    _vol_cache[asset] = (rv, now)
+    return rv
+
+
+def _latest_fear_greed(session: Session) -> int | None:
+    """Return the most recent Fear & Greed value from scanned opportunities."""
+    result = session.execute(
+        select(Opportunity.fear_greed_value)
+        .where(Opportunity.fear_greed_value.isnot(None))
+        .order_by(Opportunity.last_scanned_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return result
+
+
+def _portfolio_correlated_risk(session: Session, user_id, target_asset: str) -> float:
+    """Compute total correlated risk across all open positions for the target asset.
+
+    Positions on the same underlying (e.g., all KXBTC contracts) have
+    correlation ~1.0 because they all flip together if spot moves sharply.
+    Positions on different assets (e.g., KXBTC vs KXETH) assume ~0.3
+    cross-correlation, which is conservative for crypto assets that tend
+    to move together during macro events.
+
+    Returns total correlated risk in cents.
+    """
+    open_signals = session.execute(
+        select(Signal).where(
+            Signal.user_id == user_id,
+            Signal.status.in_(OPEN_STATUSES),
+        )
+    ).scalars().all()
+
+    total_risk = 0.0
+    for sig in open_signals:
+        asset_prefix = _detect_asset_prefix(sig.ticker)
+        correlation = 1.0 if asset_prefix == target_asset else 0.3
+        contract_risk = sig.cost_cents / sig.quantity if sig.quantity else sig.limit_price_cents
+        total_risk += correlation * contract_risk * sig.quantity
+
+    return total_risk
 
 
 def evaluate_settlement_arb(
@@ -857,6 +926,17 @@ def evaluate_settlement_arb(
             )
             return []
 
+    # Fear & Greed regime filter — pause during panic/euphoria extremes
+    # where volatility spikes shrink sigma distances below reliable thresholds.
+    if config.settlement_arb_regime_filter:
+        fg_value = _latest_fear_greed(session)
+        if fg_value is not None and fg_value < config.settlement_arb_min_fear_greed:
+            logger.info(
+                "Settlement arb paused: Fear & Greed %d < %d",
+                fg_value, config.settlement_arb_min_fear_greed,
+            )
+            return []
+
     now = datetime.now(timezone.utc)
     max_minutes = config.settlement_arb_max_minutes
     cutoff = now + timedelta(minutes=max_minutes)
@@ -877,19 +957,11 @@ def evaluate_settlement_arb(
     if not opps:
         return []
 
-    # Fetch realized vol once per asset to avoid redundant API calls.
-    # Use 1-hour realized vol at 1-minute granularity for near-expiry contracts.
+    # Fetch realized vol once per asset, cached across users in the scan cycle.
     realized_vols: dict[str, float] = {}
     assets_needed = {opp.asset for opp in opps if opp.asset}
     for asset in assets_needed:
-        try:
-            rv = asyncio.run(get_realized_vol(asset, hours=1, interval="1m"))
-        except Exception:
-            logger.warning("Failed to fetch realized vol for %s, using default", asset)
-            rv = None
-        if rv is None or rv <= 0:
-            # Fallback: use a conservative default (65% annualized for crypto)
-            rv = 0.65
+        rv = _cached_realized_vol(asset)
         realized_vols[asset] = rv
         logger.info("Settlement arb: %s realized vol = %.1f%%", asset, rv * 100)
 
@@ -975,6 +1047,7 @@ def evaluate_settlement_arb(
                 continue
 
         # Position sizing: use a fixed fraction of max position, capped by exposure
+        asset_prefix = _detect_asset_prefix(opp.ticker)
         limit_price = int(market_cents)
         limit_price = max(1, min(99, limit_price))
 
@@ -988,6 +1061,18 @@ def evaluate_settlement_arb(
         quantity = max(1, int(max_qty * kelly_fraction))
 
         cost = limit_price * quantity
+
+        # Portfolio risk gate: prevent overconcentration on a single underlying
+        if config.max_portfolio_risk_cents > 0:
+            correlated_risk = _portfolio_correlated_risk(session, user_id, asset_prefix)
+            if correlated_risk + cost > config.max_portfolio_risk_cents:
+                logger.debug(
+                    "Settlement arb: portfolio risk gate (%dc + %dc = %dc > %dc) for %s",
+                    int(correlated_risk), cost, int(correlated_risk + cost),
+                    config.max_portfolio_risk_cents, opp.ticker,
+                )
+                continue
+
         if current_exposure + cost > config.max_exposure_cents:
             continue
         if config.daily_budget_cents > 0 and daily_spent + cost > config.daily_budget_cents:
@@ -1017,7 +1102,7 @@ def evaluate_settlement_arb(
 
         if config.mode == "live" and kalshi:
             try:
-                result = asyncio.run(
+                result = run_async(
                     kalshi.place_order(opp.ticker, side, "buy", limit_price, quantity)
                 )
                 signal.kalshi_order_id = result.get("order", {}).get("order_id")

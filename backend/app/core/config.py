@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     KALSHI_ENV: Literal["dev", "prod"] = "dev"
     DATABASE_URL: str
     DATABASE_URL_SYNC: str
-    REDIS_URL: str = "redis://localhost:6379/0"
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 1440

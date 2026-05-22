@@ -19,7 +19,7 @@ export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRef
 
   return (
     <div className="flex items-center justify-between text-xs">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {refreshing && (
           <span className="flex items-center gap-1.5 text-emerald-400">
             <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -29,31 +29,23 @@ export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRef
             Refreshing...
           </span>
         )}
-        {!refreshing && lastRefreshed && (
-          <span className="text-slate-500">Updated {formatTime(lastRefreshed)}</span>
-        )}
 
-        {/* Scanner health — integrated, not a separate bar */}
         {scannerDead && (
           <span className="text-red-400">Scanner offline</span>
         )}
         {scannerStale && !scannerDead && (
           <span className="text-amber-400">Scanner stale</span>
         )}
-        {!scannerDead && !scannerStale && scannerHealth && (
-          <span className="text-slate-500">
-            {scannerHealth.opportunities} contracts
-            {!scannerHealth.keys_valid && <span className="text-amber-400 ml-1">· keys invalid</span>}
-          </span>
-        )}
         {scannerError && (
           <span className="text-red-400 truncate max-w-xs" title={scannerError}>{scannerError}</span>
         )}
       </div>
-      <div className="flex items-center gap-3">
-        <span className="tabular-nums text-slate-500">
-          Next refresh in {countdown}s
-        </span>
+      <div className="flex items-center gap-2 text-slate-500">
+        {!refreshing && lastRefreshed && (
+          <span>Updated {formatTime(lastRefreshed)}</span>
+        )}
+        <span aria-hidden="true">·</span>
+        <span className="tabular-nums">Refresh in {countdown}s</span>
         <button
           onClick={onRefresh}
           disabled={refreshing}

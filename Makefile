@@ -1,4 +1,4 @@
-.PHONY: db-up db-down dev-backend dev-frontend dev-worker dev-beat dev migrate migration test lint format
+.PHONY: db-up db-down dev-backend dev-frontend dev migrate migration test lint format
 
 db-up:
 	docker compose up -d
@@ -12,16 +12,9 @@ dev-backend:
 dev-frontend:
 	cd frontend && npm run dev
 
-dev-worker:
-	cd backend && PYTHONPATH=. ./run-celery.sh
-
-dev-beat:
-	cd backend && PYTHONPATH=. uv run celery -A app.celery_app beat --loglevel=info
-
 dev:
-	@echo "Starting all services..."
+	@echo "Starting all services (scheduler runs inside the backend process)..."
 	$(MAKE) db-up
-	$(MAKE) dev-worker &
 	$(MAKE) dev-backend &
 	$(MAKE) dev-frontend
 

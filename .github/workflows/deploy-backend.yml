@@ -13,7 +13,6 @@ env:
   AWS_REGION: us-west-2
   ECR_BACKEND: deepodds-backend
   CONTAINER_API: deepodds-api
-  CONTAINER_WORKER: deepodds-worker
   ENV_FILE: /opt/deepodds/.env
   API_PORT: "8003"
 
@@ -62,8 +61,6 @@ jobs:
               "echo === Stopping old containers ===",
               "docker stop '"$CONTAINER_API"' 2>/dev/null || echo No old API container",
               "docker rm '"$CONTAINER_API"' 2>/dev/null || true",
-              "docker stop '"$CONTAINER_WORKER"' 2>/dev/null || echo No old worker container",
-              "docker rm '"$CONTAINER_WORKER"' 2>/dev/null || true",
               "echo === Freeing disk space ===",
               "docker system prune -af --volumes 2>/dev/null || true",
               "echo === Pulling image ===",
@@ -73,8 +70,7 @@ jobs:
               "docker run --rm --network host --env-file '"$ENV_FILE"' '"$IMAGE"' alembic upgrade head",
               "echo === Starting API container ===",
               "docker run -d --name '"$CONTAINER_API"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' '"$IMAGE"' uvicorn app.main:app --host 127.0.0.1 --port '"$API_PORT"' --proxy-headers --forwarded-allow-ips=*",
-              "echo === Starting Celery worker+beat container ===",
-              "docker run -d --name '"$CONTAINER_WORKER"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' '"$IMAGE"' celery -A app.celery_app worker --beat --loglevel=info --concurrency=2",
+              "echo === Scheduler runs inside the API container ===",
               "echo === Health-checking API ===",
               "for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://127.0.0.1:'"$API_PORT"'/health && echo Health OK && break; echo Attempt $i, waiting 5s...; sleep 5; done",
               "if curl -sf http://127.0.0.1:'"$API_PORT"'/health; then",
@@ -84,9 +80,7 @@ jobs:
               "  echo === FAILED: rolling back to previous image ===",
               "  docker logs --tail 30 '"$CONTAINER_API"' 2>/dev/null",
               "  docker rm -f '"$CONTAINER_API"'",
-              "  docker rm -f '"$CONTAINER_WORKER"'",
               "  docker run -d --name '"$CONTAINER_API"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' 791342033319.dkr.ecr.us-west-2.amazonaws.com/deepodds-backend:latest uvicorn app.main:app --host 127.0.0.1 --port '"$API_PORT"' --proxy-headers --forwarded-allow-ips=*",
-              "  docker run -d --name '"$CONTAINER_WORKER"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' 791342033319.dkr.ecr.us-west-2.amazonaws.com/deepodds-backend:latest celery -A app.celery_app worker --beat --loglevel=info --concurrency=2",
               "  echo === Rollback complete ===",
               "  exit 1",
               "fi",

@@ -257,7 +257,7 @@ async def get_dashboard(
             would_signal=would,
         ))
 
-    # Read scanner health from file (written by celery scanner)
+    # Read scanner health from file (written by the scheduler's scan loop)
     scanner_health = None
     try:
         import json as _json

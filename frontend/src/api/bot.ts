@@ -114,6 +114,9 @@ export interface BotConfig {
   settlement_arb_min_sigma: number;
   settlement_arb_min_discount_cents: number;
   settlement_arb_max_position_cents: number;
+  settlement_arb_regime_filter: boolean;
+  settlement_arb_min_fear_greed: number;
+  max_portfolio_risk_cents: number;
 }
 
 export interface DailyPnLPoint {
