@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import redis
+
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
@@ -257,11 +259,22 @@ async def get_dashboard(
             would_signal=would,
         ))
 
+    import json as _json
+    scanner_health = None
+    try:
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        raw = r.get("scanner:health")
+        if raw:
+            scanner_health = _json.loads(raw)
+    except Exception:
+        pass
+
     return DashboardResponse(
         bot_status=bot_status,
         recent_signals=recent_signals,
         opportunities=opportunities,
         stats=stats,
+        scanner_health=scanner_health,
     )
 
 

@@ -1,6 +1,9 @@
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 
+import redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session as SyncSession
 
@@ -39,22 +42,44 @@ async def _run_scan():
         return 0
 
     # Validate keys — warn if invalid but don't block (network hiccups happen)
+    keys_valid = True
     try:
-        valid = await kalshi.validate()
-        if not valid:
-            logger.warning("Kalshi keys returned invalid — scanning anyway (could be transient)")
+        keys_valid = await kalshi.validate()
+        if not keys_valid:
+            logger.warning("Kalshi keys returned invalid — scanning anyway")
     except Exception:
         logger.warning("Kalshi key validation failed (network?) — scanning anyway")
+        keys_valid = False
 
     engine = create_engine(settings.DATABASE_URL_SYNC)
     session = SyncSession(engine)
+    error_msg = None
+    count = 0
     try:
         count = await scan_opportunities(kalshi, session)
         logger.info("Scanner upserted %d opportunities", count)
-        return count
+    except Exception as e:
+        error_msg = str(e)[:200]
+        logger.exception("Scanner failed")
     finally:
         session.close()
         engine.dispose()
+
+    # Write health to Redis
+    try:
+        r = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        health = {
+            "last_scan": datetime.now(timezone.utc).isoformat(),
+            "opportunities": count,
+            "keys_valid": keys_valid,
+            "error": error_msg,
+        }
+        r.set("scanner:health", json.dumps(health))
+        r.expire("scanner:health", 300)  # TTL 5 min — if no scan in 5 min, consider dead
+    except Exception:
+        pass
+
+    return count
 
 
 @celery.task(name="scan_markets", bind=True, max_retries=0)
