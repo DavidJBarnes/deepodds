@@ -70,6 +70,7 @@ export interface DashboardData {
 export interface ScannerHealth {
   last_scan: string;
   status: string;
+  error?: string;
 }
 
 export interface BotConfig {
