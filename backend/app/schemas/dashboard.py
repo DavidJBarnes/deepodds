@@ -35,9 +35,11 @@ class PaperPnLStats(BaseModel):
 
 
 class OpportunitySummary(BaseModel):
+    source: str = "kalshi"
     ticker: str
     asset: str
     title: str
+    subtitle: str | None = None
     strike_price: float | None = None
     cap_strike: float | None = None
     strike_type: str | None = None
@@ -49,6 +51,7 @@ class OpportunitySummary(BaseModel):
     model_prob: float | None = None
     model_fair_cents: float | None = None
     model_edge_cents: float | None = None
+    edge_direction: str | None = None
     liquidity: float = 0
     close_time: str | None = None
     sigma_distance: float | None = None

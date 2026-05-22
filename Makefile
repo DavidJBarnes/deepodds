@@ -12,11 +12,13 @@ dev-backend:
 dev-frontend:
 	cd frontend && npm run dev
 
+restart:
+	bash scripts/restart.sh
+
 dev:
 	@echo "Starting all services (scheduler runs inside the backend process)..."
 	$(MAKE) db-up
-	$(MAKE) dev-backend &
-	$(MAKE) dev-frontend
+	bash scripts/restart.sh
 
 migrate:
 	cd backend && PYTHONPATH=. uv run alembic upgrade head

@@ -824,19 +824,59 @@ def _net_win_cents(entry_cents: int) -> int:
 _vol_cache: dict[str, tuple[float, float]] = {}
 _VOL_CACHE_TTL = 60  # seconds — one scanner cycle
 
+# Minimum annualized volatility floor per asset. 1-hour realized vol
+# can drop to single digits during quiet periods, which inflates sigma
+# and creates phantom 96% probabilities. Crypto does not go below these floors.
+_MIN_VOL: dict[str, float] = {
+    "BTC": 0.25,
+    "ETH": 0.30,
+    "SOL": 0.40,
+    "XRP": 0.35,
+    "DOGE": 0.45,
+    "GOLD": 0.12,
+    "SILVER": 0.18,
+}
+
 
 def _cached_realized_vol(asset: str) -> float:
+    """Fetch realized vol with a conservative floor and multi-window blend.
+
+    Uses the max of 1h and 24h realized vol to avoid underestimating risk
+    during atypically quiet periods. Falls back to asset-specific floors.
+    """
     now = time.time()
     entry = _vol_cache.get(asset)
     if entry is not None and now - entry[1] < _VOL_CACHE_TTL:
         return entry[0]
+
+    vol_1h = None
+    vol_24h = None
+
     try:
-        rv = run_async(get_realized_vol(asset, hours=1, interval="1m"))
+        vol_1h = run_async(get_realized_vol(asset, hours=1, interval="1m"))
     except Exception:
-        logger.warning("Failed to fetch realized vol for %s, using default", asset)
-        rv = None
-    if rv is None or rv <= 0:
-        rv = 0.65
+        logger.warning("Failed to fetch 1h realized vol for %s", asset)
+
+    try:
+        vol_24h = run_async(get_realized_vol(asset, hours=24, interval="5m"))
+    except Exception:
+        logger.warning("Failed to fetch 24h realized vol for %s", asset)
+
+    floor = _MIN_VOL.get(asset, 0.20)
+
+    # Take the most conservative estimate
+    candidates = [v for v in (vol_1h, vol_24h, floor) if v is not None and v > 0]
+    rv = max(candidates) if candidates else floor
+
+    logger.info(
+        "Vol for %s: 1h=%s 24h=%s floor=%.0f%% → using %.1f%%",
+        asset,
+        f"{vol_1h*100:.1f}%" if vol_1h else "N/A",
+        f"{vol_24h*100:.1f}%" if vol_24h else "N/A",
+        floor * 100,
+        rv * 100,
+    )
+
     _vol_cache[asset] = (rv, now)
     return rv
 
