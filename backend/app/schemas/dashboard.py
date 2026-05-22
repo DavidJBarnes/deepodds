@@ -18,7 +18,7 @@ class BotStatusResponse(BaseModel):
     active_signals: int
     settlement_arb_enabled: bool = False
     settlement_arb_max_minutes: int = 60
-    settlement_arb_min_sigma: float = 1.5
+    settlement_arb_min_sigma: float = 2.0
 
 
 class PaperPnLStats(BaseModel):

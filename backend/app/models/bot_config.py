@@ -47,7 +47,7 @@ class BotConfig(Base):
     spot_cooldown_minutes: Mapped[int] = mapped_column(Integer, default=60)
     settlement_arb_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     settlement_arb_max_minutes: Mapped[int] = mapped_column(Integer, default=60)
-    settlement_arb_min_sigma: Mapped[float] = mapped_column(Float, default=1.5)
+    settlement_arb_min_sigma: Mapped[float] = mapped_column(Float, default=2.0)
     settlement_arb_min_discount_cents: Mapped[int] = mapped_column(Integer, default=5)
     settlement_arb_max_position_cents: Mapped[int] = mapped_column(Integer, default=5000)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
