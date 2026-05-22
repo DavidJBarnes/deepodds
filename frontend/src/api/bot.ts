@@ -88,6 +88,14 @@ export interface DashboardData {
   recent_signals: Signal[];
   opportunities: Opportunity[];
   stats: PnLStats;
+  scanner_health: ScannerHealth | null;
+}
+
+export interface ScannerHealth {
+  last_scan: string;
+  opportunities: number;
+  keys_valid: boolean;
+  error: string | null;
 }
 
 export interface BotConfig {

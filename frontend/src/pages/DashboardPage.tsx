@@ -67,6 +67,7 @@ export default function DashboardPage() {
         lastRefreshed={lastRefreshed}
         countdown={countdown}
         onRefresh={refresh}
+        scannerHealth={dashboard.scanner_health}
       />
 
       {needsSetup && (

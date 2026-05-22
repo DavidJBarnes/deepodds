@@ -13,7 +13,7 @@ dev-frontend:
 	cd frontend && npm run dev
 
 dev-worker:
-	cd backend && PYTHONPATH=. uv run celery -A app.celery_app worker --loglevel=info
+	cd backend && PYTHONPATH=. ./run-celery.sh
 
 dev-beat:
 	cd backend && PYTHONPATH=. uv run celery -A app.celery_app beat --loglevel=info

@@ -257,11 +257,22 @@ async def get_dashboard(
             would_signal=would,
         ))
 
+    # Read scanner health from file (written by celery scanner)
+    scanner_health = None
+    try:
+        import json as _json
+        from pathlib import Path
+        raw = Path("/tmp/scanner_health.json").read_text()
+        scanner_health = _json.loads(raw)
+    except Exception:
+        pass
+
     return DashboardResponse(
         bot_status=bot_status,
         recent_signals=recent_signals,
         opportunities=opportunities,
         stats=stats,
+        scanner_health=scanner_health,
     )
 
 

@@ -79,3 +79,4 @@ class DashboardResponse(BaseModel):
     recent_signals: list[SignalResponse]
     opportunities: list[OpportunitySummary]
     stats: PaperPnLStats
+    scanner_health: dict | None = None
