@@ -37,6 +37,6 @@ async def me(user: User = Depends(get_current_user)):
     return UserResponse(
         id=user.id,
         email=user.email,
-        has_kalshi_keys=user.kalshi_api_key_id is not None,
+        has_coinbase_keys=user.coinbase_api_key is not None,
         created_at=user.created_at,
     )

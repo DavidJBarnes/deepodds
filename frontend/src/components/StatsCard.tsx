@@ -1,7 +1,7 @@
 import type { PnLStats } from "@/api/bot";
 
 export default function StatsCard({ stats }: { stats: PnLStats }) {
-  const pnlPositive = stats.total_pnl_cents >= 0;
+  const pnlPositive = stats.total_pnl_usd >= 0;
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -24,13 +24,13 @@ export default function StatsCard({ stats }: { stats: PnLStats }) {
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <p className="text-xs text-slate-500 uppercase tracking-wide">Total P&amp;L</p>
         <p className={`text-2xl font-bold mt-1 ${pnlPositive ? "text-emerald-400" : "text-red-400"}`}>
-          {pnlPositive ? "+" : ""}${(stats.total_pnl_cents / 100).toFixed(2)}
+          {pnlPositive ? "+" : ""}${stats.total_pnl_usd.toFixed(2)}
         </p>
         <p className="text-xs text-slate-500 mt-1">
-          ${(stats.total_cost_cents / 100).toFixed(2)} invested
-          {stats.unrealized_pnl_cents !== 0 && (
-            <span className={stats.unrealized_pnl_cents >= 0 ? "text-emerald-400/60" : "text-red-400/60"}>
-              {" "}({stats.unrealized_pnl_cents >= 0 ? "+" : ""}${(stats.unrealized_pnl_cents / 100).toFixed(2)} open)
+          ${stats.total_cost_usd.toFixed(2)} invested
+          {stats.unrealized_pnl_usd !== 0 && (
+            <span className={stats.unrealized_pnl_usd >= 0 ? "text-emerald-400/60" : "text-red-400/60"}>
+              {" "}({stats.unrealized_pnl_usd >= 0 ? "+" : ""}${stats.unrealized_pnl_usd.toFixed(2)} open)
             </span>
           )}
         </p>

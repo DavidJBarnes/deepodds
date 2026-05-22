@@ -4,7 +4,7 @@ import { useBotStore } from "@/stores/botStore";
 import BotStatusBar from "@/components/BotStatusBar";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
-import OpportunityList from "@/components/OpportunityList";
+import MarketView from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 
@@ -14,7 +14,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"near-expiry" | "polymarket" | "signals">("near-expiry");
+  const [tab, setTab] = useState<"markets" | "signals">("markets");
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -51,16 +51,7 @@ export default function DashboardPage() {
   }
 
   const status = dashboard.bot_status;
-  const needsSetup = !status.enabled || !status.has_kalshi_keys;
-
-  // Count near-expiry opportunities (within 2 hours)
-  const nearExpiryCount = dashboard.opportunities.filter((o) => {
-    if (!o.close_time) return false;
-    const diff = new Date(o.close_time).getTime() - Date.now();
-    return diff > 0 && diff < 2 * 60 * 60 * 1000;
-  }).length;
-
-  const polymarketCount = dashboard.opportunities.filter((o) => o.source === "polymarket").length;
+  const needsSetup = !status.enabled || !status.has_coinbase_keys;
 
   return (
     <div className="space-y-6">
@@ -77,11 +68,11 @@ export default function DashboardPage() {
           <h3 className="text-sm font-semibold text-amber-400">Setup Required</h3>
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2">
-              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.has_kalshi_keys && status.kalshi_keys_valid ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
-                {status.has_kalshi_keys && status.kalshi_keys_valid ? "✓" : "1"}
+              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.has_coinbase_keys && status.coinbase_keys_valid ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
+                {status.has_coinbase_keys && status.coinbase_keys_valid ? "✓" : "1"}
               </span>
-              <span className={status.has_kalshi_keys && status.kalshi_keys_valid ? "text-slate-500 line-through" : "text-slate-300"}>
-                {status.has_kalshi_keys && !status.kalshi_keys_valid ? "Kalshi keys are invalid — re-enter in Settings" : "Add your Kalshi API keys"}
+              <span className={status.has_coinbase_keys && status.coinbase_keys_valid ? "text-slate-500 line-through" : "text-slate-300"}>
+                {status.has_coinbase_keys && !status.coinbase_keys_valid ? "Coinbase keys are invalid — re-enter in Settings" : "Add your Coinbase API keys"}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -97,7 +88,7 @@ export default function DashboardPage() {
             to="/settings"
             className="inline-block text-sm text-amber-400 hover:text-amber-300 font-medium mt-1"
           >
-            Go to Settings →
+            Go to Settings &rarr;
           </Link>
         </div>
       )}
@@ -108,24 +99,14 @@ export default function DashboardPage() {
 
       <div className="flex gap-1 border-b border-slate-800">
         <button
-          onClick={() => setTab("near-expiry")}
+          onClick={() => setTab("markets")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "near-expiry"
+            tab === "markets"
               ? "text-emerald-400 border-b-2 border-emerald-400"
               : "text-slate-400 hover:text-white"
           }`}
         >
-          Near-Expiry ({nearExpiryCount})
-        </button>
-        <button
-          onClick={() => setTab("polymarket")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "polymarket"
-              ? "text-purple-400 border-b-2 border-purple-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-        >
-          Polymarket ({polymarketCount})
+          Markets ({dashboard.markets.length})
         </button>
         <button
           onClick={() => setTab("signals")}
@@ -139,15 +120,8 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {tab === "near-expiry" && (
-        <OpportunityList opportunities={dashboard.opportunities.filter((o) => o.source !== "polymarket")} />
-      )}
-      {tab === "polymarket" && (
-        <OpportunityList opportunities={dashboard.opportunities.filter((o) => o.source === "polymarket")} />
-      )}
-      {tab === "signals" && (
-        <SignalTable signals={dashboard.recent_signals} />
-      )}
+      {tab === "markets" && <MarketView markets={dashboard.markets} />}
+      {tab === "signals" && <SignalTable signals={dashboard.recent_signals} />}
     </div>
   );
 }

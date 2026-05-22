@@ -71,15 +71,9 @@ function ConfigField({
   );
 }
 
-const STRATEGIES = [
-  { value: "settlement_arb", label: "Settlement Arb", desc: "Buy near-certain contracts close to expiry at a discount. No model needed." },
-  { value: "naive_no", label: "Naive NO", desc: "Buy NO on any range contract under 8¢. Baseline control strategy." },
-  { value: "model", label: "BSM Model (V1)", desc: "Black-Scholes probability model. Legacy — kept for comparison." },
-];
-
 export default function SettingsPage() {
-  const [keysStatus, setKeysStatus] = useState<settingsApi.KalshiKeysStatus | null>(null);
-  const [keyId, setKeyId] = useState("");
+  const [keysStatus, setKeysStatus] = useState<settingsApi.CoinbaseKeysStatus | null>(null);
+  const [apiKey, setApiKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
   const [keysMessage, setKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -88,12 +82,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [configMessage, setConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [modeModal, setModeModal] = useState<"paper" | "live" | null>(null);
-  const [kalshiBalance, setKalshiBalance] = useState<settingsApi.KalshiBalance | null>(null);
 
   useEffect(() => {
-    settingsApi.getKalshiKeysStatus().then(setKeysStatus);
+    settingsApi.getCoinbaseKeysStatus().then(setKeysStatus);
     botApi.getBotConfig().then(setConfig);
-    settingsApi.getKalshiBalance().then(setKalshiBalance).catch(() => {});
   }, []);
 
   async function handleSaveKeys(e: React.FormEvent) {
@@ -101,11 +93,11 @@ export default function SettingsPage() {
     setSavingKeys(true);
     setKeysMessage(null);
     try {
-      const result = await settingsApi.updateKalshiKeys(keyId, privateKey);
+      const result = await settingsApi.updateCoinbaseKeys(apiKey, privateKey);
       setKeysStatus(result);
-      setKeyId("");
+      setApiKey("");
       setPrivateKey("");
-      setKeysMessage({ type: "success", text: "Kalshi keys saved." });
+      setKeysMessage({ type: "success", text: "Coinbase keys saved." });
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
       setKeysMessage({ type: "error", text: detail });
@@ -115,9 +107,9 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteKeys() {
-    const result = await settingsApi.deleteKalshiKeys();
+    const result = await settingsApi.deleteCoinbaseKeys();
     setKeysStatus(result);
-    setKeysMessage({ type: "success", text: "Kalshi keys removed." });
+    setKeysMessage({ type: "success", text: "Coinbase keys removed." });
   }
 
   async function saveConfig(updates: Partial<botApi.BotConfig>) {
@@ -142,7 +134,7 @@ export default function SettingsPage() {
       {/* Strategy Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Strategy</h3>
+          <h3 className="text-lg font-semibold text-white">Mean Reversion Bot</h3>
           {saving && <span className="text-xs text-amber-400">Saving...</span>}
           {configMessage && (
             <span className={`text-xs ${configMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
@@ -182,47 +174,6 @@ export default function SettingsPage() {
                   />
                 </button>
               </div>
-              {config.strategy === "settlement_arb" && (
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-slate-400">Arb:</label>
-                  <button
-                    onClick={() => saveConfig({ settlement_arb_enabled: !config.settlement_arb_enabled })}
-                    className={`relative w-10 h-5 rounded-full transition-colors ${
-                      config.settlement_arb_enabled ? "bg-emerald-600" : "bg-slate-700"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                        config.settlement_arb_enabled ? "translate-x-5" : ""
-                      }`}
-                    />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Strategy selector */}
-            <div>
-              <label className="text-sm text-slate-400 mb-2 block">Strategy</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {STRATEGIES.map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => saveConfig({ strategy: s.value })}
-                    className={`text-left p-3 rounded-lg border transition-colors ${
-                      config.strategy === s.value
-                        ? "border-emerald-500 bg-emerald-500/10"
-                        : "border-slate-700 bg-slate-800 hover:border-slate-600"
-                    }`}
-                  >
-                    <span className={`text-sm font-medium block ${config.strategy === s.value ? "text-emerald-400" : "text-white"}`}>
-                      {s.label}
-                    </span>
-                    <span className="text-xs text-slate-500 block mt-0.5">{s.desc}</span>
-                  </button>
-                ))}
-              </div>
             </div>
 
             <ConfirmModal
@@ -238,13 +189,13 @@ export default function SettingsPage() {
             >
               <p>You are about to enable <strong className="text-red-400">live trading</strong>. This means:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400">
-                <li>Real orders will be placed on Kalshi using your API keys</li>
+                <li>Real orders will be placed on Coinbase using your API keys</li>
                 <li>Real money will be at risk on every signal</li>
                 <li>Losses are real and irreversible</li>
               </ul>
               {!keysStatus?.has_keys && (
                 <p className="text-amber-400 font-medium mt-2">
-                  You have not configured Kalshi API keys yet. Live orders will fail until keys are added.
+                  You have not configured Coinbase API keys yet. Live orders will fail until keys are added.
                 </p>
               )}
               <p className="mt-2 text-slate-500">You can switch back to paper mode at any time.</p>
@@ -263,90 +214,59 @@ export default function SettingsPage() {
               <p>Switching to <strong className="text-amber-400">paper mode</strong> means:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400">
                 <li>No real orders will be placed</li>
-                <li>Fills and exits are simulated against real market prices</li>
-                <li>Existing live orders on Kalshi are not affected</li>
+                <li>Fills are simulated against real market prices</li>
               </ul>
-              <p className="mt-2 text-slate-500">Use this to test strategy changes without risking capital.</p>
+              <p className="mt-2 text-slate-500">Use this to test parameter changes without risking capital.</p>
             </ConfirmModal>
 
-            {/* Settlement Arb params */}
-            {config.strategy === "settlement_arb" && (
-              <div className="border-t border-slate-800 pt-4">
-                <h4 className="text-sm font-semibold text-emerald-400 mb-1">Settlement Arb Parameters</h4>
-                <p className="text-xs text-slate-500 mb-3">
-                  Controls when the bot enters near-expiry contracts. Changes save automatically when you click away from a field.
-                </p>
-                <div className="grid grid-cols-2 gap-4">
-                  <ConfigField
-                    label="Max Minutes to Expiry"
-                    description="Only consider contracts expiring within this many minutes."
-                    suffix="min"
-                    value={config.settlement_arb_max_minutes}
-                    onChange={(v) => setConfig({ ...config, settlement_arb_max_minutes: v })}
-                    onBlur={() => saveConfig({ settlement_arb_max_minutes: config.settlement_arb_max_minutes })}
-                    step={5} min={1} max={480}
+            {/* Mean Reversion Parameters */}
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-emerald-400 mb-1">Strategy Parameters</h4>
+              <p className="text-xs text-slate-500 mb-3">
+                Buy when price drops below VWAP by the entry z-score threshold. Sell when it reverts back. Changes save on blur.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-400 mb-1 block">Trading Pairs</label>
+                  <input
+                    type="text"
+                    value={config.pairs}
+                    onChange={(e) => setConfig({ ...config, pairs: e.target.value })}
+                    onBlur={() => saveConfig({ pairs: config.pairs })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                    placeholder="BTC-USD,ETH-USD"
                   />
-                  <ConfigField
-                    label="Min Sigma Distance"
-                    description="How many standard deviations spot must be from the nearest boundary. 1.5σ = 93% win probability."
-                    suffix="σ"
-                    value={config.settlement_arb_min_sigma}
-                    onChange={(v) => setConfig({ ...config, settlement_arb_min_sigma: v })}
-                    onBlur={() => saveConfig({ settlement_arb_min_sigma: config.settlement_arb_min_sigma })}
-                    step={0.1} min={0.5} max={5}
-                  />
-                  <ConfigField
-                    label="Min Discount"
-                    description="Minimum cents below fair value required to enter."
-                    suffix="cents"
-                    value={config.settlement_arb_min_discount_cents}
-                    onChange={(v) => setConfig({ ...config, settlement_arb_min_discount_cents: v })}
-                    onBlur={() => saveConfig({ settlement_arb_min_discount_cents: config.settlement_arb_min_discount_cents })}
-                    step={1} min={1} max={50}
-                  />
-                  <ConfigField
-                    label="Max Position"
-                    description="Maximum dollar value per settlement arb signal."
-                    prefix="$"
-                    value={config.settlement_arb_max_position_cents / 100}
-                    onChange={(v) => setConfig({ ...config, settlement_arb_max_position_cents: Math.round(v * 100) })}
-                    onBlur={() => saveConfig({ settlement_arb_max_position_cents: config.settlement_arb_max_position_cents })}
-                    step={1} min={1} max={1000}
-                  />
+                  <p className="text-xs text-slate-500 mt-1">Comma-separated Coinbase product IDs</p>
                 </div>
-
-                {/* Regime filter toggles */}
-                <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <h5 className="text-xs font-semibold text-slate-400 mb-2">Regime Filter</h5>
-                  <div className="flex items-center gap-3 mb-2">
-                    <label className="text-sm text-slate-400">Fear &amp; Greed Filter</label>
-                    <button
-                      onClick={() => saveConfig({ settlement_arb_regime_filter: !config.settlement_arb_regime_filter })}
-                      className={`relative w-10 h-5 rounded-full transition-colors ${
-                        config.settlement_arb_regime_filter ? "bg-emerald-600" : "bg-slate-700"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                          config.settlement_arb_regime_filter ? "translate-x-5" : ""
-                        }`}
-                      />
-                    </button>
-                    <span className="text-xs text-slate-500">Pause arb during extreme fear (prevents trading into panic volatility)</span>
-                  </div>
-                  {config.settlement_arb_regime_filter && (
-                    <ConfigField
-                      label="Min Fear &amp; Greed"
-                      description="Pause settlement arb when Fear &amp; Greed Index falls below this value. Extreme fear (&lt;25) typically means volatility spikes that shrink sigma distances."
-                      value={config.settlement_arb_min_fear_greed}
-                      onChange={(v) => setConfig({ ...config, settlement_arb_min_fear_greed: v })}
-                      onBlur={() => saveConfig({ settlement_arb_min_fear_greed: config.settlement_arb_min_fear_greed })}
-                      step={1} min={0} max={100}
-                    />
-                  )}
-                </div>
+                <ConfigField
+                  label="Lookback Periods"
+                  description="Number of 15-minute candles for VWAP calculation. 16 = 4 hours, 32 = 8 hours."
+                  suffix="bars"
+                  value={config.lookback_periods}
+                  onChange={(v) => setConfig({ ...config, lookback_periods: v })}
+                  onBlur={() => saveConfig({ lookback_periods: config.lookback_periods })}
+                  step={4} min={4} max={96}
+                />
+                <ConfigField
+                  label="Entry Z-Score"
+                  description="Buy when z-score drops below this. -2.0 = price is 2 std devs below VWAP (oversold). More negative = pickier entries."
+                  suffix="z"
+                  value={config.entry_z_score}
+                  onChange={(v) => setConfig({ ...config, entry_z_score: v })}
+                  onBlur={() => saveConfig({ entry_z_score: config.entry_z_score })}
+                  step={0.1} min={-5} max={-0.5}
+                />
+                <ConfigField
+                  label="Exit Z-Score"
+                  description="Sell when z-score rises above this. 0.0 = price has reverted to VWAP. Positive = wait for overshoot."
+                  suffix="z"
+                  value={config.exit_z_score}
+                  onChange={(v) => setConfig({ ...config, exit_z_score: v })}
+                  onBlur={() => saveConfig({ exit_z_score: config.exit_z_score })}
+                  step={0.1} min={-1} max={3}
+                />
               </div>
-            )}
+            </div>
 
             {/* Risk Management */}
             <div className="border-t border-slate-800 pt-4">
@@ -354,45 +274,39 @@ export default function SettingsPage() {
               <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
               <div className="grid grid-cols-2 gap-4">
                 <ConfigField
-                  label="Max Exposure"
-                  description="Maximum capital tied up in open positions at once."
+                  label="Position Size"
+                  description="Dollar amount per trade. The bot buys this much of each pair when the entry signal triggers."
                   prefix="$"
-                  value={config.max_exposure_cents / 100}
-                  onChange={(v) => setConfig({ ...config, max_exposure_cents: Math.round(v * 100) })}
-                  onBlur={() => saveConfig({ max_exposure_cents: config.max_exposure_cents })}
-                  step={1} min={1} max={1000}
-                >
-                  {kalshiBalance && kalshiBalance.cash_cents > 0 && (
-                    <span className="text-slate-400">
-                      Kalshi cash: <span className="text-white">${(kalshiBalance.cash_cents / 100).toFixed(2)}</span>
-                    </span>
-                  )}
-                </ConfigField>
+                  value={config.position_size_usd}
+                  onChange={(v) => setConfig({ ...config, position_size_usd: v })}
+                  onBlur={() => saveConfig({ position_size_usd: config.position_size_usd })}
+                  step={5} min={5} max={1000}
+                />
                 <ConfigField
-                  label="Daily Budget"
-                  description="Hard cap on total new position spend per day. 0 = unlimited."
-                  prefix="$"
-                  value={config.daily_budget_cents / 100}
-                  onChange={(v) => setConfig({ ...config, daily_budget_cents: Math.round(v * 100) })}
-                  onBlur={() => saveConfig({ daily_budget_cents: config.daily_budget_cents })}
-                  step={1} min={0} max={1000}
+                  label="Max Open Positions"
+                  description="Maximum concurrent positions across all pairs."
+                  value={config.max_open_positions}
+                  onChange={(v) => setConfig({ ...config, max_open_positions: v })}
+                  onBlur={() => saveConfig({ max_open_positions: config.max_open_positions })}
+                  step={1} min={1} max={10}
+                />
+                <ConfigField
+                  label="Stop Loss"
+                  description="Close position if unrealized loss exceeds this percentage."
+                  suffix="%"
+                  value={config.stop_loss_pct}
+                  onChange={(v) => setConfig({ ...config, stop_loss_pct: v })}
+                  onBlur={() => saveConfig({ stop_loss_pct: config.stop_loss_pct })}
+                  step={0.5} min={0.5} max={20}
                 />
                 <ConfigField
                   label="Daily Loss Limit"
                   description="Pauses the bot for the day if realized losses exceed this. 0 = disabled."
                   prefix="$"
-                  value={config.daily_loss_limit_cents / 100}
-                  onChange={(v) => setConfig({ ...config, daily_loss_limit_cents: Math.round(v * 100) })}
-                  onBlur={() => saveConfig({ daily_loss_limit_cents: config.daily_loss_limit_cents })}
-                  step={1} min={0} max={1000}
-                />
-                <ConfigField
-                  label="Max Positions/Asset"
-                  description="Limit concurrent open positions per BTC or ETH."
-                  value={config.max_positions_per_asset}
-                  onChange={(v) => setConfig({ ...config, max_positions_per_asset: v })}
-                  onBlur={() => saveConfig({ max_positions_per_asset: config.max_positions_per_asset })}
-                  step={1} min={0} max={20}
+                  value={config.daily_loss_limit_usd}
+                  onChange={(v) => setConfig({ ...config, daily_loss_limit_usd: v })}
+                  onBlur={() => saveConfig({ daily_loss_limit_usd: config.daily_loss_limit_usd })}
+                  step={5} min={0} max={10000}
                 />
                 <ConfigField
                   label="Max Signals/Hour"
@@ -400,81 +314,21 @@ export default function SettingsPage() {
                   value={config.max_signals_per_hour}
                   onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
                   onBlur={() => saveConfig({ max_signals_per_hour: config.max_signals_per_hour })}
-                  step={1} min={0} max={50}
-                />
-                <ConfigField
-                  label="Max Portfolio Risk"
-                  description="Maximum correlated risk on a single asset in cents. Accounts for correlation between positions on the same underlying. 0 = disabled."
-                  prefix="$"
-                  value={config.max_portfolio_risk_cents / 100}
-                  onChange={(v) => setConfig({ ...config, max_portfolio_risk_cents: Math.round(v * 100) })}
-                  onBlur={() => saveConfig({ max_portfolio_risk_cents: config.max_portfolio_risk_cents })}
-                  step={1} min={0} max={1000}
+                  step={1} min={0} max={20}
                 />
               </div>
-            </div>
-
-            {/* Polymarket — neg-risk arb */}
-            <div className="border-t border-slate-800 pt-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="text-sm font-semibold text-purple-400">Polymarket Neg-Risk Arb</h4>
-                <button
-                  onClick={() => saveConfig({ polymarket_enabled: !config.polymarket_enabled })}
-                  className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.polymarket_enabled ? "bg-purple-600" : "bg-slate-700"
-                  }`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                    config.polymarket_enabled ? "translate-x-5" : ""
-                  }`} />
-                </button>
-              </div>
-              <p className="text-xs text-slate-500 mb-3">
-                Multi-outcome markets where prices must sum to $1.00. Buy/short all outcomes when sum diverges.
-              </p>
-              {config.polymarket_enabled && (
-                <div className="grid grid-cols-2 gap-4">
-                  <ConfigField
-                    label="Min Edge"
-                    description="Minimum divergence from $1.00 to enter (in cents). 3c = sum ≥ $1.03 or ≤ $0.97."
-                    suffix="cents"
-                    value={config.polymarket_min_edge_cents}
-                    onChange={(v) => setConfig({ ...config, polymarket_min_edge_cents: v })}
-                    onBlur={() => saveConfig({ polymarket_min_edge_cents: config.polymarket_min_edge_cents })}
-                    step={0.5} min={0.5} max={50}
-                  />
-                  <ConfigField
-                    label="Max Exposure"
-                    description="Maximum capital in polymarket positions."
-                    prefix="$"
-                    value={config.polymarket_max_exposure_cents / 100}
-                    onChange={(v) => setConfig({ ...config, polymarket_max_exposure_cents: Math.round(v * 100) })}
-                    onBlur={() => saveConfig({ polymarket_max_exposure_cents: config.polymarket_max_exposure_cents })}
-                    step={1} min={1} max={1000}
-                  />
-                  <ConfigField
-                    label="Min Liquidity"
-                    description="Minimum combined liquidity across all outcomes to consider."
-                    prefix="$"
-                    value={config.polymarket_min_liquidity}
-                    onChange={(v) => setConfig({ ...config, polymarket_min_liquidity: v })}
-                    onBlur={() => saveConfig({ polymarket_min_liquidity: config.polymarket_min_liquidity })}
-                    step={100} min={0} max={10000}
-                  />
-                </div>
-              )}
             </div>
           </>
         )}
       </section>
 
-      {/* Kalshi API Keys */}
+      {/* Coinbase API Keys */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
-        <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
+        <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
         <div className="flex items-center gap-3">
           <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.valid ? "bg-emerald-500" : keysStatus?.has_keys ? "bg-amber-500" : "bg-red-500"}`} />
           <span className="text-sm text-slate-300">
-            {keysStatus?.valid ? `Keys valid (${keysStatus.key_id_preview})` : keysStatus?.has_keys ? `Keys invalid — re-enter them (${keysStatus.key_id_preview})` : "No keys configured"}
+            {keysStatus?.valid ? `Keys valid (${keysStatus.key_preview})` : keysStatus?.has_keys ? `Keys invalid (${keysStatus.key_preview})` : "No keys configured"}
           </span>
           {keysStatus?.has_keys && (
             <button onClick={handleDeleteKeys} className="ml-auto text-sm text-red-400 hover:text-red-300">
@@ -491,35 +345,35 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSaveKeys} className="space-y-4">
           <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+            <label className="block text-sm text-slate-400 mb-1">API Key Name</label>
             <input
               type="text"
-              value={keyId}
-              onChange={(e) => setKeyId(e.target.value)}
-              placeholder="Your Kalshi API Key ID"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="organizations/…/apiKeys/…"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">RSA Private Key (PEM)</label>
+            <label className="block text-sm text-slate-400 mb-1">Private Key (PEM)</label>
             <textarea
               value={privateKey}
               onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
-              rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-y"
+              placeholder={"-----BEGIN EC PRIVATE KEY-----\n…\n-----END EC PRIVATE KEY-----"}
+              rows={4}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-none"
             />
           </div>
           <button
             type="submit"
-            disabled={savingKeys || !keyId || !privateKey}
+            disabled={savingKeys || !apiKey || !privateKey}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
           >
             {savingKeys ? "Saving..." : "Save API Keys"}
           </button>
         </form>
         <p className="text-xs text-slate-500">
-          Generate API keys at kalshi.com under Account → API Keys. Required for live trading mode.
+          Create a CDP API key at <span className="text-slate-400">coinbase.com &rarr; Settings &rarr; API</span>. Choose "Trading" permissions. You'll get an API key name and a private key (PEM). Required for live mode.
         </p>
       </section>
     </div>

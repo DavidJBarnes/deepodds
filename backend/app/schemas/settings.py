@@ -1,12 +1,12 @@
 from pydantic import BaseModel
 
 
-class KalshiKeysUpdate(BaseModel):
-    api_key_id: str
-    api_private_key: str
+class CoinbaseKeysUpdate(BaseModel):
+    api_key: str
+    private_key: str
 
 
-class KalshiKeysStatus(BaseModel):
+class CoinbaseKeysStatus(BaseModel):
     has_keys: bool
-    key_id_preview: str | None = None
+    key_preview: str | None = None
     valid: bool = False
