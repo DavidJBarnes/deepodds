@@ -23,7 +23,10 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-STALE_REVISIONS = {"l4m5n6o7p8q9": "k4e5f6g7h8i9"}
+STALE_REVISIONS = {
+    "l4m5n6o7p8q9": "k4e5f6g7h8i9",
+    "n6o7p8q9r0s1": "m5n6o7p8q9r0",
+}
 
 
 def _fix_stale_revisions(connection):
