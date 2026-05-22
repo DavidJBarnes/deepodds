@@ -120,7 +120,7 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {tab === "markets" && <MarketView markets={dashboard.markets} />}
+      {tab === "markets" && <MarketView markets={dashboard.markets} entryZ={status.entry_z_score} exitZ={status.exit_z_score} />}
       {tab === "signals" && <SignalTable signals={dashboard.recent_signals} />}
     </div>
   );
