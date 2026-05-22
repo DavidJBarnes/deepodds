@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.async_util import run_async
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
@@ -20,7 +19,7 @@ from app.schemas.dashboard import (
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices
-from app.services.mean_reversion import _compute_vwap_and_std, _paper_candles, compute_z_score
+from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
 
 router = APIRouter(tags=["dashboard"])
 
@@ -51,20 +50,20 @@ async def get_dashboard(
     ).scalar()
 
     keys_valid = False
-    if user.coinbase_api_key:
+    if user.robinhood_api_key:
         try:
-            from app.services.coinbase_client import CoinbaseClient
+            from app.services.robinhood_client import RobinhoodClient
 
-            cb = CoinbaseClient(user.coinbase_api_key, user.coinbase_private_key)
-            keys_valid = await cb.validate()
+            rh = RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
+            keys_valid = await rh.validate()
         except Exception:
             pass
 
     bot_status = BotStatusResponse(
         mode=config.mode,
         enabled=config.enabled,
-        has_coinbase_keys=bool(user.coinbase_api_key),
-        coinbase_keys_valid=keys_valid,
+        has_exchange_keys=bool(user.robinhood_api_key),
+        exchange_keys_valid=keys_valid,
         pairs=config.pairs,
         open_positions=open_count,
         max_open_positions=config.max_open_positions,
@@ -108,7 +107,7 @@ async def get_dashboard(
                 cost_usd=s.cost_usd,
                 z_score=s.z_score,
                 vwap=s.vwap,
-                coinbase_order_id=s.coinbase_order_id,
+                exchange_order_id=s.exchange_order_id,
                 fill_price=s.fill_price,
                 fill_quantity=s.fill_quantity,
                 filled_at=s.filled_at,
@@ -196,16 +195,7 @@ async def get_dashboard(
                 continue
 
             try:
-                from app.services.coinbase_client import CoinbaseClient
-
-                if user.coinbase_api_key and user.coinbase_private_key:
-                    cb = CoinbaseClient(user.coinbase_api_key, user.coinbase_private_key)
-                    candles = await cb.get_candles(
-                        pair, "FIFTEEN_MINUTE", config.lookback_periods + 4
-                    )
-                else:
-                    candles = await _paper_candles(pair)
-
+                candles = await _public_candles(pair, config.lookback_periods + 4)
                 vwap, std = _compute_vwap_and_std(candles, config.lookback_periods)
                 z = compute_z_score(price, vwap, std) if vwap > 0 and std > 0 else 0
             except Exception:

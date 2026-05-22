@@ -1,6 +1,6 @@
 # DeepOdds — Crypto Mean-Reversion Trading Bot
 
-Automated trading bot for Coinbase crypto markets. Uses a **VWAP mean-reversion** strategy — buying when price drops significantly below its volume-weighted average, then selling when it reverts back.
+Automated trading bot using **Robinhood Crypto** for zero-commission execution and a **VWAP mean-reversion** strategy — buying when price drops significantly below its volume-weighted average, then selling when it reverts back.
 
 ## How It Works
 
@@ -8,21 +8,25 @@ Automated trading bot for Coinbase crypto markets. Uses a **VWAP mean-reversion*
 
 The bot exploits the tendency for prices to revert to their average after sharp moves:
 
-1. **Scanner** (every 60s) — Fetches 15-minute candles from Coinbase for each configured pair (default: BTC-USD, ETH-USD).
+1. **Scanner** (every 60s) — Fetches 15-minute candles for each configured pair (default: SOL-USD, BTC-USD, ETH-USD).
 
-2. **VWAP & Std Dev** — Computes the Volume-Weighted Average Price and standard deviation over a lookback window (default 16 bars = 4 hours).
+2. **VWAP & Std Dev** — Computes the Volume-Weighted Average Price and standard deviation over a lookback window (default 48 bars = 12 hours).
 
 3. **Z-Score** — Measures how far the current price is from VWAP in standard deviations:
    ```
    z = (price - vwap) / std_dev
    ```
    - z = 0 → price is at the average
-   - z = -2.0 → price is 2 std devs below average (oversold)
+   - z = -3.0 → price is 3 std devs below average (deeply oversold)
    - z = +1.0 → price is 1 std dev above average (overbought)
 
-4. **Entry** — If z-score drops below -2.0 (configurable) and no position is open for that pair, the bot buys.
+4. **Entry** — If z-score drops below -3.0 (configurable) and no position is open for that pair, the bot buys.
 
-5. **Exit** — Two conditions: (1) z-score rises back above 0.0 (price reverted to average), or (2) stop-loss triggers at -3% (configurable).
+5. **Exit** — Two conditions: (1) z-score rises back above -0.5 (partial reversion), or (2) stop-loss triggers at -3% (configurable).
+
+### Why Robinhood?
+
+Robinhood charges **zero commission** on crypto trades — your only cost is the bid-ask spread (~0.1-0.2%). This is critical for mean-reversion strategies that capture small price bounces. On exchanges like Coinbase (1.2% round-trip fees), these small moves get eaten by fees. Backtesting showed the strategy is profitable on Robinhood but loses money on Coinbase.
 
 ### Signal Lifecycle
 
@@ -53,14 +57,17 @@ signaled → placed (live) / filled (paper) → settled_win / settled_loss
                          │
               ┌──────────▼──────────┐
               ▼                     ▼
-         Coinbase API          Binance API
-     (candles, orders)       (price feeds)
+         Robinhood API         Coinbase Public API
+      (orders, account)       (candles, no auth)
+              ▼
+         Binance API
+       (price feeds)
 ```
 
 - **Backend**: FastAPI + async SQLAlchemy + Alembic
 - **Scheduler**: Native asyncio loops (no Celery, no Redis)
 - **Frontend**: React 19 + TypeScript + Vite + Tailwind CSS v4 + Zustand
-- **Auth**: JWT (HS256), per-user Coinbase CDP API keys (ES256) stored server-side
+- **Auth**: JWT (HS256), per-user Robinhood API keys (ED25519) stored server-side
 
 ## Prerequisites
 
@@ -107,9 +114,9 @@ cd frontend && npx vite --host 0.0.0.0 --port 5173 &
 | GET | `/api/v1/signals/archive` | Browse archived signals |
 | GET | `/api/v1/settings/bot-config` | Get bot config |
 | PUT | `/api/v1/settings/bot-config` | Update bot config |
-| PUT | `/api/v1/settings/coinbase-keys` | Save Coinbase CDP API keys |
-| GET | `/api/v1/settings/coinbase-keys` | Key status + validation |
-| DELETE | `/api/v1/settings/coinbase-keys` | Remove keys |
+| PUT | `/api/v1/settings/exchange-keys` | Save Robinhood API keys |
+| GET | `/api/v1/settings/exchange-keys` | Key status + validation |
+| DELETE | `/api/v1/settings/exchange-keys` | Remove keys |
 
 ## Bot Config
 
@@ -117,10 +124,10 @@ cd frontend && npx vite --host 0.0.0.0 --port 5173 &
 |-----------|---------|-------------|
 | `mode` | paper | `paper` or `live` |
 | `enabled` | false | Bot active |
-| `pairs` | BTC-USD,ETH-USD | Comma-separated Coinbase product IDs |
-| `lookback_periods` | 16 | Number of 15-min candles for VWAP (16 = 4 hours) |
-| `entry_z_score` | -2.0 | Buy when z-score drops below this |
-| `exit_z_score` | 0.0 | Sell when z-score rises above this |
+| `pairs` | SOL-USD,BTC-USD,ETH-USD | Comma-separated crypto pairs |
+| `lookback_periods` | 48 | Number of 15-min candles for VWAP (48 = 12 hours) |
+| `entry_z_score` | -3.0 | Buy when z-score drops below this |
+| `exit_z_score` | -0.5 | Sell when z-score rises above this |
 | `position_size_usd` | 25.0 | Dollar amount per trade |
 | `max_open_positions` | 3 | Max concurrent positions |
 | `stop_loss_pct` | 3.0 | Stop-loss percentage |
@@ -134,7 +141,7 @@ The scheduler runs inside the FastAPI process as asyncio background tasks:
 | Loop | Interval | What it does |
 |------|----------|--------------|
 | Scan + Exits | 60s | Fetch candles, evaluate z-scores, generate entry signals, check exit conditions |
-| Live Sync | 30s | Check placed order statuses on Coinbase, detect fills |
+| Live Sync | 30s | Check placed order statuses on Robinhood, detect fills |
 
 ## Project Structure
 
@@ -151,7 +158,7 @@ deepodds/
 │   │   ├── schemas/            # Pydantic request/response models
 │   │   ├── api/v1/             # REST endpoints (auth, dashboard, signals, settings)
 │   │   └── services/
-│   │       ├── coinbase_client.py  # Coinbase CDP API client (JWT/ES256 auth)
+│   │       ├── robinhood_client.py # Robinhood Crypto API client (ED25519 auth)
 │   │       ├── mean_reversion.py   # VWAP z-score strategy (entry, exit, sync)
 │   │       ├── binance_client.py   # Public price feeds
 │   │       └── archive.py          # Signal archival

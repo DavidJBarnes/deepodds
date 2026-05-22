@@ -25,7 +25,7 @@ class ArchivedSignal(Base):
     z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     vwap: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    coinbase_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    exchange_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     fill_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

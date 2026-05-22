@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.async_util import run_async
 from app.models.bot_config import BotConfig
 from app.models.signal import Signal
-from app.services.coinbase_client import CoinbaseClient
+from app.services.robinhood_client import RobinhoodClient
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +16,6 @@ OPEN_STATUSES = ("signaled", "placed", "filled")
 
 
 def _compute_vwap_and_std(candles: list[dict], lookback: int) -> tuple[float, float]:
-    """Compute VWAP and standard deviation of close prices over a window.
-
-    VWAP (Volume-Weighted Average Price): the average price weighted by
-    how much volume traded at each level. A better "fair price" than a
-    simple average because it accounts for where actual trading happened.
-
-    Returns (vwap, std_dev). Both 0.0 if insufficient data.
-    """
     if len(candles) < lookback:
         return 0.0, 0.0
 
@@ -54,12 +46,6 @@ def _compute_vwap_and_std(candles: list[dict], lookback: int) -> tuple[float, fl
 
 
 def compute_z_score(price: float, vwap: float, std: float) -> float:
-    """Z-score: how many standard deviations price is from VWAP.
-
-    Negative = price below VWAP (oversold). Positive = above (overbought).
-    A z-score of -2.0 means price is 2 standard deviations below the
-    volume-weighted average — historically a strong mean-reversion signal.
-    """
     if std <= 0:
         return 0.0
     return (price - vwap) / std
@@ -117,7 +103,7 @@ def _has_open_position(session: Session, user_id, pair: str) -> bool:
 def scan_entries(
     user_id,
     session: Session,
-    coinbase: CoinbaseClient | None = None,
+    exchange: RobinhoodClient | None = None,
 ) -> list[Signal]:
     config = session.execute(
         select(BotConfig).where(BotConfig.user_id == user_id)
@@ -147,11 +133,7 @@ def scan_entries(
             continue
 
         try:
-            candles = run_async(
-                coinbase.get_candles(pair, "FIFTEEN_MINUTE", config.lookback_periods + 4)
-                if coinbase
-                else _paper_candles(pair)
-            )
+            candles = run_async(_public_candles(pair, config.lookback_periods + 4))
         except Exception:
             logger.exception("Failed to fetch candles for %s", pair)
             continue
@@ -162,8 +144,8 @@ def scan_entries(
 
         try:
             price = float(candles[0].get("close", 0)) if candles else 0
-            if price <= 0:
-                price = run_async(coinbase.get_price(pair)) if coinbase else 0
+            if price <= 0 and exchange:
+                price = run_async(exchange.get_price(pair))
         except Exception:
             logger.exception("Failed to get price for %s", pair)
             continue
@@ -197,13 +179,12 @@ def scan_entries(
             vwap=vwap,
         )
 
-        if config.mode == "live" and coinbase:
+        if config.mode == "live" and exchange:
             try:
                 result = run_async(
-                    coinbase.place_market_buy(pair, cost)
+                    exchange.place_market_buy(pair, cost)
                 )
-                order_resp = result.get("success_response", result)
-                signal.coinbase_order_id = order_resp.get("order_id")
+                signal.exchange_order_id = result.get("id")
                 signal.status = "placed"
                 logger.info(
                     "LIVE BUY %s: $%.2f @ $%.2f (z=%.2f)",
@@ -230,14 +211,14 @@ def scan_entries(
     return signals_created
 
 
-async def _paper_candles(pair: str) -> list[dict]:
-    """Fetch candles from public Coinbase API (no auth needed) for paper mode."""
+async def _public_candles(pair: str, limit: int = 64) -> list[dict]:
+    """Fetch candles from public Coinbase API (no auth needed) for VWAP calculation."""
     import time
     import httpx
 
     product_id = pair
     now = int(time.time())
-    start = now - (64 * 900)
+    start = now - (limit * 900)
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
@@ -258,9 +239,8 @@ async def _paper_candles(pair: str) -> list[dict]:
 
 def check_exits(
     session: Session,
-    coinbase_clients: dict[str, CoinbaseClient] | None = None,
+    exchange_clients: dict[str, RobinhoodClient] | None = None,
 ) -> int:
-    """Check filled positions for exit conditions (mean reversion or stop-loss)."""
     filled = session.execute(
         select(Signal).where(
             Signal.status == "filled",
@@ -282,21 +262,20 @@ def check_exits(
 
     exited = 0
     now = datetime.now(timezone.utc)
-    coinbase_clients = coinbase_clients or {}
+    exchange_clients = exchange_clients or {}
 
     for sig in filled:
         cfg = configs.get(sig.user_id)
         if not cfg:
             continue
 
-        coinbase = coinbase_clients.get(str(sig.user_id))
+        exchange = exchange_clients.get(str(sig.user_id))
 
         try:
-            if coinbase:
-                price = run_async(coinbase.get_price(sig.pair))
-            else:
-                candles = run_async(_paper_candles(sig.pair))
-                price = float(candles[0]["close"]) if candles else 0
+            candles = run_async(_public_candles(sig.pair))
+            price = float(candles[0]["close"]) if candles else 0
+            if price <= 0 and exchange:
+                price = run_async(exchange.get_price(sig.pair))
         except Exception:
             logger.warning("Failed to get exit price for %s", sig.pair)
             continue
@@ -309,12 +288,6 @@ def check_exits(
         pnl_usd = (price - sig.fill_price) * qty
 
         try:
-            if coinbase:
-                candles = run_async(
-                    coinbase.get_candles(sig.pair, "FIFTEEN_MINUTE", cfg.lookback_periods + 4)
-                )
-            else:
-                candles = run_async(_paper_candles(sig.pair))
             vwap, std = _compute_vwap_and_std(candles, cfg.lookback_periods)
             z = compute_z_score(price, vwap, std) if vwap > 0 and std > 0 else 0
         except Exception:
@@ -333,10 +306,10 @@ def check_exits(
         if not should_exit:
             continue
 
-        if cfg.mode == "live" and coinbase:
+        if cfg.mode == "live" and exchange:
             try:
                 run_async(
-                    coinbase.place_market_sell(sig.pair, qty)
+                    exchange.place_market_sell(sig.pair, qty)
                 )
                 logger.info("LIVE SELL %s: %s", sig.pair, exit_reason)
             except Exception:
@@ -362,15 +335,14 @@ def check_exits(
 
 
 def sync_live_orders(
-    session: Session, user_id, coinbase: CoinbaseClient
+    session: Session, user_id, exchange: RobinhoodClient
 ) -> dict:
-    """Sync placed orders with Coinbase to detect fills."""
     placed = session.execute(
         select(Signal).where(
             Signal.user_id == user_id,
             Signal.signal_type == "live",
             Signal.status == "placed",
-            Signal.coinbase_order_id.isnot(None),
+            Signal.exchange_order_id.isnot(None),
         )
     ).scalars().all()
 
@@ -382,16 +354,16 @@ def sync_live_orders(
 
     for sig in placed:
         try:
-            order = run_async(coinbase.get_order(sig.coinbase_order_id))
+            order = run_async(exchange.get_order(sig.exchange_order_id))
         except Exception:
-            logger.warning("Failed to fetch order %s", sig.coinbase_order_id)
+            logger.warning("Failed to fetch order %s", sig.exchange_order_id)
             continue
 
-        status = order.get("status", "")
+        status = order.get("state", order.get("status", ""))
 
-        if status in ("FILLED",):
-            avg_price = float(order.get("average_filled_price", sig.entry_price or 0))
-            filled_size = float(order.get("filled_size", sig.quantity or 0))
+        if status in ("filled",):
+            avg_price = float(order.get("average_price", sig.entry_price or 0))
+            filled_size = float(order.get("filled_asset_quantity", sig.quantity or 0))
             sig.fill_price = avg_price
             sig.fill_quantity = filled_size
             sig.filled_at = now
@@ -400,7 +372,7 @@ def sync_live_orders(
             filled_count += 1
             logger.info("Live fill: %s @ $%.2f x %.6f", sig.pair, avg_price, filled_size)
 
-        elif status in ("CANCELLED", "EXPIRED", "FAILED"):
+        elif status in ("canceled", "cancelled", "expired", "failed"):
             sig.status = "cancelled"
             sig.resolved_at = now
 

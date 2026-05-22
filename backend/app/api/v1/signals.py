@@ -26,7 +26,7 @@ def _signal_response(s) -> SignalResponse:
         cost_usd=s.cost_usd,
         z_score=s.z_score,
         vwap=s.vwap,
-        coinbase_order_id=s.coinbase_order_id,
+        exchange_order_id=s.exchange_order_id,
         fill_price=s.fill_price,
         fill_quantity=s.fill_quantity,
         filled_at=s.filled_at,

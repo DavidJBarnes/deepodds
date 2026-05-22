@@ -9,8 +9,8 @@ from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
 from app.models.user import User
 from app.schemas.bot_config import BotConfigResponse, BotConfigUpdate
-from app.schemas.settings import CoinbaseKeysStatus, CoinbaseKeysUpdate
-from app.services.coinbase_client import CoinbaseClient
+from app.schemas.settings import RobinhoodKeysStatus, RobinhoodKeysUpdate
+from app.services.robinhood_client import RobinhoodClient
 
 logger = logging.getLogger(__name__)
 
@@ -81,58 +81,58 @@ async def update_bot_config(
     return _config_response(config)
 
 
-@router.put("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def update_coinbase_keys(
-    body: CoinbaseKeysUpdate,
+@router.put("/exchange-keys", response_model=RobinhoodKeysStatus)
+async def update_exchange_keys(
+    body: RobinhoodKeysUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not body.api_key or not body.private_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="API key name and private key are required",
+            detail="API key and private key are required",
         )
 
-    user.coinbase_api_key = body.api_key
-    user.coinbase_private_key = body.private_key
+    user.robinhood_api_key = body.api_key
+    user.robinhood_private_key = body.private_key
     await db.commit()
 
     valid = False
     try:
-        cb = CoinbaseClient(body.api_key, body.private_key)
-        valid = await cb.validate()
+        rh = RobinhoodClient(body.api_key, body.private_key)
+        valid = await rh.validate()
     except Exception:
         pass
 
-    return CoinbaseKeysStatus(
+    return RobinhoodKeysStatus(
         has_keys=True, key_preview=body.api_key[:12] + "...", valid=valid
     )
 
 
-@router.get("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def get_coinbase_keys(user: User = Depends(get_current_user)):
-    if not user.coinbase_api_key:
-        return CoinbaseKeysStatus(has_keys=False)
+@router.get("/exchange-keys", response_model=RobinhoodKeysStatus)
+async def get_exchange_keys(user: User = Depends(get_current_user)):
+    if not user.robinhood_api_key:
+        return RobinhoodKeysStatus(has_keys=False)
     valid = False
     try:
-        cb = CoinbaseClient(user.coinbase_api_key, user.coinbase_private_key)
-        valid = await cb.validate()
+        rh = RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
+        valid = await rh.validate()
     except Exception:
         pass
-    return CoinbaseKeysStatus(
-        has_keys=True, key_preview=user.coinbase_api_key[:12] + "...", valid=valid
+    return RobinhoodKeysStatus(
+        has_keys=True, key_preview=user.robinhood_api_key[:12] + "...", valid=valid
     )
 
 
-@router.delete("/coinbase-keys", response_model=CoinbaseKeysStatus)
-async def delete_coinbase_keys(
+@router.delete("/exchange-keys", response_model=RobinhoodKeysStatus)
+async def delete_exchange_keys(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user.coinbase_api_key = None
-    user.coinbase_private_key = None
+    user.robinhood_api_key = None
+    user.robinhood_private_key = None
     await db.commit()
-    return CoinbaseKeysStatus(has_keys=False)
+    return RobinhoodKeysStatus(has_keys=False)
 
 
 @router.post("/reset-data")

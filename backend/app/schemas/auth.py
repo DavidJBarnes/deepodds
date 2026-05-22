@@ -22,5 +22,5 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     id: UUID
     email: str
-    has_coinbase_keys: bool
+    has_exchange_keys: bool
     created_at: datetime
