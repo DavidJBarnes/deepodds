@@ -110,7 +110,6 @@ export interface BotConfig {
   daily_budget_cents: number;
   min_edge_cents: number;
   min_liquidity: number;
-  volume: number;
   max_positions_per_asset: number;
   max_signals_per_hour: number;
   daily_loss_limit_cents: number;
@@ -126,7 +125,6 @@ export interface BotConfig {
   polymarket_min_edge_cents: number;
   polymarket_max_exposure_cents: number;
   polymarket_min_liquidity: number;
-  volume: number;
 }
 
 export interface DailyPnLPoint {
