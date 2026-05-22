@@ -74,11 +74,11 @@ export default function DashboardPage() {
           <h3 className="text-sm font-semibold text-amber-400">Setup Required</h3>
           <div className="space-y-2 text-sm">
             <div className="flex items-center gap-2">
-              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.has_kalshi_keys ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
-                {status.has_kalshi_keys ? "✓" : "1"}
+              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.has_kalshi_keys && status.kalshi_keys_valid ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
+                {status.has_kalshi_keys && status.kalshi_keys_valid ? "✓" : "1"}
               </span>
-              <span className={status.has_kalshi_keys ? "text-slate-500 line-through" : "text-slate-300"}>
-                Add your Kalshi API keys
+              <span className={status.has_kalshi_keys && status.kalshi_keys_valid ? "text-slate-500 line-through" : "text-slate-300"}>
+                {status.has_kalshi_keys && !status.kalshi_keys_valid ? "Kalshi keys are invalid — re-enter in Settings" : "Add your Kalshi API keys"}
               </span>
             </div>
             <div className="flex items-center gap-2">

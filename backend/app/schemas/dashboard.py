@@ -8,6 +8,7 @@ class BotStatusResponse(BaseModel):
     strategy: str = "model"
     enabled: bool
     has_kalshi_keys: bool
+    kalshi_keys_valid: bool = False
     max_exposure_cents: int
     current_exposure_cents: int
     exposure_remaining_cents: int

@@ -5,6 +5,7 @@ export interface BotStatus {
   strategy: string;
   enabled: boolean;
   has_kalshi_keys: boolean;
+  kalshi_keys_valid: boolean;
   max_exposure_cents: number;
   current_exposure_cents: number;
   exposure_remaining_cents: number;

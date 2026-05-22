@@ -78,11 +78,22 @@ async def get_dashboard(
         .where(Signal.user_id == user.id, Signal.status.in_(["signaled", "placed", "filled"]))
     )).scalar()
 
+    # Check key validity (non-blocking — don't fail dashboard if Kalshi is slow)
+    keys_valid = False
+    if user.kalshi_api_key_id:
+        try:
+            from app.services.kalshi_client import KalshiClient
+            kalshi = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+            keys_valid = await kalshi.validate()
+        except Exception:
+            pass
+
     bot_status = BotStatusResponse(
         mode=config.mode,
         strategy=config.strategy,
         enabled=config.enabled,
         has_kalshi_keys=bool(user.kalshi_api_key_id),
+        kalshi_keys_valid=keys_valid,
         max_exposure_cents=config.max_exposure_cents,
         current_exposure_cents=current_exposure,
         exposure_remaining_cents=max(0, config.max_exposure_cents - current_exposure),
