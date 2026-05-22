@@ -29,7 +29,7 @@ class BotConfigResponse(BaseModel):
     expiry_exit_minutes: int = 15
     settlement_arb_enabled: bool = False
     settlement_arb_max_minutes: int = 60
-    settlement_arb_min_sigma: float = 1.5
+    settlement_arb_min_sigma: float = 2.0
     settlement_arb_min_discount_cents: int = 5
     settlement_arb_max_position_cents: int = 5000
 

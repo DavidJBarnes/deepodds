@@ -633,28 +633,10 @@ def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
             won_side = kalshi_result
             logger.info("Kalshi result for %s: %s", sig.ticker, won_side)
         else:
-            # Last resort: compute from spot vs strike
-            opp = session.execute(
-                select(Opportunity).where(Opportunity.ticker == sig.ticker)
-            ).scalar_one_or_none()
-            current_spot = opp.spot_price if opp else sig.spot_price
-            strike = sig.strike_price
-            cap = sig.cap_strike
-            s_type = opp.strike_type if opp else ("between" if sig.cap_strike else None)
-
-            if current_spot is not None and strike is not None:
-                if s_type == "between" and cap is not None:
-                    won_side = "yes" if float(strike) < float(current_spot) < float(cap) else "no"
-                elif s_type == "below":
-                    won_side = "yes" if float(current_spot) < float(strike) else "no"
-                else:
-                    won_side = "yes" if float(current_spot) > float(strike) else "no"
-            else:
-                continue
-
-            sig.spot_price = current_spot
-            logger.info("Spot settlement for %s: spot=%s strike=%s cap=%s → %s",
-                        sig.ticker, current_spot, strike, cap, won_side)
+            # No Kalshi result available yet — skip, will retry next cycle.
+            # Never settle based on our own spot price. Too error-prone.
+            logger.info("No Kalshi result for %s yet — skipping settlement", sig.ticker)
+            continue
 
         entry_price = sig.fill_price_cents or sig.limit_price_cents
         qty = sig.fill_quantity or sig.quantity
