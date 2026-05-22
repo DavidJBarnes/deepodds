@@ -15,7 +15,7 @@ class SignalResponse(BaseModel):
     cost_usd: float
     z_score: float | None = None
     vwap: float | None = None
-    coinbase_order_id: str | None = None
+    exchange_order_id: str | None = None
     fill_price: float | None = None
     fill_quantity: float | None = None
     filled_at: datetime | None = None

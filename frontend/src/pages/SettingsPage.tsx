@@ -72,7 +72,7 @@ function ConfigField({
 }
 
 export default function SettingsPage() {
-  const [keysStatus, setKeysStatus] = useState<settingsApi.CoinbaseKeysStatus | null>(null);
+  const [keysStatus, setKeysStatus] = useState<settingsApi.ExchangeKeysStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [savingKeys, setSavingKeys] = useState(false);
@@ -84,7 +84,7 @@ export default function SettingsPage() {
   const [modeModal, setModeModal] = useState<"paper" | "live" | null>(null);
 
   useEffect(() => {
-    settingsApi.getCoinbaseKeysStatus().then(setKeysStatus);
+    settingsApi.getExchangeKeysStatus().then(setKeysStatus);
     botApi.getBotConfig().then(setConfig);
   }, []);
 
@@ -93,11 +93,11 @@ export default function SettingsPage() {
     setSavingKeys(true);
     setKeysMessage(null);
     try {
-      const result = await settingsApi.updateCoinbaseKeys(apiKey, privateKey);
+      const result = await settingsApi.updateExchangeKeys(apiKey, privateKey);
       setKeysStatus(result);
       setApiKey("");
       setPrivateKey("");
-      setKeysMessage({ type: "success", text: "Coinbase keys saved." });
+      setKeysMessage({ type: "success", text: "Robinhood keys saved." });
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
       setKeysMessage({ type: "error", text: detail });
@@ -107,9 +107,9 @@ export default function SettingsPage() {
   }
 
   async function handleDeleteKeys() {
-    const result = await settingsApi.deleteCoinbaseKeys();
+    const result = await settingsApi.deleteExchangeKeys();
     setKeysStatus(result);
-    setKeysMessage({ type: "success", text: "Coinbase keys removed." });
+    setKeysMessage({ type: "success", text: "Robinhood keys removed." });
   }
 
   async function saveConfig(updates: Partial<botApi.BotConfig>) {
@@ -189,13 +189,13 @@ export default function SettingsPage() {
             >
               <p>You are about to enable <strong className="text-red-400">live trading</strong>. This means:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400">
-                <li>Real orders will be placed on Coinbase using your API keys</li>
+                <li>Real orders will be placed on Robinhood using your API keys</li>
                 <li>Real money will be at risk on every signal</li>
                 <li>Losses are real and irreversible</li>
               </ul>
               {!keysStatus?.has_keys && (
                 <p className="text-amber-400 font-medium mt-2">
-                  You have not configured Coinbase API keys yet. Live orders will fail until keys are added.
+                  You have not configured Robinhood API keys yet. Live orders will fail until keys are added.
                 </p>
               )}
               <p className="mt-2 text-slate-500">You can switch back to paper mode at any time.</p>
@@ -234,13 +234,13 @@ export default function SettingsPage() {
                     onChange={(e) => setConfig({ ...config, pairs: e.target.value })}
                     onBlur={() => saveConfig({ pairs: config.pairs })}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                    placeholder="BTC-USD,ETH-USD"
+                    placeholder="SOL-USD,BTC-USD,ETH-USD"
                   />
-                  <p className="text-xs text-slate-500 mt-1">Comma-separated Coinbase product IDs</p>
+                  <p className="text-xs text-slate-500 mt-1">Comma-separated crypto pairs (e.g. SOL-USD, BTC-USD)</p>
                 </div>
                 <ConfigField
                   label="Lookback Periods"
-                  description="Number of 15-minute candles for VWAP calculation. 16 = 4 hours, 32 = 8 hours."
+                  description="Number of 15-minute candles for VWAP calculation. 48 = 12 hours, 96 = 24 hours."
                   suffix="bars"
                   value={config.lookback_periods}
                   onChange={(v) => setConfig({ ...config, lookback_periods: v })}
@@ -249,7 +249,7 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Entry Z-Score"
-                  description="Buy when z-score drops below this. -2.0 = price is 2 std devs below VWAP (oversold). More negative = pickier entries."
+                  description="Buy when z-score drops below this. -3.0 = price is 3 std devs below VWAP (deeply oversold). More negative = pickier entries."
                   suffix="z"
                   value={config.entry_z_score}
                   onChange={(v) => setConfig({ ...config, entry_z_score: v })}
@@ -258,7 +258,7 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Exit Z-Score"
-                  description="Sell when z-score rises above this. 0.0 = price has reverted to VWAP. Positive = wait for overshoot."
+                  description="Sell when z-score rises above this. -0.5 = sell on partial reversion. 0.0 = wait for full reversion to VWAP."
                   suffix="z"
                   value={config.exit_z_score}
                   onChange={(v) => setConfig({ ...config, exit_z_score: v })}
@@ -322,9 +322,9 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Coinbase API Keys */}
+      {/* Robinhood API Keys */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
-        <h3 className="text-lg font-semibold text-white">Coinbase API Keys</h3>
+        <h3 className="text-lg font-semibold text-white">Robinhood API Keys</h3>
         <div className="flex items-center gap-3">
           <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.valid ? "bg-emerald-500" : keysStatus?.has_keys ? "bg-amber-500" : "bg-red-500"}`} />
           <span className="text-sm text-slate-300">
@@ -345,22 +345,22 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSaveKeys} className="space-y-4">
           <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key Name</label>
+            <label className="block text-sm text-slate-400 mb-1">API Key</label>
             <input
               type="text"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="organizations/…/apiKeys/…"
+              placeholder="rh-api-xxxxxxxx-xxxx-xxxx-xxxx"
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-400 mb-1">Private Key (PEM)</label>
+            <label className="block text-sm text-slate-400 mb-1">Private Key (Base64)</label>
             <textarea
               value={privateKey}
               onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder={"-----BEGIN EC PRIVATE KEY-----\n…\n-----END EC PRIVATE KEY-----"}
-              rows={4}
+              placeholder="ED25519 private key (base64 encoded)"
+              rows={3}
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-none"
             />
           </div>
@@ -373,7 +373,7 @@ export default function SettingsPage() {
           </button>
         </form>
         <p className="text-xs text-slate-500">
-          Create a CDP API key at <span className="text-slate-400">coinbase.com &rarr; Settings &rarr; API</span>. Choose "Trading" permissions. You'll get an API key name and a private key (PEM). Required for live mode.
+          Create API credentials at <span className="text-slate-400">robinhood.com &rarr; Crypto &rarr; Account Settings &rarr; API</span>. You'll get an API key and an ED25519 private key. Required for live mode.
         </p>
       </section>
     </div>

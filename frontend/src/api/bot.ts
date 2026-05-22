@@ -3,8 +3,8 @@ import client from "./client";
 export interface BotStatus {
   mode: string;
   enabled: boolean;
-  has_coinbase_keys: boolean;
-  coinbase_keys_valid: boolean;
+  has_exchange_keys: boolean;
+  exchange_keys_valid: boolean;
   pairs: string;
   open_positions: number;
   max_open_positions: number;
@@ -37,7 +37,7 @@ export interface Signal {
   cost_usd: number;
   z_score: number | null;
   vwap: number | null;
-  coinbase_order_id: string | null;
+  exchange_order_id: string | null;
   fill_price: number | null;
   fill_quantity: number | null;
   filled_at: string | null;

@@ -16,10 +16,10 @@ class BotConfig(Base):
     mode: Mapped[str] = mapped_column(String(8), default="paper")
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    pairs: Mapped[str] = mapped_column(String(128), default="BTC-USD,ETH-USD")
-    lookback_periods: Mapped[int] = mapped_column(Integer, default=16)
-    entry_z_score: Mapped[float] = mapped_column(Float, default=-2.0)
-    exit_z_score: Mapped[float] = mapped_column(Float, default=0.0)
+    pairs: Mapped[str] = mapped_column(String(128), default="SOL-USD,BTC-USD,ETH-USD")
+    lookback_periods: Mapped[int] = mapped_column(Integer, default=48)
+    entry_z_score: Mapped[float] = mapped_column(Float, default=-3.0)
+    exit_z_score: Mapped[float] = mapped_column(Float, default=-0.5)
 
     position_size_usd: Mapped[float] = mapped_column(Float, default=25.0)
     max_open_positions: Mapped[int] = mapped_column(Integer, default=3)

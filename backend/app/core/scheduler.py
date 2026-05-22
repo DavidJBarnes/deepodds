@@ -9,7 +9,7 @@ from app.core.async_util import run_async
 from app.core.config import settings
 from app.models.bot_config import BotConfig
 from app.models.user import User
-from app.services.coinbase_client import CoinbaseClient
+from app.services.robinhood_client import RobinhoodClient
 from app.services.mean_reversion import check_exits, scan_entries, sync_live_orders
 
 logger = logging.getLogger(__name__)
@@ -30,12 +30,12 @@ def _run_scan_and_evaluate():
             if not user:
                 continue
 
-            coinbase = None
-            if cfg.mode == "live" and user.coinbase_api_key and user.coinbase_private_key:
-                coinbase = CoinbaseClient(user.coinbase_api_key, user.coinbase_private_key)
+            exchange = None
+            if cfg.mode == "live" and user.robinhood_api_key and user.robinhood_private_key:
+                exchange = RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
 
             try:
-                signals = scan_entries(cfg.user_id, session, coinbase)
+                signals = scan_entries(cfg.user_id, session, exchange)
                 if signals:
                     logger.info("Created %d signals for %s", len(signals), user.email)
             except Exception:
@@ -46,21 +46,21 @@ def _run_check_exits():
     with Session(_sync_engine) as session:
         users = session.execute(
             select(User).where(
-                User.coinbase_api_key.isnot(None),
-                User.coinbase_private_key.isnot(None),
+                User.robinhood_api_key.isnot(None),
+                User.robinhood_private_key.isnot(None),
             )
         ).scalars().all()
 
-        coinbase_clients = {}
+        exchange_clients = {}
         for user in users:
             try:
-                coinbase_clients[str(user.id)] = CoinbaseClient(
-                    user.coinbase_api_key, user.coinbase_private_key
+                exchange_clients[str(user.id)] = RobinhoodClient(
+                    user.robinhood_api_key, user.robinhood_private_key
                 )
             except Exception:
                 pass
 
-        exited = check_exits(session, coinbase_clients if coinbase_clients else None)
+        exited = check_exits(session, exchange_clients if exchange_clients else None)
         if exited:
             logger.info("Exited %d positions", exited)
 
@@ -89,12 +89,12 @@ def _run_sync_live():
             user = session.execute(
                 select(User).where(User.id == cfg.user_id)
             ).scalar_one_or_none()
-            if not user or not user.coinbase_api_key or not user.coinbase_private_key:
+            if not user or not user.robinhood_api_key or not user.robinhood_private_key:
                 continue
 
-            coinbase = CoinbaseClient(user.coinbase_api_key, user.coinbase_private_key)
+            exchange = RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
             try:
-                result = sync_live_orders(session, cfg.user_id, coinbase)
+                result = sync_live_orders(session, cfg.user_id, exchange)
                 if result["filled"]:
                     logger.info("Live sync for %s: %d filled", user.email, result["filled"])
             except Exception:

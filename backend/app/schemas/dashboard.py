@@ -6,8 +6,8 @@ from app.schemas.signal import SignalResponse
 class BotStatusResponse(BaseModel):
     mode: str
     enabled: bool
-    has_coinbase_keys: bool
-    coinbase_keys_valid: bool = False
+    has_exchange_keys: bool
+    exchange_keys_valid: bool = False
     pairs: str
     open_positions: int
     max_open_positions: int
