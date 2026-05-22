@@ -83,6 +83,14 @@ class KalshiClient:
     async def get_balance(self) -> dict:
         return await self._request("GET", "/portfolio/balance")
 
+    async def validate(self) -> bool:
+        """Test if API keys are valid by calling the balance endpoint."""
+        try:
+            await self.get_balance()
+            return True
+        except Exception:
+            return False
+
     async def place_order(self, ticker: str, side: str, action: str, price: int, quantity: int) -> dict:
         return await self._request(
             "POST",

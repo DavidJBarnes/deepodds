@@ -9,6 +9,7 @@ class KalshiKeysUpdate(BaseModel):
 class KalshiKeysStatus(BaseModel):
     has_keys: bool
     key_id_preview: str | None = None
+    valid: bool = False
 
 
 class CoinbaseKeysUpdate(BaseModel):

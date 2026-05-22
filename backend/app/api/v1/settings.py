@@ -121,9 +121,20 @@ async def update_kalshi_keys(
 
 @router.get("/kalshi-keys", response_model=KalshiKeysStatus)
 async def get_kalshi_keys(user: User = Depends(get_current_user)):
-    if user.kalshi_api_key_id:
-        return KalshiKeysStatus(has_keys=True, key_id_preview=user.kalshi_api_key_id[:8] + "...")
-    return KalshiKeysStatus(has_keys=False)
+    if not user.kalshi_api_key_id:
+        return KalshiKeysStatus(has_keys=False)
+    valid = False
+    try:
+        from app.services.kalshi_client import KalshiClient
+        kalshi = KalshiClient(user.kalshi_api_key_id, user.kalshi_api_private_key)
+        valid = await kalshi.validate()
+    except Exception:
+        pass
+    return KalshiKeysStatus(
+        has_keys=True,
+        key_id_preview=user.kalshi_api_key_id[:8] + "...",
+        valid=valid,
+    )
 
 
 @router.delete("/kalshi-keys", response_model=KalshiKeysStatus)
