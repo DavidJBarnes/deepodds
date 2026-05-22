@@ -617,13 +617,15 @@ def settle_signals(session: Session, kalshi_clients: dict | None = None) -> int:
         # Fallback: use public Kalshi API directly (no auth required for market results)
         if not kalshi_result:
             try:
-                import httpx
+                import json as _json
+                from urllib.request import urlopen
                 url = f"https://api.elections.kalshi.com/trade-api/v2/markets/{sig.ticker}"
-                resp = httpx.get(url, timeout=10)
-                data = resp.json()
+                with urlopen(url, timeout=10) as resp:
+                    data = _json.loads(resp.read())
                 mkt = data.get("market", data)
                 if mkt.get("status") in ("closed", "settled", "finalized"):
                     kalshi_result = mkt.get("result")
+                    logger.info("Public Kalshi result for %s: %s", sig.ticker, kalshi_result)
             except Exception:
                 pass
 
