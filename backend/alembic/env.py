@@ -39,9 +39,9 @@ def _fix_stale_revisions(connection):
                 text("UPDATE alembic_version SET version_num = :v"),
                 {"v": target},
             )
-            connection.commit()
+        connection.commit()
     except Exception:
-        pass
+        connection.rollback()
 
 
 def run_migrations_online() -> None:
