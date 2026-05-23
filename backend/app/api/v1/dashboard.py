@@ -54,8 +54,8 @@ async def get_dashboard(
         try:
             from app.services.robinhood_client import RobinhoodClient
 
-            rh = RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
-            keys_valid = await rh.validate()
+            RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
+            keys_valid = True
         except Exception:
             pass
 

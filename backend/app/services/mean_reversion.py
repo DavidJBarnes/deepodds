@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.services.robinhood_client import RobinhoodClient
 logger = logging.getLogger(__name__)
 
 OPEN_STATUSES = ("signaled", "placed", "filled")
+MAX_HOLD_HOURS = 24
 
 
 def _compute_vwap_and_std(candles: list[dict], lookback: int) -> tuple[float, float]:
@@ -52,11 +53,11 @@ def compute_z_score(price: float, vwap: float, std: float) -> float:
 
 
 def _today_pnl(session: Session, user_id) -> float:
-    today = date.today()
+    today_utc = datetime.now(timezone.utc).date()
     result = session.execute(
         select(func.coalesce(func.sum(Signal.pnl_usd), 0.0)).where(
             Signal.user_id == user_id,
-            func.date(Signal.resolved_at) == today,
+            func.date(Signal.resolved_at) == today_utc,
             Signal.pnl_usd.isnot(None),
         )
     )
@@ -138,14 +139,18 @@ def scan_entries(
             logger.exception("Failed to fetch candles for %s", pair)
             continue
 
+        if not candles:
+            continue
+
         vwap, std = _compute_vwap_and_std(candles, config.lookback_periods)
         if vwap <= 0 or std <= 0:
             continue
 
         try:
-            price = float(candles[0].get("close", 0)) if candles else 0
-            if price <= 0 and exchange:
+            if exchange:
                 price = run_async(exchange.get_price(pair))
+            else:
+                price = float(candles[0].get("close", 0))
         except Exception:
             logger.exception("Failed to get price for %s", pair)
             continue
@@ -228,13 +233,8 @@ async def _public_candles(pair: str, limit: int = 64) -> list[dict]:
             resp.raise_for_status()
             return resp.json().get("candles", [])
     except Exception:
-        from app.services.binance_client import get_crypto_prices
-        prices = await get_crypto_prices()
-        symbol = pair.replace("-USD", "")
-        price = prices.get(symbol, 0)
-        if price <= 0:
-            return []
-        return [{"close": str(price), "volume": "100", "open": str(price), "high": str(price), "low": str(price)}] * 20
+        logger.warning("Candle fetch failed for %s, skipping", pair)
+        return []
 
 
 def check_exits(
@@ -273,7 +273,9 @@ def check_exits(
 
         try:
             candles = run_async(_public_candles(sig.pair))
-            price = float(candles[0]["close"]) if candles else 0
+            if not candles:
+                continue
+            price = float(candles[0]["close"])
             if price <= 0 and exchange:
                 price = run_async(exchange.get_price(sig.pair))
         except Exception:
@@ -302,6 +304,9 @@ def check_exits(
         elif pnl_pct <= -cfg.stop_loss_pct:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
+        elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=MAX_HOLD_HOURS):
+            should_exit = True
+            exit_reason = f"max_hold ({MAX_HOLD_HOURS}h)"
 
         if not should_exit:
             continue
