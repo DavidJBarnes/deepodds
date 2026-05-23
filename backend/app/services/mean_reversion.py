@@ -296,7 +296,7 @@ def check_exits(
         should_exit = False
         exit_reason = ""
 
-        if z >= cfg.exit_z_score and z != 0:
+        if z >= cfg.exit_z_score and z != 0 and price >= sig.fill_price:
             should_exit = True
             exit_reason = f"mean_reversion (z={z:.2f})"
         elif pnl_pct <= -cfg.stop_loss_pct:
