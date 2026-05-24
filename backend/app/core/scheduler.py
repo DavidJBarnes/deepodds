@@ -8,9 +8,12 @@ from sqlalchemy.orm import Session
 from app.core.async_util import run_async
 from app.core.config import settings
 from app.models.bot_config import BotConfig
+from app.models.kalshi_config import KalshiConfig
 from app.models.user import User
 from app.services.robinhood_client import RobinhoodClient
+from app.services.kalshi_client import KalshiClient
 from app.services.mean_reversion import check_exits, scan_entries, sync_live_orders
+from app.services.kalshi_mean_reversion import check_kalshi_exits, scan_kalshi_entries
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +40,9 @@ def _run_scan_and_evaluate():
             try:
                 signals = scan_entries(cfg.user_id, session, exchange)
                 if signals:
-                    logger.info("Created %d signals for %s", len(signals), user.email)
+                    logger.info("Created %d crypto signals for %s", len(signals), user.email)
             except Exception:
-                logger.exception("Scan failed for user %s", cfg.user_id)
+                logger.exception("Crypto scan failed for user %s", cfg.user_id)
 
 
 def _run_check_exits():
@@ -62,7 +65,7 @@ def _run_check_exits():
 
         exited = check_exits(session, exchange_clients if exchange_clients else None)
         if exited:
-            logger.info("Exited %d positions", exited)
+            logger.info("Exited %d crypto positions", exited)
 
     from datetime import datetime, timezone
     from pathlib import Path
@@ -101,34 +104,97 @@ def _run_sync_live():
                 logger.exception("Live sync failed for %s", cfg.user_id)
 
 
+def _run_kalshi_scan():
+    with Session(_sync_engine) as session:
+        configs = session.execute(
+            select(KalshiConfig).where(KalshiConfig.enabled.is_(True))
+        ).scalars().all()
+
+        for cfg in configs:
+            user = session.execute(
+                select(User).where(User.id == cfg.user_id)
+            ).scalar_one_or_none()
+            if not user:
+                continue
+
+            client = None
+            if cfg.mode == "live" and user.kalshi_api_key_id and user.kalshi_private_key:
+                try:
+                    client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+                except Exception:
+                    pass
+
+            try:
+                signals = scan_kalshi_entries(cfg.user_id, session, client)
+                if signals:
+                    logger.info("Created %d Kalshi signals for %s", len(signals), user.email)
+            except Exception:
+                logger.exception("Kalshi scan failed for user %s", cfg.user_id)
+
+
+def _run_kalshi_check_exits():
+    with Session(_sync_engine) as session:
+        users = session.execute(
+            select(User).where(
+                User.kalshi_api_key_id.isnot(None),
+                User.kalshi_private_key.isnot(None),
+            )
+        ).scalars().all()
+
+        exchange_clients = {}
+        for user in users:
+            try:
+                exchange_clients[str(user.id)] = KalshiClient(
+                    user.kalshi_api_key_id, user.kalshi_private_key
+                )
+            except Exception:
+                pass
+
+        exited = check_kalshi_exits(session, exchange_clients if exchange_clients else None)
+        if exited:
+            logger.info("Exited %d Kalshi positions", exited)
+
+
 async def start_scheduler():
     logger.info("Starting mean-reversion scheduler")
 
-    async def scan_loop():
+    async def crypto_scan_loop():
         while True:
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_scan_and_evaluate)
                 await asyncio.to_thread(_run_check_exits)
             except Exception:
-                logger.exception("Scan/exit loop failed")
+                logger.exception("Crypto scan/exit loop failed")
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 60 - elapsed))
 
-    async def sync_live_loop():
+    async def crypto_sync_live_loop():
         while True:
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_sync_live)
             except Exception:
-                logger.exception("Live sync loop failed")
+                logger.exception("Crypto live sync loop failed")
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 30 - elapsed))
 
+    async def kalshi_scan_loop():
+        while True:
+            t0 = time.monotonic()
+            try:
+                await asyncio.to_thread(_run_kalshi_scan)
+                await asyncio.to_thread(_run_kalshi_check_exits)
+            except Exception:
+                logger.exception("Kalshi scan/exit loop failed")
+            elapsed = time.monotonic() - t0
+            await asyncio.sleep(max(0, 120 - elapsed))
+
     tasks = [
-        asyncio.create_task(scan_loop(), name="scan"),
-        asyncio.create_task(sync_live_loop(), name="sync_live"),
+        asyncio.create_task(crypto_scan_loop(), name="crypto_scan"),
+        asyncio.create_task(crypto_sync_live_loop(), name="crypto_sync_live"),
+        asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
     ]
 
-    logger.info("Scheduler running: scan+exits(60s), live_sync(30s)")
+    logger.info("Scheduler running: crypto(60s), crypto_live(30s), kalshi(120s)")
     return tasks
