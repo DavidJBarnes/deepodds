@@ -17,14 +17,14 @@ class KalshiConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     series_tickers: Mapped[str] = mapped_column(String(256), default="KXBTC,KXETH")
-    min_volume_24h: Mapped[int] = mapped_column(Integer, default=100)
+    min_volume_24h: Mapped[int] = mapped_column(Integer, default=500)
     min_price: Mapped[float] = mapped_column(Float, default=0.15)
     max_price: Mapped[float] = mapped_column(Float, default=0.85)
     min_hours_to_expiry: Mapped[int] = mapped_column(Integer, default=4)
 
-    candle_interval: Mapped[int] = mapped_column(Integer, default=1)
-    lookback_periods: Mapped[int] = mapped_column(Integer, default=60)
-    entry_z_score: Mapped[float] = mapped_column(Float, default=-2.5)
+    candle_interval: Mapped[int] = mapped_column(Integer, default=60)
+    lookback_periods: Mapped[int] = mapped_column(Integer, default=24)
+    entry_z_score: Mapped[float] = mapped_column(Float, default=-2.0)
     exit_z_score: Mapped[float] = mapped_column(Float, default=-0.3)
 
     contracts_per_signal: Mapped[int] = mapped_column(Integer, default=50)
