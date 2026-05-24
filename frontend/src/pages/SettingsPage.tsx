@@ -83,9 +83,22 @@ export default function SettingsPage() {
   const [configMessage, setConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [modeModal, setModeModal] = useState<"paper" | "live" | null>(null);
 
+  const [kalshiKeysStatus, setKalshiKeysStatus] = useState<settingsApi.KalshiKeysStatus | null>(null);
+  const [kalshiKeyId, setKalshiKeyId] = useState("");
+  const [kalshiPem, setKalshiPem] = useState("");
+  const [savingKalshiKeys, setSavingKalshiKeys] = useState(false);
+  const [kalshiKeysMessage, setKalshiKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  const [kalshiConfig, setKalshiConfig] = useState<botApi.KalshiConfig | null>(null);
+  const [savingKalshi, setSavingKalshi] = useState(false);
+  const [kalshiConfigMessage, setKalshiConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [kalshiModeModal, setKalshiModeModal] = useState<"paper" | "live" | null>(null);
+
   useEffect(() => {
     settingsApi.getExchangeKeysStatus().then(setKeysStatus);
     botApi.getBotConfig().then(setConfig);
+    settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
+    botApi.getKalshiConfig().then(setKalshiConfig);
   }, []);
 
   async function handleSaveKeys(e: React.FormEvent) {
@@ -110,6 +123,45 @@ export default function SettingsPage() {
     const result = await settingsApi.deleteExchangeKeys();
     setKeysStatus(result);
     setKeysMessage({ type: "success", text: "Robinhood keys removed." });
+  }
+
+  async function handleSaveKalshiKeys(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingKalshiKeys(true);
+    setKalshiKeysMessage(null);
+    try {
+      const result = await settingsApi.updateKalshiKeys(kalshiKeyId, kalshiPem);
+      setKalshiKeysStatus(result);
+      setKalshiKeyId("");
+      setKalshiPem("");
+      setKalshiKeysMessage({ type: "success", text: "Kalshi keys saved." });
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
+      setKalshiKeysMessage({ type: "error", text: detail });
+    } finally {
+      setSavingKalshiKeys(false);
+    }
+  }
+
+  async function handleDeleteKalshiKeys() {
+    const result = await settingsApi.deleteKalshiKeys();
+    setKalshiKeysStatus(result);
+    setKalshiKeysMessage({ type: "success", text: "Kalshi keys removed." });
+  }
+
+  async function saveKalshiConfig(updates: Partial<botApi.KalshiConfig>) {
+    setSavingKalshi(true);
+    setKalshiConfigMessage(null);
+    try {
+      const result = await botApi.updateKalshiConfig(updates);
+      setKalshiConfig(result);
+      setKalshiConfigMessage({ type: "success", text: "Saved." });
+      setTimeout(() => setKalshiConfigMessage(null), 2000);
+    } catch {
+      setKalshiConfigMessage({ type: "error", text: "Failed to save." });
+    } finally {
+      setSavingKalshi(false);
+    }
   }
 
   async function saveConfig(updates: Partial<botApi.BotConfig>) {
@@ -374,6 +426,302 @@ export default function SettingsPage() {
         </form>
         <p className="text-xs text-slate-500">
           Create API credentials at <span className="text-slate-400">robinhood.com &rarr; Crypto &rarr; Account Settings &rarr; API</span>. You'll get an API key and an ED25519 private key. Required for live mode.
+        </p>
+      </section>
+
+      {/* Kalshi Strategy Settings */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Kalshi Event Contracts</h3>
+          {savingKalshi && <span className="text-xs text-amber-400">Saving...</span>}
+          {kalshiConfigMessage && (
+            <span className={`text-xs ${kalshiConfigMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+              {kalshiConfigMessage.text}
+            </span>
+          )}
+        </div>
+
+        {kalshiConfig && (
+          <>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Mode:</label>
+                <button
+                  onClick={() => setKalshiModeModal(kalshiConfig.mode === "paper" ? "live" : "paper")}
+                  className={`text-xs font-bold px-3 py-1 rounded transition-colors ${
+                    kalshiConfig.mode === "live"
+                      ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                      : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                  }`}
+                >
+                  {kalshiConfig.mode.toUpperCase()}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Enabled:</label>
+                <button
+                  onClick={() => saveKalshiConfig({ enabled: !kalshiConfig.enabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    kalshiConfig.enabled ? "bg-sky-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      kalshiConfig.enabled ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <ConfirmModal
+              open={kalshiModeModal === "live"}
+              title="Switch Kalshi to Live Mode"
+              confirmLabel="Switch to Live"
+              confirmClass="bg-red-600 hover:bg-red-500"
+              onConfirm={() => {
+                saveKalshiConfig({ mode: "live" });
+                setKalshiModeModal(null);
+              }}
+              onCancel={() => setKalshiModeModal(null)}
+            >
+              <p>You are about to enable <strong className="text-red-400">live trading</strong> on Kalshi:</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400">
+                <li>Real orders will be placed on Kalshi using your API keys</li>
+                <li>Real money will be at risk on every signal</li>
+                <li>Losses are real and irreversible</li>
+              </ul>
+              {!kalshiKeysStatus?.has_keys && (
+                <p className="text-amber-400 font-medium mt-2">
+                  You have not configured Kalshi API keys yet. Live orders will fail until keys are added.
+                </p>
+              )}
+              <p className="mt-2 text-slate-500">You can switch back to paper mode at any time.</p>
+            </ConfirmModal>
+
+            <ConfirmModal
+              open={kalshiModeModal === "paper"}
+              title="Switch Kalshi to Paper Mode"
+              confirmLabel="Switch to Paper"
+              onConfirm={() => {
+                saveKalshiConfig({ mode: "paper" });
+                setKalshiModeModal(null);
+              }}
+              onCancel={() => setKalshiModeModal(null)}
+            >
+              <p>Switching Kalshi to <strong className="text-amber-400">paper mode</strong> means:</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400">
+                <li>No real orders will be placed on Kalshi</li>
+                <li>Fills are simulated against real market prices</li>
+              </ul>
+              <p className="mt-2 text-slate-500">Use this to test parameter changes without risking capital.</p>
+            </ConfirmModal>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Market Filters</h4>
+              <p className="text-xs text-slate-500 mb-3">
+                Kalshi crypto series to scan. Markets are filtered by volume, price range, and time to expiry.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-400 mb-1 block">Series Tickers</label>
+                  <input
+                    type="text"
+                    value={kalshiConfig.series_tickers}
+                    onChange={(e) => setKalshiConfig({ ...kalshiConfig, series_tickers: e.target.value })}
+                    onBlur={() => saveKalshiConfig({ series_tickers: kalshiConfig.series_tickers })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                    placeholder="KXBTC,KXETH"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Comma-separated Kalshi series (e.g. KXBTC, KXETH)</p>
+                </div>
+                <ConfigField
+                  label="Min 24h Volume"
+                  description="Only trade markets with at least this many contracts traded in the last 24 hours."
+                  value={kalshiConfig.min_volume_24h}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_volume_24h: v })}
+                  onBlur={() => saveKalshiConfig({ min_volume_24h: kalshiConfig.min_volume_24h })}
+                  step={50} min={0} max={10000}
+                />
+                <ConfigField
+                  label="Min Price"
+                  description="Skip markets priced below this (in dollars, e.g. 0.15 = 15 cents). Avoids extreme long-shots."
+                  prefix="$"
+                  value={kalshiConfig.min_price}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_price: v })}
+                  onBlur={() => saveKalshiConfig({ min_price: kalshiConfig.min_price })}
+                  step={0.05} min={0.01} max={0.95}
+                />
+                <ConfigField
+                  label="Max Price"
+                  description="Skip markets priced above this. Avoids near-certainties with tiny upside."
+                  prefix="$"
+                  value={kalshiConfig.max_price}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_price: v })}
+                  onBlur={() => saveKalshiConfig({ max_price: kalshiConfig.max_price })}
+                  step={0.05} min={0.05} max={0.99}
+                />
+                <ConfigField
+                  label="Min Hours to Expiry"
+                  description="Skip markets expiring sooner than this. Prevents buying contracts about to settle."
+                  suffix="hrs"
+                  value={kalshiConfig.min_hours_to_expiry}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hours_to_expiry: v })}
+                  onBlur={() => saveKalshiConfig({ min_hours_to_expiry: kalshiConfig.min_hours_to_expiry })}
+                  step={1} min={1} max={72}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Strategy Parameters</h4>
+              <p className="text-xs text-slate-500 mb-3">
+                Mean-reversion on 1-minute Kalshi candles. Buy when z-score drops below entry, sell when it reverts.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigField
+                  label="Candle Interval"
+                  description="Candlestick period in minutes. 1 = 1-minute candles for finer-grained signals."
+                  suffix="min"
+                  value={kalshiConfig.candle_interval}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, candle_interval: v })}
+                  onBlur={() => saveKalshiConfig({ candle_interval: kalshiConfig.candle_interval })}
+                  step={1} min={1} max={60}
+                />
+                <ConfigField
+                  label="Lookback Periods"
+                  description="Number of candles for VWAP calculation. With 1-min candles, 60 = 1 hour lookback."
+                  suffix="bars"
+                  value={kalshiConfig.lookback_periods}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, lookback_periods: v })}
+                  onBlur={() => saveKalshiConfig({ lookback_periods: kalshiConfig.lookback_periods })}
+                  step={5} min={10} max={200}
+                />
+                <ConfigField
+                  label="Entry Z-Score"
+                  description="Buy when z-score drops below this. More negative = pickier entries."
+                  suffix="z"
+                  value={kalshiConfig.entry_z_score}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, entry_z_score: v })}
+                  onBlur={() => saveKalshiConfig({ entry_z_score: kalshiConfig.entry_z_score })}
+                  step={0.1} min={-5} max={-0.5}
+                />
+                <ConfigField
+                  label="Exit Z-Score"
+                  description="Sell when z-score rises above this. -0.3 = sell on partial reversion."
+                  suffix="z"
+                  value={kalshiConfig.exit_z_score}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, exit_z_score: v })}
+                  onBlur={() => saveKalshiConfig({ exit_z_score: kalshiConfig.exit_z_score })}
+                  step={0.1} min={-1} max={3}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-slate-300 mb-1">Kalshi Risk Management</h4>
+              <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigField
+                  label="Contracts per Signal"
+                  description="Number of contracts to buy per signal. Each contract costs the market price (e.g. $0.50)."
+                  value={kalshiConfig.contracts_per_signal}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, contracts_per_signal: v })}
+                  onBlur={() => saveKalshiConfig({ contracts_per_signal: kalshiConfig.contracts_per_signal })}
+                  step={5} min={1} max={500}
+                />
+                <ConfigField
+                  label="Max Open Positions"
+                  description="Maximum concurrent Kalshi positions."
+                  value={kalshiConfig.max_open_positions}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_open_positions: v })}
+                  onBlur={() => saveKalshiConfig({ max_open_positions: kalshiConfig.max_open_positions })}
+                  step={1} min={1} max={20}
+                />
+                <ConfigField
+                  label="Stop Loss"
+                  description="Close position if unrealized loss exceeds this percentage."
+                  suffix="%"
+                  value={kalshiConfig.stop_loss_pct}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, stop_loss_pct: v })}
+                  onBlur={() => saveKalshiConfig({ stop_loss_pct: kalshiConfig.stop_loss_pct })}
+                  step={1} min={1} max={50}
+                />
+                <ConfigField
+                  label="Daily Loss Limit"
+                  description="Pauses the Kalshi bot for the day if realized losses exceed this."
+                  prefix="$"
+                  value={kalshiConfig.daily_loss_limit_usd}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, daily_loss_limit_usd: v })}
+                  onBlur={() => saveKalshiConfig({ daily_loss_limit_usd: kalshiConfig.daily_loss_limit_usd })}
+                  step={5} min={0} max={10000}
+                />
+                <ConfigField
+                  label="Max Signals/Hour"
+                  description="Rate limit on new Kalshi signals. 0 = unlimited."
+                  value={kalshiConfig.max_signals_per_hour}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_signals_per_hour: v })}
+                  onBlur={() => saveKalshiConfig({ max_signals_per_hour: kalshiConfig.max_signals_per_hour })}
+                  step={1} min={0} max={20}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Kalshi API Keys */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
+        <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
+        <div className="flex items-center gap-3">
+          <span className={`w-2.5 h-2.5 rounded-full ${kalshiKeysStatus?.valid ? "bg-emerald-500" : kalshiKeysStatus?.has_keys ? "bg-amber-500" : "bg-red-500"}`} />
+          <span className="text-sm text-slate-300">
+            {kalshiKeysStatus?.valid ? `Keys valid (${kalshiKeysStatus.key_preview})` : kalshiKeysStatus?.has_keys ? `Keys invalid (${kalshiKeysStatus.key_preview})` : "No keys configured"}
+          </span>
+          {kalshiKeysStatus?.has_keys && (
+            <button onClick={handleDeleteKalshiKeys} className="ml-auto text-sm text-red-400 hover:text-red-300">
+              Remove
+            </button>
+          )}
+        </div>
+
+        {kalshiKeysMessage && (
+          <p className={`text-sm rounded-lg p-3 ${kalshiKeysMessage.type === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+            {kalshiKeysMessage.text}
+          </p>
+        )}
+
+        <form onSubmit={handleSaveKalshiKeys} className="space-y-4">
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">API Key ID</label>
+            <input
+              type="text"
+              value={kalshiKeyId}
+              onChange={(e) => setKalshiKeyId(e.target.value)}
+              placeholder="kalshi-api-key-id"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">Private Key (PEM)</label>
+            <textarea
+              value={kalshiPem}
+              onChange={(e) => setKalshiPem(e.target.value)}
+              placeholder="-----BEGIN RSA PRIVATE KEY-----"
+              rows={4}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono resize-none"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={savingKalshiKeys || !kalshiKeyId || !kalshiPem}
+            className="px-4 py-2 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+          >
+            {savingKalshiKeys ? "Saving..." : "Save Kalshi Keys"}
+          </button>
+        </form>
+        <p className="text-xs text-slate-500">
+          Create API credentials at <span className="text-slate-400">kalshi.com &rarr; Settings &rarr; API Keys</span>. You'll get an API key ID and an RSA private key (PEM format). Required for live mode.
         </p>
       </section>
     </div>

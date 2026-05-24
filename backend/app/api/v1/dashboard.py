@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
+from app.models.kalshi_config import KalshiConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
     BotStatusResponse,
     DailyPnLPoint,
     DashboardResponse,
+    KalshiMarketSnapshot,
+    KalshiStatusResponse,
     MarketSnapshot,
     PnLChartResponse,
     PnLStats,
@@ -98,6 +101,7 @@ async def get_dashboard(
         recent_signals.append(
             SignalResponse(
                 id=s.id,
+                venue=s.venue or "crypto",
                 pair=s.pair,
                 side=s.side,
                 signal_type=s.signal_type,
@@ -116,6 +120,9 @@ async def get_dashboard(
                 pnl_usd=s.pnl_usd,
                 pnl_pct=s.pnl_pct,
                 unrealized_pnl_usd=unrealized,
+                market_ticker=s.market_ticker,
+                event_ticker=s.event_ticker,
+                expiry_time=s.expiry_time,
                 created_at=s.created_at,
                 resolved_at=s.resolved_at,
             )
@@ -224,10 +231,36 @@ async def get_dashboard(
     except Exception:
         pass
 
+    kalshi_cfg = (
+        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+    ).scalar_one_or_none()
+
+    kalshi_status = None
+    kalshi_markets_list: list[KalshiMarketSnapshot] = []
+    if kalshi_cfg:
+        kalshi_open = (
+            await db.execute(
+                select(func.count())
+                .select_from(Signal)
+                .where(Signal.user_id == user.id, Signal.venue == "kalshi", Signal.status.in_(OPEN_STATUSES))
+            )
+        ).scalar()
+        kalshi_status = KalshiStatusResponse(
+            enabled=kalshi_cfg.enabled,
+            has_keys=bool(user.kalshi_api_key_id),
+            series_tickers=kalshi_cfg.series_tickers,
+            open_positions=kalshi_open,
+            max_open_positions=kalshi_cfg.max_open_positions,
+            entry_z_score=kalshi_cfg.entry_z_score,
+            exit_z_score=kalshi_cfg.exit_z_score,
+        )
+
     return DashboardResponse(
         bot_status=bot_status,
+        kalshi_status=kalshi_status,
         recent_signals=recent_signals,
         markets=markets,
+        kalshi_markets=kalshi_markets_list,
         stats=stats,
         scanner_health=scanner_health,
     )

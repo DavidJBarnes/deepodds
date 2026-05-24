@@ -56,9 +56,34 @@ class PnLChartResponse(BaseModel):
     losing_days: int
 
 
+class KalshiMarketSnapshot(BaseModel):
+    ticker: str
+    series: str
+    title: str
+    price: float
+    vwap: float
+    z_score: float
+    std_dev: float
+    volume_24h: float
+    hours_to_expiry: float
+    would_signal: bool
+
+
+class KalshiStatusResponse(BaseModel):
+    enabled: bool
+    has_keys: bool
+    series_tickers: str
+    open_positions: int
+    max_open_positions: int
+    entry_z_score: float
+    exit_z_score: float
+
+
 class DashboardResponse(BaseModel):
     bot_status: BotStatusResponse
+    kalshi_status: KalshiStatusResponse | None = None
     recent_signals: list[SignalResponse]
     markets: list[MarketSnapshot]
+    kalshi_markets: list[KalshiMarketSnapshot] = []
     stats: PnLStats
     scanner_health: dict | None = None

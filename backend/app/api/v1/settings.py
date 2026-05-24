@@ -7,9 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
+from app.models.kalshi_config import KalshiConfig
 from app.models.user import User
 from app.schemas.bot_config import BotConfigResponse, BotConfigUpdate
+from app.schemas.kalshi_config import KalshiConfigResponse, KalshiConfigUpdate, KalshiKeysStatus, KalshiKeysUpdate
 from app.schemas.settings import RobinhoodKeysStatus, RobinhoodKeysUpdate
+from app.services.kalshi_client import KalshiClient
 from app.services.robinhood_client import RobinhoodClient
 
 logger = logging.getLogger(__name__)
@@ -133,6 +136,119 @@ async def delete_exchange_keys(
     user.robinhood_private_key = None
     await db.commit()
     return RobinhoodKeysStatus(has_keys=False)
+
+
+@router.get("/kalshi-config", response_model=KalshiConfigResponse)
+async def get_kalshi_config(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = (
+        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+    ).scalar_one_or_none()
+    if not config:
+        config = KalshiConfig(user_id=user.id)
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+    return _kalshi_config_response(config)
+
+
+def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
+    return KalshiConfigResponse(
+        mode=config.mode,
+        enabled=config.enabled,
+        series_tickers=config.series_tickers,
+        min_volume_24h=config.min_volume_24h,
+        min_price=config.min_price,
+        max_price=config.max_price,
+        min_hours_to_expiry=config.min_hours_to_expiry,
+        candle_interval=config.candle_interval,
+        lookback_periods=config.lookback_periods,
+        entry_z_score=config.entry_z_score,
+        exit_z_score=config.exit_z_score,
+        contracts_per_signal=config.contracts_per_signal,
+        max_open_positions=config.max_open_positions,
+        stop_loss_pct=config.stop_loss_pct,
+        daily_loss_limit_usd=config.daily_loss_limit_usd,
+        max_signals_per_hour=config.max_signals_per_hour,
+    )
+
+
+@router.put("/kalshi-config", response_model=KalshiConfigResponse)
+async def update_kalshi_config(
+    body: KalshiConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = (
+        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+    ).scalar_one_or_none()
+    if not config:
+        config = KalshiConfig(user_id=user.id)
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+
+    updates = body.model_dump(exclude_unset=True)
+    if "mode" in updates and updates["mode"] not in ("paper", "live"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mode must be 'paper' or 'live'",
+        )
+    for key, value in updates.items():
+        setattr(config, key, value)
+    await db.commit()
+    await db.refresh(config)
+    return _kalshi_config_response(config)
+
+
+@router.put("/kalshi-keys", response_model=KalshiKeysStatus)
+async def update_kalshi_keys(
+    body: KalshiKeysUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user.kalshi_api_key_id = body.api_key_id
+    user.kalshi_private_key = body.private_key_pem
+    await db.commit()
+
+    valid = False
+    try:
+        kc = KalshiClient(body.api_key_id, body.private_key_pem)
+        valid = await kc.validate()
+    except Exception:
+        pass
+
+    return KalshiKeysStatus(
+        has_keys=True, key_preview=body.api_key_id[:12] + "...", valid=valid
+    )
+
+
+@router.get("/kalshi-keys", response_model=KalshiKeysStatus)
+async def get_kalshi_keys(user: User = Depends(get_current_user)):
+    if not user.kalshi_api_key_id:
+        return KalshiKeysStatus(has_keys=False)
+    valid = False
+    try:
+        KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+        valid = True
+    except Exception:
+        pass
+    return KalshiKeysStatus(
+        has_keys=True, key_preview=user.kalshi_api_key_id[:12] + "...", valid=valid
+    )
+
+
+@router.delete("/kalshi-keys", response_model=KalshiKeysStatus)
+async def delete_kalshi_keys(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user.kalshi_api_key_id = None
+    user.kalshi_private_key = None
+    await db.commit()
+    return KalshiKeysStatus(has_keys=False)
 
 
 @router.post("/reset-data")

@@ -13,6 +13,16 @@ export interface BotStatus {
   stop_loss_pct: number;
 }
 
+export interface KalshiStatus {
+  enabled: boolean;
+  has_keys: boolean;
+  series_tickers: string;
+  open_positions: number;
+  max_open_positions: number;
+  entry_z_score: number;
+  exit_z_score: number;
+}
+
 export interface PnLStats {
   total_signals: number;
   settled_count: number;
@@ -28,6 +38,7 @@ export interface PnLStats {
 
 export interface Signal {
   id: string;
+  venue: string;
   pair: string;
   side: string;
   signal_type: string;
@@ -46,6 +57,9 @@ export interface Signal {
   pnl_usd: number | null;
   pnl_pct: number | null;
   unrealized_pnl_usd: number | null;
+  market_ticker: string | null;
+  event_ticker: string | null;
+  expiry_time: string | null;
   created_at: string;
   resolved_at: string | null;
 }
@@ -59,10 +73,25 @@ export interface MarketSnapshot {
   would_signal: boolean;
 }
 
+export interface KalshiMarketSnapshot {
+  ticker: string;
+  series: string;
+  title: string;
+  price: number;
+  vwap: number;
+  z_score: number;
+  std_dev: number;
+  volume_24h: number;
+  hours_to_expiry: number;
+  would_signal: boolean;
+}
+
 export interface DashboardData {
   bot_status: BotStatus;
+  kalshi_status: KalshiStatus | null;
   recent_signals: Signal[];
   markets: MarketSnapshot[];
+  kalshi_markets: KalshiMarketSnapshot[];
   stats: PnLStats;
   scanner_health: ScannerHealth | null;
 }
@@ -81,6 +110,25 @@ export interface BotConfig {
   entry_z_score: number;
   exit_z_score: number;
   position_size_usd: number;
+  max_open_positions: number;
+  stop_loss_pct: number;
+  daily_loss_limit_usd: number;
+  max_signals_per_hour: number;
+}
+
+export interface KalshiConfig {
+  mode: string;
+  enabled: boolean;
+  series_tickers: string;
+  min_volume_24h: number;
+  min_price: number;
+  max_price: number;
+  min_hours_to_expiry: number;
+  candle_interval: number;
+  lookback_periods: number;
+  entry_z_score: number;
+  exit_z_score: number;
+  contracts_per_signal: number;
   max_open_positions: number;
   stop_loss_pct: number;
   daily_loss_limit_usd: number;
@@ -122,6 +170,16 @@ export async function getBotConfig() {
 
 export async function updateBotConfig(updates: Partial<BotConfig>) {
   const { data } = await client.put<BotConfig>("/settings/bot-config", updates);
+  return data;
+}
+
+export async function getKalshiConfig() {
+  const { data } = await client.get<KalshiConfig>("/settings/kalshi-config");
+  return data;
+}
+
+export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
+  const { data } = await client.put<KalshiConfig>("/settings/kalshi-config", updates);
   return data;
 }
 
