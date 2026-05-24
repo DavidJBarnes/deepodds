@@ -22,6 +22,8 @@ from app.schemas.dashboard import (
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices
+from app.services.kalshi_client import KalshiClient
+from app.services.kalshi_mean_reversion import _kalshi_candles_to_generic
 from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
 
 router = APIRouter(tags=["dashboard"])
@@ -254,6 +256,72 @@ async def get_dashboard(
             entry_z_score=kalshi_cfg.entry_z_score,
             exit_z_score=kalshi_cfg.exit_z_score,
         )
+
+        try:
+            import time as _time
+
+            kc = KalshiClient.public()
+            series_list = [s.strip() for s in kalshi_cfg.series_tickers.split(",") if s.strip()]
+            now_ts = int(_time.time())
+            cutoff = datetime.now(timezone.utc) + timedelta(hours=kalshi_cfg.min_hours_to_expiry)
+            lookback_sec = kalshi_cfg.lookback_periods * kalshi_cfg.candle_interval * 60
+
+            for series in series_list:
+                try:
+                    data = await kc.get_markets(series_ticker=series, limit=50)
+                except Exception:
+                    continue
+
+                for m in data.get("markets", []):
+                    vol_24h = float(m.get("volume_24h_fp", 0))
+                    if vol_24h < kalshi_cfg.min_volume_24h:
+                        continue
+                    last_price = float(m.get("last_price_dollars", 0))
+                    if last_price < kalshi_cfg.min_price or last_price > kalshi_cfg.max_price:
+                        continue
+                    close_time = m.get("close_time", "")
+                    try:
+                        ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+                    except (ValueError, AttributeError):
+                        continue
+                    if ct < cutoff:
+                        continue
+
+                    hours_left = (ct - datetime.now(timezone.utc)).total_seconds() / 3600
+                    ticker = m.get("ticker", "")
+
+                    vwap, std, z = 0.0, 0.0, 0.0
+                    try:
+                        candles = await kc.get_candlesticks(
+                            series, ticker,
+                            start_ts=now_ts - lookback_sec - 300,
+                            end_ts=now_ts,
+                            period_interval=kalshi_cfg.candle_interval,
+                        )
+                        generic = _kalshi_candles_to_generic(candles)
+                        if generic:
+                            vwap, std = _compute_vwap_and_std(generic, kalshi_cfg.lookback_periods)
+                            if vwap > 0 and std > 0:
+                                z = compute_z_score(last_price, vwap, std)
+                    except Exception:
+                        pass
+
+                    kalshi_markets_list.append(KalshiMarketSnapshot(
+                        ticker=ticker,
+                        series=series,
+                        title=m.get("title", ""),
+                        price=round(last_price, 2),
+                        vwap=round(vwap, 4),
+                        z_score=round(z, 2),
+                        std_dev=round(std, 4),
+                        volume_24h=vol_24h,
+                        hours_to_expiry=round(hours_left, 1),
+                        would_signal=z <= kalshi_cfg.entry_z_score and z != 0,
+                    ))
+
+            kalshi_markets_list.sort(key=lambda x: x.volume_24h, reverse=True)
+        except Exception:
+            pass
 
     return DashboardResponse(
         bot_status=bot_status,

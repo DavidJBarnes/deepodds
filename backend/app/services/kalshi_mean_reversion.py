@@ -153,7 +153,7 @@ def scan_kalshi_entries(
 
     series = [s.strip() for s in config.series_tickers.split(",") if s.strip()]
     markets = _discover_markets(
-        client or KalshiClient.__new__(KalshiClient),
+        client or KalshiClient.public(),
         series,
         config.min_volume_24h,
         config.min_price,
@@ -297,7 +297,7 @@ def check_kalshi_exits(
             continue
 
         try:
-            market = run_async((client or KalshiClient.__new__(KalshiClient)).get_market(sig.market_ticker))
+            market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
             price = float(market.get("last_price_dollars", 0))
         except Exception:
             logger.warning("Failed to get price for %s", sig.market_ticker)
@@ -312,7 +312,7 @@ def check_kalshi_exits(
 
         lookback_seconds = cfg.lookback_periods * cfg.candle_interval * 60
         try:
-            candles = run_async((client or KalshiClient.__new__(KalshiClient)).get_candlesticks(
+            candles = run_async((client or KalshiClient.public()).get_candlesticks(
                 sig.pair, sig.market_ticker,
                 start_ts=now_ts - lookback_seconds - 300,
                 end_ts=now_ts,

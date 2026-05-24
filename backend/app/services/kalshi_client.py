@@ -20,6 +20,13 @@ class KalshiClient:
             private_key_pem.strip().encode(), password=None
         )
 
+    @classmethod
+    def public(cls) -> "KalshiClient":
+        instance = cls.__new__(cls)
+        instance.api_key = None
+        instance._private_key = None
+        return instance
+
     def _sign(self, timestamp_ms: str, method: str, path: str) -> str:
         message = f"{timestamp_ms}{method}{path}".encode()
         signature = self._private_key.sign(
