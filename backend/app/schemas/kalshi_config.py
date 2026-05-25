@@ -29,7 +29,7 @@ class KalshiConfigUpdate(BaseModel):
     max_price: float | None = Field(None, ge=0.50, le=0.99)
     min_hours_to_expiry: int | None = Field(None, ge=0, le=48)
     candle_interval: int | None = Field(None)
-    lookback_periods: int | None = Field(None, ge=10, le=200)
+    lookback_periods: int | None = Field(None, ge=3, le=200)
     entry_z_score: float | None = Field(None, ge=-5.0, le=-0.5)
     exit_z_score: float | None = Field(None, ge=-1.0, le=3.0)
     contracts_per_signal: int | None = Field(None, ge=1, le=10000)

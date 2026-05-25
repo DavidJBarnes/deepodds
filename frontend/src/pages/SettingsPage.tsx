@@ -600,7 +600,7 @@ export default function SettingsPage() {
                   value={kalshiConfig.lookback_periods}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, lookback_periods: v })}
                   onBlur={() => saveKalshiConfig({ lookback_periods: kalshiConfig.lookback_periods })}
-                  step={5} min={10} max={200}
+                  step={1} min={3} max={200}
                 />
                 <ConfigField
                   label="Entry Z-Score"
