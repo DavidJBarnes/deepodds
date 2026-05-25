@@ -555,7 +555,7 @@ export default function SettingsPage() {
                   value={kalshiConfig.min_price}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_price: v })}
                   onBlur={() => saveKalshiConfig({ min_price: kalshiConfig.min_price })}
-                  step={0.05} min={0.01} max={0.95}
+                  step={0.01} min={0} max={0.95}
                 />
                 <ConfigField
                   label="Max Price"
@@ -564,16 +564,16 @@ export default function SettingsPage() {
                   value={kalshiConfig.max_price}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_price: v })}
                   onBlur={() => saveKalshiConfig({ max_price: kalshiConfig.max_price })}
-                  step={0.05} min={0.05} max={0.99}
+                  step={0.01} min={0.05} max={0.99}
                 />
                 <ConfigField
                   label="Min Hours to Expiry"
-                  description="Skip markets expiring sooner than this. Prevents buying contracts about to settle."
+                  description="Skip markets expiring sooner than this. 0 = include all. Prevents buying contracts about to settle."
                   suffix="hrs"
                   value={kalshiConfig.min_hours_to_expiry}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hours_to_expiry: v })}
                   onBlur={() => saveKalshiConfig({ min_hours_to_expiry: kalshiConfig.min_hours_to_expiry })}
-                  step={1} min={1} max={72}
+                  step={1} min={0} max={72}
                 />
               </div>
             </div>

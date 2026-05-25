@@ -329,7 +329,9 @@ async def get_dashboard(
                         hours_left = None
 
                     filter_reason = None
-                    if vol_24h < kalshi_cfg.min_volume_24h:
+                    if last_price <= 0:
+                        filter_reason = "no_trades"
+                    elif vol_24h < kalshi_cfg.min_volume_24h:
                         filter_reason = "low_volume"
                     elif last_price < kalshi_cfg.min_price or last_price > kalshi_cfg.max_price:
                         filter_reason = "price_range"
