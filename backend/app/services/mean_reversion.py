@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.models.bot_config import BotConfig
+from app.models.pair_config import PairConfig
 from app.models.signal import Signal
+from app.services.config_resolver import resolve_crypto_config
 from app.services.robinhood_client import RobinhoodClient
 
 logger = logging.getLogger(__name__)
@@ -127,11 +129,20 @@ def scan_entries(
         return []
 
     pairs = [p.strip() for p in config.pairs.split(",") if p.strip()]
+
+    overrides = {}
+    for pc in session.execute(
+        select(PairConfig).where(PairConfig.user_id == user_id, PairConfig.venue == "crypto")
+    ).scalars().all():
+        overrides[pc.pair] = pc
+
     signals_created = []
 
     for pair in pairs:
         if _has_open_position(session, user_id, pair):
             continue
+
+        eff = resolve_crypto_config(config, overrides.get(pair))
 
         try:
             candles = run_async(_public_candles(pair, config.lookback_periods + 4))
@@ -162,14 +173,15 @@ def scan_entries(
 
         logger.info(
             "%s: price=%.2f vwap=%.2f std=%.2f z=%.2f (entry=%.1f)",
-            pair, price, vwap, std, z, config.entry_z_score,
+            pair, price, vwap, std, z, eff["entry_z_score"],
         )
 
-        if z > config.entry_z_score:
+        if z > eff["entry_z_score"]:
             continue
 
-        quantity = config.position_size_usd / price
-        cost = config.position_size_usd
+        position_size = eff["position_size_usd"]
+        quantity = position_size / price
+        cost = position_size
 
         signal = Signal(
             user_id=user_id,
@@ -253,12 +265,19 @@ def check_exits(
 
     user_ids = {s.user_id for s in filled}
     configs = {}
+    pair_overrides: dict[str, dict[str, PairConfig]] = {}
     for uid in user_ids:
         cfg = session.execute(
             select(BotConfig).where(BotConfig.user_id == uid)
         ).scalar_one_or_none()
         if cfg:
             configs[uid] = cfg
+        uid_overrides = {}
+        for pc in session.execute(
+            select(PairConfig).where(PairConfig.user_id == uid, PairConfig.venue == "crypto")
+        ).scalars().all():
+            uid_overrides[pc.pair] = pc
+        pair_overrides[str(uid)] = uid_overrides
 
     exited = 0
     now = datetime.now(timezone.utc)
@@ -270,6 +289,7 @@ def check_exits(
             continue
 
         exchange = exchange_clients.get(str(sig.user_id))
+        eff = resolve_crypto_config(cfg, pair_overrides.get(str(sig.user_id), {}).get(sig.pair))
 
         try:
             candles = run_async(_public_candles(sig.pair))
@@ -298,10 +318,10 @@ def check_exits(
         should_exit = False
         exit_reason = ""
 
-        if z >= cfg.exit_z_score and z != 0 and price >= sig.fill_price:
+        if z >= eff["exit_z_score"] and z != 0 and price >= sig.fill_price:
             should_exit = True
             exit_reason = f"mean_reversion (z={z:.2f})"
-        elif pnl_pct <= -cfg.stop_loss_pct:
+        elif pnl_pct <= -eff["stop_loss_pct"]:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=MAX_HOLD_HOURS):

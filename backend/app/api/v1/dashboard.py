@@ -8,12 +8,14 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.bot_config import BotConfig
 from app.models.kalshi_config import KalshiConfig
+from app.models.pair_config import PairConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
     BotStatusResponse,
     DailyPnLPoint,
     DashboardResponse,
+    KalshiFilteredMarket,
     KalshiMarketSnapshot,
     KalshiStatusResponse,
     MarketSnapshot,
@@ -22,6 +24,7 @@ from app.schemas.dashboard import (
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices
+from app.services.config_resolver import resolve_crypto_config, resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
 from app.services.kalshi_mean_reversion import _kalshi_candles_to_generic
 from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
@@ -193,6 +196,12 @@ async def get_dashboard(
     )
 
     # Market snapshots — current z-scores for each configured pair
+    crypto_overrides = {}
+    for pc in (
+        await db.execute(select(PairConfig).where(PairConfig.user_id == user.id, PairConfig.venue == "crypto"))
+    ).scalars().all():
+        crypto_overrides[pc.pair] = pc
+
     markets = []
     pairs = [p.strip() for p in config.pairs.split(",") if p.strip()]
     try:
@@ -203,12 +212,32 @@ async def get_dashboard(
             if price <= 0:
                 continue
 
+            eff = resolve_crypto_config(config, crypto_overrides.get(pair))
+            eff_entry_z = eff["entry_z_score"]
+
             try:
-                candles = await _public_candles(pair, config.lookback_periods + 4)
+                candles = await _public_candles(pair, 96)
                 vwap, std = _compute_vwap_and_std(candles, config.lookback_periods)
                 z = compute_z_score(price, vwap, std) if vwap > 0 and std > 0 else 0
             except Exception:
                 vwap, std, z = price, 0, 0
+
+            min_z_24h = z
+            if candles and len(candles) >= config.lookback_periods and std > 0:
+                try:
+                    window = config.lookback_periods
+                    for i in range(1, min(len(candles) - window + 1, 96 - window + 1)):
+                        w_candles = candles[i:i + window]
+                        w_vwap, w_std = _compute_vwap_and_std(w_candles, window)
+                        if w_vwap > 0 and w_std > 0:
+                            w_close = float(w_candles[0].get("close", 0))
+                            if w_close > 0:
+                                w_z = compute_z_score(w_close, w_vwap, w_std)
+                                min_z_24h = min(min_z_24h, w_z)
+                except Exception:
+                    pass
+
+            z_distance = z - eff_entry_z
 
             markets.append(
                 MarketSnapshot(
@@ -217,7 +246,10 @@ async def get_dashboard(
                     vwap=round(vwap, 2),
                     z_score=round(z, 2),
                     std_dev=round(std, 2),
-                    would_signal=z <= config.entry_z_score and z != 0,
+                    would_signal=z <= eff_entry_z and z != 0,
+                    min_z_24h=round(min_z_24h, 2),
+                    z_distance=round(z_distance, 2),
+                    effective_entry_z=eff_entry_z,
                 )
             )
     except Exception:
@@ -239,6 +271,7 @@ async def get_dashboard(
 
     kalshi_status = None
     kalshi_markets_list: list[KalshiMarketSnapshot] = []
+    kalshi_filtered_list: list[KalshiFilteredMarket] = []
     if kalshi_cfg:
         kalshi_open = (
             await db.execute(
@@ -257,6 +290,12 @@ async def get_dashboard(
             exit_z_score=kalshi_cfg.exit_z_score,
         )
 
+        kalshi_overrides = {}
+        for pc in (
+            await db.execute(select(PairConfig).where(PairConfig.user_id == user.id, PairConfig.venue == "kalshi"))
+        ).scalars().all():
+            kalshi_overrides[pc.pair] = pc
+
         try:
             import time as _time
 
@@ -267,6 +306,9 @@ async def get_dashboard(
             lookback_sec = kalshi_cfg.lookback_periods * kalshi_cfg.candle_interval * 60
 
             for series in series_list:
+                eff = resolve_kalshi_config(kalshi_cfg, kalshi_overrides.get(series))
+                eff_entry_z = eff["entry_z_score"]
+
                 try:
                     data = await kc.get_markets(series_ticker=series, limit=50)
                 except Exception:
@@ -274,21 +316,36 @@ async def get_dashboard(
 
                 for m in data.get("markets", []):
                     vol_24h = float(m.get("volume_24h_fp", 0))
-                    if vol_24h < kalshi_cfg.min_volume_24h:
-                        continue
                     last_price = float(m.get("last_price_dollars", 0))
-                    if last_price < kalshi_cfg.min_price or last_price > kalshi_cfg.max_price:
-                        continue
+                    ticker = m.get("ticker", "")
+                    title = m.get("title", "")
+
                     close_time = m.get("close_time", "")
                     try:
                         ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+                        hours_left = (ct - datetime.now(timezone.utc)).total_seconds() / 3600
                     except (ValueError, AttributeError):
-                        continue
-                    if ct < cutoff:
-                        continue
+                        ct = None
+                        hours_left = None
 
-                    hours_left = (ct - datetime.now(timezone.utc)).total_seconds() / 3600
-                    ticker = m.get("ticker", "")
+                    filter_reason = None
+                    if vol_24h < kalshi_cfg.min_volume_24h:
+                        filter_reason = "low_volume"
+                    elif last_price < kalshi_cfg.min_price or last_price > kalshi_cfg.max_price:
+                        filter_reason = "price_range"
+                    elif ct is None:
+                        filter_reason = "invalid_expiry"
+                    elif ct < cutoff:
+                        filter_reason = "expiry_too_soon"
+
+                    if filter_reason:
+                        kalshi_filtered_list.append(KalshiFilteredMarket(
+                            ticker=ticker, series=series, title=title,
+                            price=round(last_price, 2), volume_24h=vol_24h,
+                            hours_to_expiry=round(hours_left, 1) if hours_left is not None else None,
+                            filter_reason=filter_reason,
+                        ))
+                        continue
 
                     vwap, std, z = 0.0, 0.0, 0.0
                     try:
@@ -306,17 +363,21 @@ async def get_dashboard(
                     except Exception:
                         pass
 
+                    z_distance = z - eff_entry_z
+
                     kalshi_markets_list.append(KalshiMarketSnapshot(
                         ticker=ticker,
                         series=series,
-                        title=m.get("title", ""),
+                        title=title,
                         price=round(last_price, 2),
                         vwap=round(vwap, 4),
                         z_score=round(z, 2),
                         std_dev=round(std, 4),
                         volume_24h=vol_24h,
                         hours_to_expiry=round(hours_left, 1),
-                        would_signal=z <= kalshi_cfg.entry_z_score and z != 0,
+                        would_signal=z <= eff_entry_z and z != 0,
+                        z_distance=round(z_distance, 2),
+                        effective_entry_z=eff_entry_z,
                     ))
 
             kalshi_markets_list.sort(key=lambda x: x.volume_24h, reverse=True)
@@ -329,6 +390,7 @@ async def get_dashboard(
         recent_signals=recent_signals,
         markets=markets,
         kalshi_markets=kalshi_markets_list,
+        kalshi_filtered=kalshi_filtered_list,
         stats=stats,
         scanner_health=scanner_health,
     )

@@ -71,6 +71,9 @@ export interface MarketSnapshot {
   z_score: number;
   std_dev: number;
   would_signal: boolean;
+  min_z_24h: number;
+  z_distance: number;
+  effective_entry_z: number;
 }
 
 export interface KalshiMarketSnapshot {
@@ -84,6 +87,18 @@ export interface KalshiMarketSnapshot {
   volume_24h: number;
   hours_to_expiry: number;
   would_signal: boolean;
+  z_distance: number;
+  effective_entry_z: number;
+}
+
+export interface KalshiFilteredMarket {
+  ticker: string;
+  series: string;
+  title: string;
+  price: number;
+  volume_24h: number;
+  hours_to_expiry: number | null;
+  filter_reason: string;
 }
 
 export interface DashboardData {
@@ -92,6 +107,7 @@ export interface DashboardData {
   recent_signals: Signal[];
   markets: MarketSnapshot[];
   kalshi_markets: KalshiMarketSnapshot[];
+  kalshi_filtered: KalshiFilteredMarket[];
   stats: PnLStats;
   scanner_health: ScannerHealth | null;
 }
@@ -180,6 +196,55 @@ export async function getKalshiConfig() {
 
 export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
   const { data } = await client.put<KalshiConfig>("/settings/kalshi-config", updates);
+  return data;
+}
+
+export interface PairConfig {
+  venue: string;
+  pair: string;
+  entry_z_score: number | null;
+  exit_z_score: number | null;
+  position_size_usd: number | null;
+  contracts_per_signal: number | null;
+  stop_loss_pct: number | null;
+}
+
+export interface BacktestResult {
+  signals_count: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  avg_pnl_usd: number;
+  total_pnl_usd: number;
+  avg_hold_bars: number;
+  data_points: number;
+}
+
+export async function getPairConfigs() {
+  const { data } = await client.get<PairConfig[]>("/settings/pair-configs");
+  return data;
+}
+
+export async function updatePairConfig(venue: string, pair: string, updates: Partial<PairConfig>) {
+  const { data } = await client.put<PairConfig>(`/settings/pair-configs/${venue}/${pair}`, updates);
+  return data;
+}
+
+export async function deletePairConfig(venue: string, pair: string) {
+  await client.delete(`/settings/pair-configs/${venue}/${pair}`);
+}
+
+export async function runBacktestPreview(params: {
+  venue: string;
+  pair: string;
+  entry_z_score: number;
+  exit_z_score: number;
+  stop_loss_pct: number;
+  position_size_usd?: number;
+  contracts_per_signal?: number;
+  lookback_periods?: number;
+}) {
+  const { data } = await client.post<BacktestResult>("/settings/backtest-preview", params);
   return data;
 }
 

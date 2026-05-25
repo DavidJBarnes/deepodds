@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.models.kalshi_config import KalshiConfig
+from app.models.pair_config import PairConfig
 from app.models.signal import Signal
+from app.services.config_resolver import resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
 from app.services.mean_reversion import _compute_vwap_and_std, compute_z_score
 
@@ -152,6 +154,13 @@ def scan_kalshi_entries(
         return []
 
     series = [s.strip() for s in config.series_tickers.split(",") if s.strip()]
+
+    overrides = {}
+    for pc in session.execute(
+        select(PairConfig).where(PairConfig.user_id == user_id, PairConfig.venue == "kalshi")
+    ).scalars().all():
+        overrides[pc.pair] = pc
+
     markets = _discover_markets(
         client or KalshiClient.public(),
         series,
@@ -174,6 +183,8 @@ def scan_kalshi_entries(
 
         if len(open_pos) + len(signals_created) >= config.max_open_positions:
             break
+
+        eff = resolve_kalshi_config(config, overrides.get(series_ticker))
 
         try:
             candles = run_async(client.get_candlesticks(
@@ -202,13 +213,13 @@ def scan_kalshi_entries(
 
         logger.info(
             "KALSHI %s: price=$%.2f vwap=$%.4f std=$%.4f z=%.2f (entry=%.1f)",
-            ticker, price, vwap, std, z, config.entry_z_score,
+            ticker, price, vwap, std, z, eff["entry_z_score"],
         )
 
-        if z > config.entry_z_score:
+        if z > eff["entry_z_score"]:
             continue
 
-        count = config.contracts_per_signal
+        count = eff["contracts_per_signal"]
         cost = price * count
 
         signal = Signal(
@@ -274,12 +285,19 @@ def check_kalshi_exits(
 
     user_ids = {s.user_id for s in filled}
     configs = {}
+    pair_overrides: dict[str, dict[str, PairConfig]] = {}
     for uid in user_ids:
         cfg = session.execute(
             select(KalshiConfig).where(KalshiConfig.user_id == uid)
         ).scalar_one_or_none()
         if cfg:
             configs[uid] = cfg
+        uid_overrides = {}
+        for pc in session.execute(
+            select(PairConfig).where(PairConfig.user_id == uid, PairConfig.venue == "kalshi")
+        ).scalars().all():
+            uid_overrides[pc.pair] = pc
+        pair_overrides[str(uid)] = uid_overrides
 
     exited = 0
     now = datetime.now(timezone.utc)
@@ -295,6 +313,8 @@ def check_kalshi_exits(
 
         if not sig.market_ticker or not sig.pair:
             continue
+
+        eff = resolve_kalshi_config(cfg, pair_overrides.get(str(sig.user_id), {}).get(sig.pair))
 
         try:
             market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
@@ -327,10 +347,10 @@ def check_kalshi_exits(
         should_exit = False
         exit_reason = ""
 
-        if z >= cfg.exit_z_score and z != 0 and price >= sig.fill_price:
+        if z >= eff["exit_z_score"] and z != 0 and price >= sig.fill_price:
             should_exit = True
             exit_reason = f"mean_reversion (z={z:.2f})"
-        elif pnl_pct <= -cfg.stop_loss_pct:
+        elif pnl_pct <= -eff["stop_loss_pct"]:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):

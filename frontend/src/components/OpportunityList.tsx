@@ -136,9 +136,21 @@ export default function MarketView({ markets, entryZ = -2, exitZ = 0 }: Props) {
                   Std Dev <span className="text-slate-400 tabular-nums">${m.std_dev.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </span>
               </div>
-              <span className={`font-mono font-bold tabular-nums ${zColor}`}>
-                z = {m.z_score.toFixed(2)}
-              </span>
+              <div className="flex items-center gap-3">
+                {m.min_z_24h < m.z_score && m.min_z_24h <= m.effective_entry_z * 0.7 && (
+                  <span className="text-amber-400/80 tabular-nums">
+                    24h low: {m.min_z_24h.toFixed(2)}z
+                  </span>
+                )}
+                {m.z_distance > 0 && m.z_distance < 1.0 && !m.would_signal && (
+                  <span className={`tabular-nums ${m.z_distance < 0.5 ? "text-amber-400" : "text-slate-500"}`}>
+                    {m.z_distance.toFixed(1)} away
+                  </span>
+                )}
+                <span className={`font-mono font-bold tabular-nums ${zColor}`}>
+                  z = {m.z_score.toFixed(2)}
+                </span>
+              </div>
             </div>
           </div>
         );
