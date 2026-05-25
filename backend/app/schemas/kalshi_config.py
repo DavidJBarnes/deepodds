@@ -24,7 +24,7 @@ class KalshiConfigUpdate(BaseModel):
     mode: str | None = None
     enabled: bool | None = None
     series_tickers: str | None = None
-    min_volume_24h: int | None = Field(None, ge=1, le=100000)
+    min_volume_24h: int | None = Field(None, ge=0, le=100000)
     min_price: float | None = Field(None, ge=0.01, le=0.50)
     max_price: float | None = Field(None, ge=0.50, le=0.99)
     min_hours_to_expiry: int | None = Field(None, ge=1, le=48)
