@@ -36,6 +36,9 @@ class MarketSnapshot(BaseModel):
     z_score: float
     std_dev: float
     would_signal: bool
+    min_z_24h: float = 0.0
+    z_distance: float = 0.0
+    effective_entry_z: float = -2.0
 
 
 class DailyPnLPoint(BaseModel):
@@ -67,6 +70,18 @@ class KalshiMarketSnapshot(BaseModel):
     volume_24h: float
     hours_to_expiry: float
     would_signal: bool
+    z_distance: float = 0.0
+    effective_entry_z: float = -2.0
+
+
+class KalshiFilteredMarket(BaseModel):
+    ticker: str
+    series: str
+    title: str
+    price: float
+    volume_24h: float
+    hours_to_expiry: float | None = None
+    filter_reason: str
 
 
 class KalshiStatusResponse(BaseModel):
@@ -85,5 +100,6 @@ class DashboardResponse(BaseModel):
     recent_signals: list[SignalResponse]
     markets: list[MarketSnapshot]
     kalshi_markets: list[KalshiMarketSnapshot] = []
+    kalshi_filtered: list[KalshiFilteredMarket] = []
     stats: PnLStats
     scanner_health: dict | None = None

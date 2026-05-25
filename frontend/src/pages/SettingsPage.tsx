@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import ConfirmModal from "@/components/ConfirmModal";
+import BacktestPreview from "@/components/BacktestPreview";
 import * as settingsApi from "@/api/settings";
 import * as botApi from "@/api/bot";
 
@@ -94,11 +95,15 @@ export default function SettingsPage() {
   const [kalshiConfigMessage, setKalshiConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [kalshiModeModal, setKalshiModeModal] = useState<"paper" | "live" | null>(null);
 
+  const [pairConfigs, setPairConfigs] = useState<botApi.PairConfig[]>([]);
+  const [showOverrides, setShowOverrides] = useState(false);
+
   useEffect(() => {
     settingsApi.getExchangeKeysStatus().then(setKeysStatus);
     botApi.getBotConfig().then(setConfig);
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getKalshiConfig().then(setKalshiConfig);
+    botApi.getPairConfigs().then(setPairConfigs);
   }, []);
 
   async function handleSaveKeys(e: React.FormEvent) {
@@ -670,6 +675,98 @@ export default function SettingsPage() {
         )}
       </section>
 
+      {/* Per-Pair Overrides */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <button
+          onClick={() => setShowOverrides(!showOverrides)}
+          className="flex items-center gap-2 w-full text-left"
+        >
+          <span className={`text-slate-500 transition-transform ${showOverrides ? "rotate-90" : ""}`}>&#9654;</span>
+          <h3 className="text-lg font-semibold text-white">Per-Pair Overrides</h3>
+          <span className="text-xs text-slate-500 ml-2">
+            {pairConfigs.length > 0 ? `${pairConfigs.length} active` : "None set"}
+          </span>
+        </button>
+
+        {showOverrides && (
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-slate-500">
+              Override global parameters for individual pairs. Leave fields empty to use the global default. Changes auto-save on blur.
+            </p>
+
+            {config && (
+              <>
+                <h4 className="text-sm font-semibold text-emerald-400">Crypto Pairs</h4>
+                {config.pairs.split(",").map((p) => p.trim()).filter(Boolean).map((pair) => {
+                  const pc = pairConfigs.find((c) => c.venue === "crypto" && c.pair === pair);
+                  return (
+                    <PairOverrideCard
+                      key={`crypto-${pair}`}
+                      venue="crypto"
+                      pair={pair}
+                      override={pc || null}
+                      globalEntryZ={config.entry_z_score}
+                      globalExitZ={config.exit_z_score}
+                      globalStopLoss={config.stop_loss_pct}
+                      globalPositionSize={config.position_size_usd}
+                      lookbackPeriods={config.lookback_periods}
+                      onSave={async (updates) => {
+                        const result = await botApi.updatePairConfig("crypto", pair, updates);
+                        setPairConfigs((prev) => {
+                          const filtered = prev.filter((c) => !(c.venue === "crypto" && c.pair === pair));
+                          return [...filtered, result];
+                        });
+                      }}
+                      onClear={async () => {
+                        try {
+                          await botApi.deletePairConfig("crypto", pair);
+                          setPairConfigs((prev) => prev.filter((c) => !(c.venue === "crypto" && c.pair === pair)));
+                        } catch { /* not found is fine */ }
+                      }}
+                    />
+                  );
+                })}
+              </>
+            )}
+
+            {kalshiConfig && (
+              <>
+                <h4 className="text-sm font-semibold text-sky-400 mt-4">Kalshi Series</h4>
+                {kalshiConfig.series_tickers.split(",").map((s) => s.trim()).filter(Boolean).map((series) => {
+                  const pc = pairConfigs.find((c) => c.venue === "kalshi" && c.pair === series);
+                  return (
+                    <PairOverrideCard
+                      key={`kalshi-${series}`}
+                      venue="kalshi"
+                      pair={series}
+                      override={pc || null}
+                      globalEntryZ={kalshiConfig.entry_z_score}
+                      globalExitZ={kalshiConfig.exit_z_score}
+                      globalStopLoss={kalshiConfig.stop_loss_pct}
+                      globalContracts={kalshiConfig.contracts_per_signal}
+                      lookbackPeriods={kalshiConfig.lookback_periods}
+                      onSave={async (updates) => {
+                        const result = await botApi.updatePairConfig("kalshi", series, updates);
+                        setPairConfigs((prev) => {
+                          const filtered = prev.filter((c) => !(c.venue === "kalshi" && c.pair === series));
+                          return [...filtered, result];
+                        });
+                      }}
+                      onClear={async () => {
+                        try {
+                          await botApi.deletePairConfig("kalshi", series);
+                          setPairConfigs((prev) => prev.filter((c) => !(c.venue === "kalshi" && c.pair === series)));
+                        } catch { /* not found is fine */ }
+                      }}
+                    />
+                  );
+                })}
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* Kalshi API Keys */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
         <h3 className="text-lg font-semibold text-white">Kalshi API Keys</h3>
@@ -724,6 +821,171 @@ export default function SettingsPage() {
           Create API credentials at <span className="text-slate-400">kalshi.com &rarr; Settings &rarr; API Keys</span>. You'll get an API key ID and an RSA private key (PEM format). Required for live mode.
         </p>
       </section>
+    </div>
+  );
+}
+
+function PairOverrideCard({
+  venue,
+  pair,
+  override,
+  globalEntryZ,
+  globalExitZ,
+  globalStopLoss,
+  globalPositionSize,
+  globalContracts,
+  lookbackPeriods,
+  onSave,
+  onClear,
+}: {
+  venue: string;
+  pair: string;
+  override: botApi.PairConfig | null;
+  globalEntryZ: number;
+  globalExitZ: number;
+  globalStopLoss: number;
+  globalPositionSize?: number;
+  globalContracts?: number;
+  lookbackPeriods: number;
+  onSave: (updates: Partial<botApi.PairConfig>) => Promise<void>;
+  onClear: () => Promise<void>;
+}) {
+  const [entryZ, setEntryZ] = useState<string>(override?.entry_z_score?.toString() ?? "");
+  const [exitZ, setExitZ] = useState<string>(override?.exit_z_score?.toString() ?? "");
+  const [stopLoss, setStopLoss] = useState<string>(override?.stop_loss_pct?.toString() ?? "");
+  const [posSize, setPosSize] = useState<string>(override?.position_size_usd?.toString() ?? "");
+  const [contracts, setContracts] = useState<string>(override?.contracts_per_signal?.toString() ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const effEntryZ = entryZ ? parseFloat(entryZ) : globalEntryZ;
+  const effExitZ = exitZ ? parseFloat(exitZ) : globalExitZ;
+  const effStopLoss = stopLoss ? parseFloat(stopLoss) : globalStopLoss;
+  const effPosSize = posSize ? parseFloat(posSize) : (globalPositionSize ?? 25);
+  const effContracts = contracts ? parseInt(contracts) : (globalContracts ?? 50);
+
+  const hasOverride = entryZ || exitZ || stopLoss || posSize || contracts;
+  const accentColor = venue === "kalshi" ? "sky" : "emerald";
+
+  async function handleBlur() {
+    const updates: Partial<botApi.PairConfig> = {};
+    if (entryZ) updates.entry_z_score = parseFloat(entryZ);
+    if (exitZ) updates.exit_z_score = parseFloat(exitZ);
+    if (stopLoss) updates.stop_loss_pct = parseFloat(stopLoss);
+    if (posSize) updates.position_size_usd = parseFloat(posSize);
+    if (contracts) updates.contracts_per_signal = parseInt(contracts);
+
+    if (Object.keys(updates).length === 0) return;
+
+    setSaving(true);
+    try { await onSave(updates); } catch { /* ignore */ }
+    finally { setSaving(false); }
+  }
+
+  async function handleClear() {
+    setEntryZ("");
+    setExitZ("");
+    setStopLoss("");
+    setPosSize("");
+    setContracts("");
+    await onClear();
+  }
+
+  return (
+    <div className={`bg-slate-800/50 border border-slate-700/50 rounded-lg p-4 space-y-3`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`font-mono text-sm font-semibold text-white`}>{pair}</span>
+          {hasOverride && (
+            <span className={`text-[10px] font-bold uppercase tracking-wider bg-${accentColor}-500/20 text-${accentColor}-400 px-1.5 py-0.5 rounded`}>
+              Custom
+            </span>
+          )}
+          {saving && <span className="text-[10px] text-amber-400">Saving...</span>}
+        </div>
+        {hasOverride && (
+          <button onClick={handleClear} className="text-xs text-slate-500 hover:text-red-400 transition-colors">
+            Clear overrides
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Entry Z ({globalEntryZ})</label>
+          <input
+            type="number"
+            value={entryZ}
+            onChange={(e) => setEntryZ(e.target.value)}
+            onBlur={handleBlur}
+            placeholder={globalEntryZ.toString()}
+            step={0.1} min={-5} max={-0.5}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Exit Z ({globalExitZ})</label>
+          <input
+            type="number"
+            value={exitZ}
+            onChange={(e) => setExitZ(e.target.value)}
+            onBlur={handleBlur}
+            placeholder={globalExitZ.toString()}
+            step={0.1} min={-1} max={3}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Stop Loss % ({globalStopLoss})</label>
+          <input
+            type="number"
+            value={stopLoss}
+            onChange={(e) => setStopLoss(e.target.value)}
+            onBlur={handleBlur}
+            placeholder={globalStopLoss.toString()}
+            step={0.5} min={0.5} max={50}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
+          />
+        </div>
+        {venue === "crypto" && (
+          <div>
+            <label className="text-xs text-slate-500 block mb-0.5">Position $ ({globalPositionSize})</label>
+            <input
+              type="number"
+              value={posSize}
+              onChange={(e) => setPosSize(e.target.value)}
+              onBlur={handleBlur}
+              placeholder={(globalPositionSize ?? 25).toString()}
+              step={5} min={5} max={1000}
+              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
+            />
+          </div>
+        )}
+        {venue === "kalshi" && (
+          <div>
+            <label className="text-xs text-slate-500 block mb-0.5">Contracts ({globalContracts})</label>
+            <input
+              type="number"
+              value={contracts}
+              onChange={(e) => setContracts(e.target.value)}
+              onBlur={handleBlur}
+              placeholder={(globalContracts ?? 50).toString()}
+              step={5} min={1} max={10000}
+              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
+            />
+          </div>
+        )}
+      </div>
+
+      <BacktestPreview
+        venue={venue}
+        pair={pair}
+        entryZ={effEntryZ}
+        exitZ={effExitZ}
+        stopLoss={effStopLoss}
+        positionSize={venue === "crypto" ? effPosSize : undefined}
+        contracts={venue === "kalshi" ? effContracts : undefined}
+        lookback={lookbackPeriods}
+      />
     </div>
   );
 }

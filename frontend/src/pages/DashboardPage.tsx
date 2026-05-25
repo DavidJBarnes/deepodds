@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useBotStore } from "@/stores/botStore";
+import type { KalshiFilteredMarket } from "@/api/bot";
 import BotStatusBar from "@/components/BotStatusBar";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
@@ -15,6 +16,7 @@ export default function DashboardPage() {
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [tab, setTab] = useState<"markets" | "kalshi" | "signals">("markets");
+  const [showFiltered, setShowFiltered] = useState(false);
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
@@ -196,7 +198,7 @@ export default function DashboardPage() {
       {tab === "kalshi" && (
         <div className="space-y-3">
           {dashboard.kalshi_markets.map((m) => (
-            <div key={m.ticker} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div key={m.ticker} className={`bg-slate-900 border rounded-xl p-4 space-y-2 ${m.z_distance > 0 && m.z_distance < 0.5 ? "border-amber-500/30" : "border-slate-800"}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-sm font-semibold text-white">{m.ticker}</span>
@@ -204,6 +206,11 @@ export default function DashboardPage() {
                   {m.would_signal && (
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full">
                       Buy signal
+                    </span>
+                  )}
+                  {!m.would_signal && m.z_distance > 0 && m.z_distance < 0.5 && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                      Near miss
                     </span>
                   )}
                 </div>
@@ -218,15 +225,53 @@ export default function DashboardPage() {
                   <span className="text-slate-500">Vol 24h <span className="text-slate-400 tabular-nums">{m.volume_24h.toLocaleString()}</span></span>
                   <span className="text-slate-500">Expires <span className="text-slate-400 tabular-nums">{m.hours_to_expiry.toFixed(1)}h</span></span>
                 </div>
-                <span className={`font-mono font-bold tabular-nums ${m.z_score <= -2.5 ? "text-sky-400" : "text-slate-300"}`}>
-                  z = {m.z_score.toFixed(2)}
-                </span>
+                <div className="flex items-center gap-3">
+                  {!m.would_signal && m.z_distance > 0 && m.z_distance < 1.0 && (
+                    <span className={`tabular-nums ${m.z_distance < 0.5 ? "text-amber-400" : "text-slate-500"}`}>
+                      {m.z_distance.toFixed(1)} away
+                    </span>
+                  )}
+                  <span className={`font-mono font-bold tabular-nums ${m.z_score <= m.effective_entry_z ? "text-sky-400" : "text-slate-300"}`}>
+                    z = {m.z_score.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           ))}
           {dashboard.kalshi_markets.length === 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
               <p className="text-slate-400">No Kalshi markets scanned yet.</p>
+            </div>
+          )}
+
+          {dashboard.kalshi_filtered && dashboard.kalshi_filtered.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowFiltered(!showFiltered)}
+                className="text-sm text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1"
+              >
+                <span className={`transition-transform ${showFiltered ? "rotate-90" : ""}`}>&#9654;</span>
+                Filtered Markets ({dashboard.kalshi_filtered.length})
+              </button>
+              {showFiltered && (
+                <div className="mt-2 space-y-2">
+                  {dashboard.kalshi_filtered.map((f: KalshiFilteredMarket) => (
+                    <div key={f.ticker} className="bg-slate-900/50 border border-slate-800/50 rounded-lg px-4 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs text-slate-500">{f.ticker}</span>
+                        <span className="text-xs text-slate-600 truncate max-w-xs">{f.title}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="text-slate-600 tabular-nums">${f.price.toFixed(2)}</span>
+                        <span className="text-slate-600 tabular-nums">vol {f.volume_24h.toLocaleString()}</span>
+                        <span className="bg-slate-800 text-slate-500 px-2 py-0.5 rounded text-[10px] font-medium">
+                          {f.filter_reason.replace("_", " ")}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
