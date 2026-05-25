@@ -5,13 +5,13 @@ class KalshiConfigResponse(BaseModel):
     mode: str
     enabled: bool
     series_tickers: str = "KXBTC,KXETH"
-    min_volume_24h: int = 100
-    min_price: float = 0.15
-    max_price: float = 0.85
-    min_hours_to_expiry: int = 4
-    candle_interval: int = 1
-    lookback_periods: int = 60
-    entry_z_score: float = -2.5
+    min_volume_24h: int = 0
+    min_price: float = 0.01
+    max_price: float = 0.95
+    min_hours_to_expiry: int = 2
+    candle_interval: int = 60
+    lookback_periods: int = 6
+    entry_z_score: float = -2.0
     exit_z_score: float = -0.3
     contracts_per_signal: int = 50
     max_open_positions: int = 5
