@@ -170,7 +170,7 @@ export default function DashboardPage() {
         >
           Crypto ({dashboard.markets.length})
         </button>
-        {dashboard.kalshi_markets.length > 0 && (
+        {(dashboard.kalshi_status || dashboard.kalshi_markets.length > 0 || (dashboard.kalshi_filtered && dashboard.kalshi_filtered.length > 0)) && (
           <button
             onClick={() => setTab("kalshi")}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
@@ -179,7 +179,7 @@ export default function DashboardPage() {
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            Kalshi ({dashboard.kalshi_markets.length})
+            Kalshi ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
           </button>
         )}
         <button
