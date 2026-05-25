@@ -23,8 +23,8 @@ class KalshiConfig(Base):
     min_hours_to_expiry: Mapped[int] = mapped_column(Integer, default=2)
 
     candle_interval: Mapped[int] = mapped_column(Integer, default=60)
-    lookback_periods: Mapped[int] = mapped_column(Integer, default=6)
-    entry_z_score: Mapped[float] = mapped_column(Float, default=-2.0)
+    lookback_periods: Mapped[int] = mapped_column(Integer, default=3)
+    entry_z_score: Mapped[float] = mapped_column(Float, default=-1.5)
     exit_z_score: Mapped[float] = mapped_column(Float, default=-0.3)
 
     contracts_per_signal: Mapped[int] = mapped_column(Integer, default=50)

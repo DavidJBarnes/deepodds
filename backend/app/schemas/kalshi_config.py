@@ -10,8 +10,8 @@ class KalshiConfigResponse(BaseModel):
     max_price: float = 0.95
     min_hours_to_expiry: int = 2
     candle_interval: int = 60
-    lookback_periods: int = 6
-    entry_z_score: float = -2.0
+    lookback_periods: int = 3
+    entry_z_score: float = -1.5
     exit_z_score: float = -0.3
     contracts_per_signal: int = 50
     max_open_positions: int = 5
