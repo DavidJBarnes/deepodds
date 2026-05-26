@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useBotStore } from "@/stores/botStore";
 import type { KalshiFilteredMarket } from "@/api/bot";
 import BotStatusBar from "@/components/BotStatusBar";
@@ -53,7 +52,7 @@ export default function DashboardPage() {
   }
 
   const status = dashboard.bot_status;
-  const needsSetup = !status.enabled || !status.has_exchange_keys;
+  const kalshi = dashboard.kalshi_status;
 
   return (
     <div className="space-y-6">
@@ -65,95 +64,58 @@ export default function DashboardPage() {
         scannerHealth={dashboard.scanner_health}
       />
 
-      {needsSetup && (
-        <div className="bg-slate-900 border border-amber-500/30 rounded-xl p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-amber-400">Setup Required</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center gap-2">
-              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.has_exchange_keys && status.exchange_keys_valid ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
-                {status.has_exchange_keys && status.exchange_keys_valid ? "✓" : "1"}
-              </span>
-              <span className={status.has_exchange_keys && status.exchange_keys_valid ? "text-slate-500 line-through" : "text-slate-300"}>
-                {status.has_exchange_keys && !status.exchange_keys_valid ? "Robinhood keys are invalid — re-enter in Settings" : "Add your Robinhood API keys"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs ${status.enabled ? "bg-emerald-500/20 text-emerald-400" : "bg-slate-800 text-slate-500"}`}>
-                {status.enabled ? "✓" : "2"}
-              </span>
-              <span className={status.enabled ? "text-slate-500 line-through" : "text-slate-300"}>
-                Review settings and enable the bot
-              </span>
-            </div>
-          </div>
-          <Link
-            to="/settings"
-            className="inline-block text-sm text-amber-400 hover:text-amber-300 font-medium mt-1"
-          >
-            Go to Settings &rarr;
-          </Link>
+      <BotStatusBar
+        mode={status.mode}
+        venueLabel="CRYPTO"
+        venueColor="emerald"
+        enabled={status.enabled}
+        openPositions={status.open_positions}
+        maxOpenPositions={status.max_open_positions}
+        hasKeysWarning={
+          !status.has_exchange_keys
+            ? "No API keys"
+            : !status.exchange_keys_valid
+              ? "Keys invalid"
+              : undefined
+        }
+      >
+        <div>
+          <span className="text-slate-500">Entry: </span>
+          <span className="text-white font-medium">&le;{status.entry_z_score}z</span>
         </div>
-      )}
-
-      <BotStatusBar status={status} />
-
-      {dashboard.kalshi_status && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold px-2.5 py-1 rounded bg-sky-500/20 text-sky-400">KALSHI</span>
-              <span
-                className={`w-2.5 h-2.5 rounded-full ${
-                  dashboard.kalshi_status.enabled ? "bg-sky-500 animate-pulse" : "bg-slate-600"
-                }`}
-              />
-              <span className="text-sm text-slate-400">
-                {dashboard.kalshi_status.enabled ? "Running" : "Paused"}
-              </span>
-              {!dashboard.kalshi_status.has_keys && (
-                <span className="text-xs text-amber-400">No API keys</span>
-              )}
-            </div>
-
-            <div className="h-4 w-px bg-slate-700" />
-
-            <div className="flex-1 min-w-48">
-              <div className="flex justify-between text-xs text-slate-400 mb-1">
-                <span>Positions</span>
-                <span>{dashboard.kalshi_status.open_positions} / {dashboard.kalshi_status.max_open_positions}</span>
-              </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    dashboard.kalshi_status.open_positions / dashboard.kalshi_status.max_open_positions > 0.9
-                      ? "bg-red-500"
-                      : dashboard.kalshi_status.open_positions / dashboard.kalshi_status.max_open_positions > 0.6
-                        ? "bg-amber-500"
-                        : "bg-sky-500"
-                  }`}
-                  style={{ width: `${Math.min(100, (dashboard.kalshi_status.open_positions / dashboard.kalshi_status.max_open_positions) * 100)}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="h-4 w-px bg-slate-700" />
-
-            <div className="flex gap-4 text-sm">
-              <div>
-                <span className="text-slate-500">Min Edge: </span>
-                <span className="text-white font-medium">{(dashboard.kalshi_status.min_edge * 100).toFixed(0)}%</span>
-              </div>
-              <div>
-                <span className="text-slate-500">Exit Edge: </span>
-                <span className="text-white font-medium">{(dashboard.kalshi_status.exit_edge * 100).toFixed(0)}%</span>
-              </div>
-              <div>
-                <span className="text-slate-500">Series: </span>
-                <span className="text-white font-medium font-mono text-xs">{dashboard.kalshi_status.series_tickers}</span>
-              </div>
-            </div>
-          </div>
+        <div>
+          <span className="text-slate-500">Exit: </span>
+          <span className="text-white font-medium">&ge;{status.exit_z_score}z</span>
         </div>
+        <div>
+          <span className="text-slate-500">Stop: </span>
+          <span className="text-red-400 font-medium">-{status.stop_loss_pct}%</span>
+        </div>
+      </BotStatusBar>
+
+      {kalshi && (
+        <BotStatusBar
+          mode={kalshi.mode}
+          venueLabel="KALSHI"
+          venueColor="sky"
+          enabled={kalshi.enabled}
+          openPositions={kalshi.open_positions}
+          maxOpenPositions={kalshi.max_open_positions}
+          hasKeysWarning={!kalshi.has_keys ? "No API keys" : undefined}
+        >
+          <div>
+            <span className="text-slate-500">Min Edge: </span>
+            <span className="text-white font-medium">{(kalshi.min_edge * 100).toFixed(0)}%</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Exit Edge: </span>
+            <span className="text-white font-medium">{(kalshi.exit_edge * 100).toFixed(0)}%</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Series: </span>
+            <span className="text-white font-medium font-mono text-xs">{kalshi.series_tickers}</span>
+          </div>
+        </BotStatusBar>
       )}
 
       <StatsCard stats={dashboard.stats} />

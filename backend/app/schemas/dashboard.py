@@ -87,6 +87,7 @@ class KalshiFilteredMarket(BaseModel):
 
 
 class KalshiStatusResponse(BaseModel):
+    mode: str
     enabled: bool
     has_keys: bool
     series_tickers: str

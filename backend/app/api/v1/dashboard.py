@@ -310,6 +310,7 @@ async def get_dashboard(
             )
         ).scalar()
         kalshi_status = KalshiStatusResponse(
+            mode=kalshi_cfg.mode,
             enabled=kalshi_cfg.enabled,
             has_keys=bool(user.kalshi_api_key_id),
             series_tickers=kalshi_cfg.series_tickers,
