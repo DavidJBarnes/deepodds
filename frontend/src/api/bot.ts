@@ -22,6 +22,8 @@ export interface KalshiStatus {
   max_open_positions: number;
   min_edge: number;
   exit_edge: number;
+  current_exposure_usd: number;
+  max_payout_usd: number;
 }
 
 export interface PnLStats {

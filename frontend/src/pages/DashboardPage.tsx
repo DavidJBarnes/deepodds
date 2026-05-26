@@ -104,16 +104,22 @@ export default function DashboardPage() {
           hasKeysWarning={!kalshi.has_keys ? "No API keys" : undefined}
         >
           <div>
+            <span className="text-slate-500">Risk: </span>
+            <span className="text-white font-medium">${kalshi.current_exposure_usd.toFixed(2)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Max Win: </span>
+            <span className="text-emerald-400 font-medium">
+              +${(kalshi.max_payout_usd - kalshi.current_exposure_usd).toFixed(2)}
+            </span>
+          </div>
+          <div>
             <span className="text-slate-500">Min Edge: </span>
             <span className="text-white font-medium">{(kalshi.min_edge * 100).toFixed(0)}%</span>
           </div>
           <div>
             <span className="text-slate-500">Exit Edge: </span>
             <span className="text-white font-medium">{(kalshi.exit_edge * 100).toFixed(0)}%</span>
-          </div>
-          <div>
-            <span className="text-slate-500">Series: </span>
-            <span className="text-white font-medium font-mono text-xs">{kalshi.series_tickers}</span>
           </div>
         </BotStatusBar>
       )}
