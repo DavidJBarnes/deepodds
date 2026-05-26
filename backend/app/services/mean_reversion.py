@@ -22,7 +22,7 @@ def _compute_vwap_and_std(candles: list[dict], lookback: int) -> tuple[float, fl
     if len(candles) < lookback:
         return 0.0, 0.0
 
-    recent = candles[:lookback]
+    recent = candles[-lookback:]
     closes = []
     total_pv = 0.0
     total_vol = 0.0
