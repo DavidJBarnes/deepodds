@@ -20,6 +20,7 @@ class KalshiConfigResponse(BaseModel):
     stop_loss_pct: float = 15.0
     daily_loss_limit_usd: float = 25.0
     max_signals_per_hour: int = 3
+    min_hold_minutes: int = 15
 
 
 class KalshiConfigUpdate(BaseModel):
@@ -41,6 +42,7 @@ class KalshiConfigUpdate(BaseModel):
     stop_loss_pct: float | None = Field(None, ge=1.0, le=50.0)
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)
+    min_hold_minutes: int | None = Field(None, ge=0, le=480)
 
 
 class KalshiKeysUpdate(BaseModel):

@@ -31,6 +31,7 @@ def _make_kalshi_config(**overrides):
         contracts_per_signal=50,
         max_cost_per_signal=25.0,
         max_open_positions=5,
+        min_hold_minutes=15,
         stop_loss_pct=15.0,
         daily_loss_limit_usd=25.0,
         max_signals_per_hour=3,
@@ -117,6 +118,83 @@ class TestKalshiExitLogic:
         now = datetime.now(timezone.utc)
         should_exit = sig.filled_at and (now - sig.filled_at) > timedelta(hours=24)
         assert should_exit
+
+
+class TestKalshiHoldGuard:
+    """min_hold_minutes blocks edge_lost panic-sells (the 6-minute -95% bug),
+    but stop_loss and approaching_expiry still fire."""
+
+    def _eval(self, sig, cfg, current_edge, pnl_pct, now):
+        """Replicate the exit decision tree from kalshi_fair_value."""
+        hold_minutes = (now - sig.filled_at).total_seconds() / 60 if sig.filled_at else 999
+        min_hold = cfg.min_hold_minutes
+
+        if pnl_pct <= -cfg.stop_loss_pct:
+            return "stop_loss"
+        if sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
+            return "approaching_expiry"
+        if sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
+            return "max_hold"
+        if current_edge <= cfg.exit_edge and hold_minutes >= min_hold:
+            return "edge_lost"
+        return None
+
+    def test_edge_lost_blocked_within_hold_window(self):
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(minutes=5))
+        cfg = _make_kalshi_config(min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=15.0)
+        # Edge collapsed but we just bought — should hold
+        assert self._eval(sig, cfg, current_edge=-0.10, pnl_pct=-5.0, now=now) is None
+
+    def test_edge_lost_fires_after_hold_window(self):
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(minutes=20))
+        cfg = _make_kalshi_config(min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=15.0)
+        assert self._eval(sig, cfg, current_edge=-0.05, pnl_pct=-5.0, now=now) == "edge_lost"
+
+    def test_edge_lost_at_exact_hold_boundary(self):
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(minutes=15))
+        cfg = _make_kalshi_config(min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=15.0)
+        assert self._eval(sig, cfg, current_edge=-0.05, pnl_pct=-5.0, now=now) == "edge_lost"
+
+    def test_stop_loss_fires_even_within_hold(self):
+        # Catastrophic move should still trigger — risk > UX.
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(minutes=2))
+        cfg = _make_kalshi_config(min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=15.0)
+        assert self._eval(sig, cfg, current_edge=-0.10, pnl_pct=-50.0, now=now) == "stop_loss"
+
+    def test_approaching_expiry_fires_even_within_hold(self):
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(
+            filled_at=now - timedelta(minutes=2),
+            expiry_time=now + timedelta(minutes=20),
+        )
+        cfg = _make_kalshi_config(
+            min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=99.0,
+            min_hours_to_expiry=2,
+        )
+        assert self._eval(sig, cfg, current_edge=0.0, pnl_pct=-1.0, now=now) == "approaching_expiry"
+
+    def test_zero_min_hold_restores_old_behavior(self):
+        # Users who want the old behavior can set min_hold_minutes=0
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(seconds=5))
+        cfg = _make_kalshi_config(min_hold_minutes=0, exit_edge=-0.02, stop_loss_pct=15.0)
+        assert self._eval(sig, cfg, current_edge=-0.05, pnl_pct=-5.0, now=now) == "edge_lost"
+
+    def test_stop_loss_still_dominates_huge_drawdowns(self):
+        # Honesty: min_hold_minutes does NOT prevent the B2090-style 6-minute
+        # -95% sell. That trade exits via stop_loss (pnl=-95% <= -15%
+        # threshold), which deliberately ignores min_hold. The min_hold guard
+        # only stops *edge_lost* panic-sells; stop_loss is for catastrophic
+        # moves where holding is worse than crystallizing. Widening tolerance
+        # to thin-market spreads is a separate concern.
+        now = datetime.now(timezone.utc)
+        sig = _make_kalshi_signal(filled_at=now - timedelta(minutes=6), fill_price=0.20)
+        cfg = _make_kalshi_config(min_hold_minutes=15, exit_edge=-0.02, stop_loss_pct=15.0)
+        assert self._eval(sig, cfg, current_edge=-0.15, pnl_pct=-95.0, now=now) == "stop_loss"
 
 
 class TestKalshiPnl:

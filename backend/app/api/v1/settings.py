@@ -175,6 +175,7 @@ def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
         max_cost_per_signal=config.max_cost_per_signal,
         max_open_positions=config.max_open_positions,
         max_positions_per_event=config.max_positions_per_event,
+        min_hold_minutes=config.min_hold_minutes,
         stop_loss_pct=config.stop_loss_pct,
         daily_loss_limit_usd=config.daily_loss_limit_usd,
         max_signals_per_hour=config.max_signals_per_hour,

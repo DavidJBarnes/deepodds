@@ -165,6 +165,7 @@ export interface KalshiConfig {
   stop_loss_pct: number;
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;
+  min_hold_minutes: number;
 }
 
 export interface DailyPnLPoint {
