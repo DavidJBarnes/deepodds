@@ -236,135 +236,173 @@ def scan_kalshi_entries(
             event_counts[sig.event_ticker] = event_counts.get(sig.event_ticker, 0) + 1
 
     for market in markets:
-        ticker = market["ticker"]
-        series_ticker = market["_series_ticker"]
+        ticker = market.get("ticker")
+        if not ticker:
+            continue
+        series_ticker = market.get("_series_ticker")
         event_ticker = market.get("event_ticker")
 
-        if series_ticker not in underlying:
-            continue
+        # Per-market try/except so a single bad market (e.g. missing strike
+        # data) can't crash the whole scan mid-loop. Previously this caused
+        # signals to never be persisted while their orders had already gone
+        # through to Kalshi — duplicate-order disaster.
+        try:
+            if series_ticker not in underlying:
+                continue
 
-        if _has_traded_ticker(session, user_id, ticker):
-            continue
+            if _has_traded_ticker(session, user_id, ticker):
+                continue
 
-        if event_ticker and event_counts.get(event_ticker, 0) >= config.max_positions_per_event:
-            continue
+            if event_ticker and event_counts.get(event_ticker, 0) >= config.max_positions_per_event:
+                continue
 
-        if len(open_pos) + len(signals_created) >= config.max_open_positions:
-            break
+            if len(open_pos) + len(signals_created) >= config.max_open_positions:
+                break
 
-        eff = resolve_kalshi_config(config, overrides.get(series_ticker))
+            eff = resolve_kalshi_config(config, overrides.get(series_ticker))
 
-        spot = underlying[series_ticker]["spot"]
-        vol = underlying[series_ticker]["vol"]
-        close_dt = market["_close_dt"]
-        t_hours = (close_dt - now).total_seconds() / 3600
-        t_years = t_hours * HOURS_TO_YEARS
+            spot = underlying[series_ticker]["spot"]
+            vol = underlying[series_ticker]["vol"]
+            close_dt = market["_close_dt"]
+            t_hours = (close_dt - now).total_seconds() / 3600
+            t_years = t_hours * HOURS_TO_YEARS
 
-        floor_strike = market.get("floor_strike")
-        cap_strike = market.get("cap_strike")
-        strike_type = market.get("strike_type", "between")
-        market_price = float(market.get("_ask") or _market_ask(market))
+            floor_strike = market.get("floor_strike")
+            cap_strike = market.get("cap_strike")
+            strike_type = market.get("strike_type", "between")
+            market_price = float(market.get("_ask") or _market_ask(market))
 
-        if market_price <= 0:
-            continue
+            if market_price <= 0:
+                continue
 
-        if floor_strike is not None:
-            floor_strike = float(floor_strike)
-        if cap_strike is not None:
-            cap_strike = float(cap_strike)
+            if floor_strike is not None:
+                floor_strike = float(floor_strike)
+            if cap_strike is not None:
+                cap_strike = float(cap_strike)
 
-        result = compute_edge(
-            spot, floor_strike, cap_strike, strike_type,
-            t_years, vol, market_price,
-        )
+            # compute_edge crashes if the strike(s) it needs are None for the
+            # given strike_type. Skip incomplete markets instead.
+            if strike_type == "between" and (floor_strike is None or cap_strike is None):
+                logger.warning("skipping %s: 'between' market missing strike(s)", ticker)
+                continue
+            if strike_type == "greater" and floor_strike is None:
+                logger.warning("skipping %s: 'greater' market missing floor_strike", ticker)
+                continue
+            if strike_type == "less" and cap_strike is None:
+                logger.warning("skipping %s: 'less' market missing cap_strike", ticker)
+                continue
 
-        logger.info(
-            "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% (min=%.1f%%)",
-            ticker, result.model_prob * 100, result.market_prob * 100,
-            result.edge * 100, eff["min_edge"] * 100,
-        )
-
-        if result.edge < eff["min_edge"]:
-            continue
-
-        count = eff["contracts_per_signal"]
-        max_cost = eff["max_cost_per_signal"]
-        if market_price > 0 and market_price * count > max_cost:
-            count = int(max_cost / market_price)
-        if count < 1:
-            continue
-        cost = market_price * count
-
-        signal = Signal(
-            user_id=user_id,
-            venue="kalshi",
-            pair=series_ticker,
-            side="buy",
-            signal_type=config.mode,
-            status="signaled",
-            entry_price=market_price,
-            quantity=float(count),
-            cost_usd=cost,
-            model_prob=result.model_prob,
-            market_prob=result.market_prob,
-            edge=result.edge,
-            floor_strike=floor_strike,
-            cap_strike=cap_strike,
-            strike_type=strike_type,
-            underlying_price=spot,
-            realized_vol=vol,
-            market_ticker=ticker,
-            event_ticker=market.get("event_ticker"),
-            expiry_time=close_dt,
-        )
-
-        if config.mode == "live" and client:
-            try:
-                # Cross the spread by 1c so the order rests as a taker against
-                # current asks instead of getting stuck as a resting maker
-                # that never fills (the KXETH-B2070 scenario). Kalshi fills
-                # at best-available ask up to our limit, so the effective
-                # entry price is typically still market_price — the +1c is
-                # just headroom if the ask ticks up between scan and order.
-                # Capped at config.max_price to never exceed the user's
-                # max-price guardrail.
-                max_price_cents = int(round(config.max_price * 100))
-                yes_price_cents = min(
-                    int(round(market_price * 100)) + 1,
-                    max_price_cents,
-                )
-                order_result = run_async(client.create_order(
-                    ticker=ticker, side="yes", count=count,
-                    yes_price_cents=yes_price_cents,
-                ))
-                order = order_result.get("order", order_result)
-                signal.exchange_order_id = order.get("order_id")
-                signal.status = "placed"
-                logger.info(
-                    "LIVE KALSHI BUY %s: %d @ limit $%.2f (ask was $%.2f)",
-                    ticker, count, yes_price_cents / 100, market_price,
-                )
-            except Exception as e:
-                signal.status = "cancelled"
-                signal.error_message = str(e)[:200]
-                logger.exception("Failed to place Kalshi order for %s", ticker)
-        else:
-            signal.status = "filled"
-            signal.fill_price = market_price
-            signal.fill_quantity = float(count)
-            signal.filled_at = datetime.now(timezone.utc)
-            logger.info(
-                "PAPER KALSHI BUY %s: %d @ $%.2f (model=%.0f%% edge=+%.0f%%)",
-                ticker, count, market_price,
-                result.model_prob * 100, result.edge * 100,
+            result = compute_edge(
+                spot, floor_strike, cap_strike, strike_type,
+                t_years, vol, market_price,
             )
 
-        session.add(signal)
-        signals_created.append(signal)
-        if event_ticker:
-            event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
+            logger.info(
+                "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% (min=%.1f%%)",
+                ticker, result.model_prob * 100, result.market_prob * 100,
+                result.edge * 100, eff["min_edge"] * 100,
+            )
 
-    session.commit()
+            if result.edge < eff["min_edge"]:
+                continue
+
+            count = eff["contracts_per_signal"]
+            max_cost = eff["max_cost_per_signal"]
+            if market_price > 0 and market_price * count > max_cost:
+                count = int(max_cost / market_price)
+            if count < 1:
+                continue
+            cost = market_price * count
+
+            signal = Signal(
+                user_id=user_id,
+                venue="kalshi",
+                pair=series_ticker,
+                side="buy",
+                signal_type=config.mode,
+                status="signaled",
+                entry_price=market_price,
+                quantity=float(count),
+                cost_usd=cost,
+                model_prob=result.model_prob,
+                market_prob=result.market_prob,
+                edge=result.edge,
+                floor_strike=floor_strike,
+                cap_strike=cap_strike,
+                strike_type=strike_type,
+                underlying_price=spot,
+                realized_vol=vol,
+                market_ticker=ticker,
+                event_ticker=market.get("event_ticker"),
+                expiry_time=close_dt,
+            )
+
+            if config.mode == "live" and client:
+                # Save the signal in "signaled" state BEFORE hitting Kalshi.
+                # If create_order then succeeds we update to "placed". If we
+                # crash after Kalshi accepts but before our update lands, the
+                # next scan sees a signaled-state record and won't re-place
+                # the order (the orphaned position is still visible to
+                # sync_kalshi_live via the ticker).
+                session.add(signal)
+                session.commit()
+                signals_created.append(signal)
+                if event_ticker:
+                    event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
+
+                try:
+                    max_price_cents = int(round(config.max_price * 100))
+                    yes_price_cents = min(
+                        int(round(market_price * 100)) + 1,
+                        max_price_cents,
+                    )
+                    order_result = run_async(client.create_order(
+                        ticker=ticker, side="yes", count=count,
+                        yes_price_cents=yes_price_cents,
+                    ))
+                    order = order_result.get("order", order_result)
+                    signal.exchange_order_id = order.get("order_id")
+                    signal.status = "placed"
+                    session.commit()
+                    logger.info(
+                        "LIVE KALSHI BUY %s: %d @ limit $%.2f (ask was $%.2f)",
+                        ticker, count, yes_price_cents / 100, market_price,
+                    )
+                except Exception as e:
+                    signal.status = "cancelled"
+                    signal.error_message = str(e)[:200]
+                    try:
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                    logger.exception("Failed to place Kalshi order for %s", ticker)
+            else:
+                signal.status = "filled"
+                signal.fill_price = market_price
+                signal.fill_quantity = float(count)
+                signal.filled_at = datetime.now(timezone.utc)
+                session.add(signal)
+                session.commit()
+                signals_created.append(signal)
+                if event_ticker:
+                    event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
+                logger.info(
+                    "PAPER KALSHI BUY %s: %d @ $%.2f (model=%.0f%% edge=+%.0f%%)",
+                    ticker, count, market_price,
+                    result.model_prob * 100, result.edge * 100,
+                )
+
+        except Exception:
+            logger.exception(
+                "Per-market scan error on %s — skipping (session rolled back)",
+                ticker,
+            )
+            try:
+                session.rollback()
+            except Exception:
+                logger.exception("Session rollback failed")
+            continue
+
     return signals_created
 
 
