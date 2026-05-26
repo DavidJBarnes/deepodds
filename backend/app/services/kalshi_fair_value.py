@@ -58,19 +58,19 @@ def _open_kalshi_positions(session: Session, user_id) -> list[Signal]:
 
 
 def _has_traded_ticker(session: Session, user_id, market_ticker: str) -> bool:
-    """True if user has ANY non-cancelled signal on this market_ticker.
+    """True if user has ANY signal on this market_ticker — including cancelled.
 
-    Kalshi market tickers are unique per event resolution, so we never want to
-    re-enter a ticker — whether the prior trade is still open or already
-    settled. This prevents the observed pattern of buying at $0.28, losing,
-    then re-buying the same ticker at $0.94 on a later scan.
+    Kalshi tickers are unique per event resolution, so we never want to
+    re-enter a ticker we've already touched. Including cancelled signals
+    prevents the observed retry-storm pattern: order rejected with 400,
+    we mark cancelled, next 30s scan re-tries, rejects again, repeat.
+    Once we've cancelled a ticker, we move on for that event resolution.
     """
     result = session.execute(
         select(Signal.id).where(
             Signal.user_id == user_id,
             Signal.venue == "kalshi",
             Signal.market_ticker == market_ticker,
-            Signal.status != "cancelled",
         ).limit(1)
     )
     return result.scalar_one_or_none() is not None

@@ -67,9 +67,40 @@ def compute_edge(
     sigma: float,
     market_price: float,
 ) -> FairValueResult:
-    model_prob = compute_fair_probability(
-        spot, floor_strike, cap_strike, strike_type, t_years, sigma
-    )
+    # Defensive: any None/invalid input produces a zero-edge result rather
+    # than a crash. The scanner's per-market try/except is the outer safety
+    # net; this is the inner one so noisy log entries don't pile up.
+    def _bad(why: str) -> FairValueResult:
+        return FairValueResult(
+            model_prob=0.0,
+            market_prob=market_price or 0.0,
+            edge=-1.0,  # forces edge < min_edge so no signal fires
+            underlying_price=spot or 0.0,
+            annualized_vol=sigma or 0.0,
+            time_to_expiry_hours=(t_years or 0.0) * 365.25 * 24,
+            strike_type=strike_type or "unknown",
+            floor_strike=floor_strike,
+            cap_strike=cap_strike,
+        )
+
+    if spot is None or sigma is None or t_years is None or market_price is None:
+        return _bad("missing inputs")
+    if strike_type not in ("between", "greater", "less"):
+        return _bad(f"unknown strike_type={strike_type}")
+    if strike_type == "between" and (floor_strike is None or cap_strike is None):
+        return _bad("between missing strikes")
+    if strike_type == "greater" and floor_strike is None:
+        return _bad("greater missing floor")
+    if strike_type == "less" and cap_strike is None:
+        return _bad("less missing cap")
+
+    try:
+        model_prob = compute_fair_probability(
+            spot, floor_strike, cap_strike, strike_type, t_years, sigma
+        )
+    except (ValueError, ZeroDivisionError, TypeError):
+        return _bad("math error")
+
     return FairValueResult(
         model_prob=model_prob,
         market_prob=market_price,

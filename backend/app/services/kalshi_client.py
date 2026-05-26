@@ -73,7 +73,17 @@ class KalshiClient:
                 content=body if body else None,
                 params=params,
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # Kalshi returns useful JSON error details in the response body
+                # (e.g. INSUFFICIENT_BALANCE, BAD_PRICE). Include in the
+                # exception so we can act on it instead of seeing a generic
+                # 400 Bad Request.
+                detail = resp.text[:300] if resp.text else ""
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} {resp.reason_phrase}: {detail}",
+                    request=resp.request,
+                    response=resp,
+                )
             return resp.json()
 
     async def validate(self) -> bool:
