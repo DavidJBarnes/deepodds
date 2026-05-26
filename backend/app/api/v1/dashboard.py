@@ -341,8 +341,9 @@ async def get_dashboard(
                     continue
 
                 for m in data.get("markets", []):
-                    vol_24h = float(m.get("volume_24h_fp", 0))
-                    last_price = float(m.get("last_price_dollars", 0))
+                    vol_24h = float(m.get("volume_24h_fp", 0) or 0)
+                    ask_price = float(m.get("yes_ask_dollars", 0) or 0)
+                    ask_size = float(m.get("yes_ask_size_fp", 0) or 0)
                     ticker = m.get("ticker", "")
                     title = m.get("title", "")
 
@@ -355,11 +356,13 @@ async def get_dashboard(
                         hours_left = None
 
                     filter_reason = None
-                    if last_price <= 0:
-                        filter_reason = "no_trades"
+                    if ask_price <= 0:
+                        filter_reason = "no_ask"
+                    elif ask_size < 1:
+                        filter_reason = "no_ask_size"
                     elif vol_24h < kalshi_cfg.min_volume_24h:
                         filter_reason = "low_volume"
-                    elif last_price < kalshi_cfg.min_price or last_price > kalshi_cfg.max_price:
+                    elif ask_price < kalshi_cfg.min_price or ask_price > kalshi_cfg.max_price:
                         filter_reason = "price_range"
                     elif ct is None:
                         filter_reason = "invalid_expiry"
@@ -369,7 +372,7 @@ async def get_dashboard(
                     if filter_reason:
                         kalshi_filtered_list.append(KalshiFilteredMarket(
                             ticker=ticker, series=series, title=title,
-                            price=round(last_price, 2), volume_24h=vol_24h,
+                            price=round(ask_price, 2), volume_24h=vol_24h,
                             hours_to_expiry=round(hours_left, 1) if hours_left is not None else None,
                             filter_reason=filter_reason,
                         ))
@@ -395,7 +398,7 @@ async def get_dashboard(
                         if t_years > 0:
                             result = compute_edge(
                                 spot_val, floor_strike, cap_strike, strike_type,
-                                t_years, vol_val, last_price,
+                                t_years, vol_val, ask_price,
                             )
                             model_prob_val = result.model_prob
                             edge_val = result.edge
@@ -404,7 +407,7 @@ async def get_dashboard(
                         ticker=ticker,
                         series=series,
                         title=title,
-                        price=round(last_price, 2),
+                        price=round(ask_price, 2),
                         model_prob=round(model_prob_val, 4),
                         edge=round(edge_val, 4),
                         floor_strike=floor_strike,

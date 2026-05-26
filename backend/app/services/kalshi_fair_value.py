@@ -57,16 +57,50 @@ def _open_kalshi_positions(session: Session, user_id) -> list[Signal]:
     )
 
 
-def _has_open_kalshi_position(session: Session, user_id, market_ticker: str) -> bool:
+def _has_traded_ticker(session: Session, user_id, market_ticker: str) -> bool:
+    """True if user has ANY non-cancelled signal on this market_ticker.
+
+    Kalshi market tickers are unique per event resolution, so we never want to
+    re-enter a ticker — whether the prior trade is still open or already
+    settled. This prevents the observed pattern of buying at $0.28, losing,
+    then re-buying the same ticker at $0.94 on a later scan.
+    """
     result = session.execute(
         select(Signal.id).where(
             Signal.user_id == user_id,
             Signal.venue == "kalshi",
             Signal.market_ticker == market_ticker,
-            Signal.status.in_(OPEN_STATUSES),
+            Signal.status != "cancelled",
         ).limit(1)
     )
     return result.scalar_one_or_none() is not None
+
+
+def _open_event_count(session: Session, user_id, event_ticker: str) -> int:
+    """Count of currently-open positions in a single event.
+
+    Buckets within an event are mutually exclusive (only one wins), so
+    holding multiple buckets is correlated risk masquerading as diversification.
+    """
+    if not event_ticker:
+        return 0
+    return session.execute(
+        select(func.count(Signal.id)).where(
+            Signal.user_id == user_id,
+            Signal.venue == "kalshi",
+            Signal.event_ticker == event_ticker,
+            Signal.status.in_(OPEN_STATUSES),
+        )
+    ).scalar() or 0
+
+
+def _market_ask(market: dict) -> float:
+    """Return the YES ask in dollars — the price we would actually pay to enter."""
+    return float(market.get("yes_ask_dollars", 0) or 0)
+
+
+def _market_ask_size(market: dict) -> float:
+    return float(market.get("yes_ask_size_fp", 0) or 0)
 
 
 def _discover_markets(
@@ -76,7 +110,14 @@ def _discover_markets(
     min_price: float,
     max_price: float,
     min_hours_to_expiry: int,
+    min_ask_size: int = 1,
 ) -> list[dict]:
+    """Find markets where we could actually fill a buy order at a sensible price.
+
+    Filters on the YES ask (the price we'd pay), not last_price (which can be
+    stale). Also requires ask size >= min_ask_size so the order book has depth
+    for at least our smallest position.
+    """
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=min_hours_to_expiry)
     eligible = []
@@ -89,12 +130,15 @@ def _discover_markets(
             continue
 
         for m in data.get("markets", []):
-            vol_24h = float(m.get("volume_24h_fp", 0))
+            vol_24h = float(m.get("volume_24h_fp", 0) or 0)
             if vol_24h < min_volume:
                 continue
 
-            last_price = float(m.get("last_price_dollars", 0))
-            if last_price < min_price or last_price > max_price:
+            ask = _market_ask(m)
+            if ask < min_price or ask > max_price:
+                continue
+
+            if _market_ask_size(m) < min_ask_size:
                 continue
 
             close_time = m.get("close_time", "")
@@ -107,9 +151,10 @@ def _discover_markets(
 
             m["_series_ticker"] = series
             m["_close_dt"] = ct
+            m["_ask"] = ask
             eligible.append(m)
 
-    eligible.sort(key=lambda m: float(m.get("volume_24h_fp", 0)), reverse=True)
+    eligible.sort(key=lambda m: float(m.get("volume_24h_fp", 0) or 0), reverse=True)
     return eligible
 
 
@@ -165,20 +210,30 @@ def scan_kalshi_entries(
         client, series,
         config.min_volume_24h, config.min_price, config.max_price,
         config.min_hours_to_expiry,
+        min_ask_size=1,
     )
 
     underlying = _fetch_underlying_data(series, config.vol_lookback_hours, config.vol_interval)
     now = datetime.now(timezone.utc)
     signals_created = []
 
+    event_counts: dict[str, int] = {}
+    for sig in open_pos:
+        if sig.event_ticker:
+            event_counts[sig.event_ticker] = event_counts.get(sig.event_ticker, 0) + 1
+
     for market in markets:
         ticker = market["ticker"]
         series_ticker = market["_series_ticker"]
+        event_ticker = market.get("event_ticker")
 
         if series_ticker not in underlying:
             continue
 
-        if _has_open_kalshi_position(session, user_id, ticker):
+        if _has_traded_ticker(session, user_id, ticker):
+            continue
+
+        if event_ticker and event_counts.get(event_ticker, 0) >= config.max_positions_per_event:
             continue
 
         if len(open_pos) + len(signals_created) >= config.max_open_positions:
@@ -195,7 +250,7 @@ def scan_kalshi_entries(
         floor_strike = market.get("floor_strike")
         cap_strike = market.get("cap_strike")
         strike_type = market.get("strike_type", "between")
-        market_price = float(market.get("last_price_dollars", 0))
+        market_price = float(market.get("_ask") or _market_ask(market))
 
         if market_price <= 0:
             continue
@@ -278,6 +333,8 @@ def scan_kalshi_entries(
 
         session.add(signal)
         signals_created.append(signal)
+        if event_ticker:
+            event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
 
     session.commit()
     return signals_created

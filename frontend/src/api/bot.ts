@@ -158,6 +158,7 @@ export interface KalshiConfig {
   contracts_per_signal: number;
   max_cost_per_signal: number;
   max_open_positions: number;
+  max_positions_per_event: number;
   stop_loss_pct: number;
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;

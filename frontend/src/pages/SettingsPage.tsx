@@ -669,6 +669,14 @@ export default function SettingsPage() {
                   step={1} min={1} max={20}
                 />
                 <ConfigField
+                  label="Max Positions / Event"
+                  description="Buckets within an event are mutually exclusive — only one wins."
+                  value={kalshiConfig.max_positions_per_event}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_positions_per_event: v })}
+                  onBlur={() => saveKalshiConfig({ max_positions_per_event: kalshiConfig.max_positions_per_event })}
+                  step={1} min={1} max={10}
+                />
+                <ConfigField
                   label="Stop Loss"
                   description="Close position if unrealized loss exceeds this percentage."
                   suffix="%"
