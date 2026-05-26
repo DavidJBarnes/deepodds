@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBotStore } from "@/stores/botStore";
-import type { KalshiFilteredMarket } from "@/api/bot";
+import { getSignals, type KalshiFilteredMarket, type Signal } from "@/api/bot";
 import BotStatusBar from "@/components/BotStatusBar";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
+import SignalFiltersBar, { type VenueFilter, type StatusFilter } from "@/components/SignalFiltersBar";
 import MarketView from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 
 const REFRESH_INTERVAL = 60;
 
@@ -16,11 +18,45 @@ export default function DashboardPage() {
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [tab, setTab] = useState<"markets" | "kalshi" | "signals">("markets");
   const [showFiltered, setShowFiltered] = useState(false);
+  const [signalFilters, setSignalFilters] = useLocalStorage<{
+    venue: VenueFilter;
+    status: StatusFilter;
+  }>("deepodds.signals.filters", { venue: "all", status: "all" });
+  const [filteredSignals, setFilteredSignals] = useState<Signal[] | null>(null);
+  const [filteredTotal, setFilteredTotal] = useState<number>(0);
+  const [signalsLoading, setSignalsLoading] = useState(false);
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useEffect(() => {
+    if (tab !== "signals") return;
+    let cancelled = false;
+    setSignalsLoading(true);
+    getSignals({
+      venue: signalFilters.venue === "all" ? undefined : signalFilters.venue,
+      status: signalFilters.status === "all" ? undefined : signalFilters.status,
+      limit: 100,
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setFilteredSignals(data.items);
+        setFilteredTotal(data.total);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFilteredSignals([]);
+        setFilteredTotal(0);
+      })
+      .finally(() => {
+        if (!cancelled) setSignalsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, signalFilters.venue, signalFilters.status, lastRefreshed]);
 
   useEffect(() => {
     refresh();
@@ -158,7 +194,7 @@ export default function DashboardPage() {
               : "text-slate-400 hover:text-white"
           }`}
         >
-          Signals ({dashboard.recent_signals.length})
+          Signals ({tab === "signals" ? filteredTotal : dashboard.recent_signals.length})
         </button>
       </div>
 
@@ -236,7 +272,24 @@ export default function DashboardPage() {
           )}
         </div>
       )}
-      {tab === "signals" && <SignalTable signals={dashboard.recent_signals} />}
+      {tab === "signals" && (
+        <div className="space-y-3">
+          <SignalFiltersBar
+            venue={signalFilters.venue}
+            status={signalFilters.status}
+            onChange={setSignalFilters}
+            totalShown={filteredSignals?.length ?? 0}
+            totalMatching={filteredTotal}
+          />
+          {signalsLoading && filteredSignals === null ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center">
+              <p className="text-slate-400">Loading signals…</p>
+            </div>
+          ) : (
+            <SignalTable signals={filteredSignals ?? dashboard.recent_signals} />
+          )}
+        </div>
+      )}
     </div>
   );
 }
