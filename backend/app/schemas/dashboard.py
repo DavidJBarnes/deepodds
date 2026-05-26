@@ -64,14 +64,16 @@ class KalshiMarketSnapshot(BaseModel):
     series: str
     title: str
     price: float
-    vwap: float
-    z_score: float
-    std_dev: float
+    model_prob: float
+    edge: float
+    floor_strike: float | None = None
+    cap_strike: float | None = None
+    strike_type: str = "between"
+    underlying_price: float = 0.0
+    realized_vol: float = 0.0
     volume_24h: float
     hours_to_expiry: float
     would_signal: bool
-    z_distance: float = 0.0
-    effective_entry_z: float = -2.0
 
 
 class KalshiFilteredMarket(BaseModel):
@@ -90,8 +92,8 @@ class KalshiStatusResponse(BaseModel):
     series_tickers: str
     open_positions: int
     max_open_positions: int
-    entry_z_score: float
-    exit_z_score: float
+    min_edge: float
+    exit_edge: float
 
 
 class DashboardResponse(BaseModel):

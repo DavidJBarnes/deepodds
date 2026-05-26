@@ -36,6 +36,15 @@ class ArchivedSignal(Base):
     fill_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    model_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    edge: Mapped[float | None] = mapped_column(Float, nullable=True)
+    floor_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cap_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
+    strike_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    underlying_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    realized_vol: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     exit_z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

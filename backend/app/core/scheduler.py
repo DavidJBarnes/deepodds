@@ -13,7 +13,7 @@ from app.models.user import User
 from app.services.robinhood_client import RobinhoodClient
 from app.services.kalshi_client import KalshiClient
 from app.services.mean_reversion import check_exits, scan_entries, sync_live_orders
-from app.services.kalshi_mean_reversion import check_kalshi_exits, scan_kalshi_entries
+from app.services.kalshi_fair_value import check_kalshi_exits, scan_kalshi_entries
 
 logger = logging.getLogger(__name__)
 

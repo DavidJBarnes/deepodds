@@ -16,6 +16,14 @@ class SignalResponse(BaseModel):
     cost_usd: float
     z_score: float | None = None
     vwap: float | None = None
+    model_prob: float | None = None
+    market_prob: float | None = None
+    edge: float | None = None
+    floor_strike: float | None = None
+    cap_strike: float | None = None
+    strike_type: str | None = None
+    underlying_price: float | None = None
+    realized_vol: float | None = None
     exchange_order_id: str | None = None
     fill_price: float | None = None
     fill_quantity: float | None = None

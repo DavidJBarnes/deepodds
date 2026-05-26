@@ -166,10 +166,10 @@ def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
         min_price=config.min_price,
         max_price=config.max_price,
         min_hours_to_expiry=config.min_hours_to_expiry,
-        candle_interval=config.candle_interval,
-        lookback_periods=config.lookback_periods,
-        entry_z_score=config.entry_z_score,
-        exit_z_score=config.exit_z_score,
+        min_edge=config.min_edge,
+        vol_lookback_hours=config.vol_lookback_hours,
+        vol_interval=config.vol_interval,
+        exit_edge=config.exit_edge,
         contracts_per_signal=config.contracts_per_signal,
         max_open_positions=config.max_open_positions,
         stop_loss_pct=config.stop_loss_pct,
@@ -269,6 +269,8 @@ async def list_pair_configs(
             position_size_usd=pc.position_size_usd,
             contracts_per_signal=pc.contracts_per_signal,
             stop_loss_pct=pc.stop_loss_pct,
+            min_edge=pc.min_edge,
+            exit_edge=pc.exit_edge,
         )
         for pc in rows
     ]
@@ -310,6 +312,8 @@ async def upsert_pair_config(
         position_size_usd=pc.position_size_usd,
         contracts_per_signal=pc.contracts_per_signal,
         stop_loss_pct=pc.stop_loss_pct,
+        min_edge=pc.min_edge,
+        exit_edge=pc.exit_edge,
     )
 
 
@@ -339,12 +343,15 @@ async def delete_pair_config(
 class BacktestRequest(BaseModel):
     venue: str
     pair: str
-    entry_z_score: float = Field(ge=-5.0, le=-0.5)
-    exit_z_score: float = Field(ge=-1.0, le=3.0)
+    entry_z_score: float | None = Field(None, ge=-5.0, le=-0.5)
+    exit_z_score: float | None = Field(None, ge=-1.0, le=3.0)
     stop_loss_pct: float = Field(ge=0.5, le=50.0)
     position_size_usd: float = Field(default=25.0, ge=5.0, le=1000.0)
     contracts_per_signal: int = Field(default=50, ge=1, le=10000)
     lookback_periods: int = Field(default=48, ge=4, le=200)
+    min_edge: float | None = Field(None, ge=0.01, le=0.50)
+    exit_edge: float | None = Field(None, ge=-0.50, le=0.0)
+    vol_lookback_hours: int | None = Field(None, ge=1, le=168)
 
 
 @router.post("/backtest-preview")
@@ -363,6 +370,9 @@ async def backtest_preview(
         position_size_usd=body.position_size_usd,
         contracts_per_signal=body.contracts_per_signal,
         lookback_periods=body.lookback_periods,
+        min_edge=body.min_edge,
+        exit_edge=body.exit_edge,
+        vol_lookback_hours=body.vol_lookback_hours,
     )
     return result
 

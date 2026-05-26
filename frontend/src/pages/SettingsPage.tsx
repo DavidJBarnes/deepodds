@@ -581,45 +581,52 @@ export default function SettingsPage() {
             <div className="border-t border-slate-800 pt-4">
               <h4 className="text-sm font-semibold text-sky-400 mb-1">Strategy Parameters</h4>
               <p className="text-xs text-slate-500 mb-3">
-                Mean-reversion on 1-minute Kalshi candles. Buy when z-score drops below entry, sell when it reverts.
+                Fair-value probability model. Buy when the model's probability exceeds the market price by the min edge. Uses realized volatility from Binance.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <ConfigField
-                  label="Candle Interval"
-                  description="Candlestick period in minutes. 1 = 1-minute candles for finer-grained signals."
-                  suffix="min"
-                  value={kalshiConfig.candle_interval}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, candle_interval: v })}
-                  onBlur={() => saveKalshiConfig({ candle_interval: kalshiConfig.candle_interval })}
-                  step={1} min={1} max={60}
+                  label="Min Edge"
+                  description="Minimum edge (model prob - market price) to trigger a buy. 0.05 = buy when model says 5%+ more likely than the market price implies."
+                  suffix="%"
+                  value={Math.round(kalshiConfig.min_edge * 100)}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_edge: v / 100 })}
+                  onBlur={() => saveKalshiConfig({ min_edge: kalshiConfig.min_edge })}
+                  step={1} min={1} max={50}
                 />
                 <ConfigField
-                  label="Lookback Periods"
-                  description="Number of candles for VWAP calculation. With 1-min candles, 60 = 1 hour lookback."
-                  suffix="bars"
-                  value={kalshiConfig.lookback_periods}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, lookback_periods: v })}
-                  onBlur={() => saveKalshiConfig({ lookback_periods: kalshiConfig.lookback_periods })}
-                  step={1} min={3} max={200}
+                  label="Exit Edge"
+                  description="Sell when edge drops below this. -2% = exit when the model no longer favors the position."
+                  suffix="%"
+                  value={Math.round(kalshiConfig.exit_edge * 100)}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, exit_edge: v / 100 })}
+                  onBlur={() => saveKalshiConfig({ exit_edge: kalshiConfig.exit_edge })}
+                  step={1} min={-50} max={0}
                 />
                 <ConfigField
-                  label="Entry Z-Score"
-                  description="Buy when z-score drops below this. More negative = pickier entries."
-                  suffix="z"
-                  value={kalshiConfig.entry_z_score}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, entry_z_score: v })}
-                  onBlur={() => saveKalshiConfig({ entry_z_score: kalshiConfig.entry_z_score })}
-                  step={0.1} min={-5} max={-0.5}
+                  label="Vol Lookback"
+                  description="Hours of Binance kline data used to compute realized volatility. 24 = 1 day of price history."
+                  suffix="hrs"
+                  value={kalshiConfig.vol_lookback_hours}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, vol_lookback_hours: v })}
+                  onBlur={() => saveKalshiConfig({ vol_lookback_hours: kalshiConfig.vol_lookback_hours })}
+                  step={1} min={1} max={168}
                 />
-                <ConfigField
-                  label="Exit Z-Score"
-                  description="Sell when z-score rises above this. -0.3 = sell on partial reversion."
-                  suffix="z"
-                  value={kalshiConfig.exit_z_score}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, exit_z_score: v })}
-                  onBlur={() => saveKalshiConfig({ exit_z_score: kalshiConfig.exit_z_score })}
-                  step={0.1} min={-1} max={3}
-                />
+                <div>
+                  <label className="text-sm text-slate-400 mb-1 block">Vol Interval</label>
+                  <select
+                    value={kalshiConfig.vol_interval}
+                    onChange={(e) => {
+                      setKalshiConfig({ ...kalshiConfig, vol_interval: e.target.value });
+                      saveKalshiConfig({ vol_interval: e.target.value });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  >
+                    <option value="5m">5 min</option>
+                    <option value="15m">15 min</option>
+                    <option value="1h">1 hour</option>
+                  </select>
+                  <p className="text-xs text-slate-500 mt-1">Kline interval for volatility calculation</p>
+                </div>
               </div>
             </div>
 
@@ -740,11 +747,11 @@ export default function SettingsPage() {
                       venue="kalshi"
                       pair={series}
                       override={pc || null}
-                      globalEntryZ={kalshiConfig.entry_z_score}
-                      globalExitZ={kalshiConfig.exit_z_score}
+                      globalMinEdge={kalshiConfig.min_edge}
+                      globalExitEdge={kalshiConfig.exit_edge}
                       globalStopLoss={kalshiConfig.stop_loss_pct}
                       globalContracts={kalshiConfig.contracts_per_signal}
-                      lookbackPeriods={kalshiConfig.lookback_periods}
+                      volLookbackHours={kalshiConfig.vol_lookback_hours}
                       onSave={async (updates) => {
                         const result = await botApi.updatePairConfig("kalshi", series, updates);
                         setPairConfigs((prev) => {
@@ -834,19 +841,25 @@ function PairOverrideCard({
   globalStopLoss,
   globalPositionSize,
   globalContracts,
+  globalMinEdge,
+  globalExitEdge,
   lookbackPeriods,
+  volLookbackHours,
   onSave,
   onClear,
 }: {
   venue: string;
   pair: string;
   override: botApi.PairConfig | null;
-  globalEntryZ: number;
-  globalExitZ: number;
+  globalEntryZ?: number;
+  globalExitZ?: number;
   globalStopLoss: number;
   globalPositionSize?: number;
   globalContracts?: number;
-  lookbackPeriods: number;
+  globalMinEdge?: number;
+  globalExitEdge?: number;
+  lookbackPeriods?: number;
+  volLookbackHours?: number;
   onSave: (updates: Partial<botApi.PairConfig>) => Promise<void>;
   onClear: () => Promise<void>;
 }) {
@@ -855,24 +868,32 @@ function PairOverrideCard({
   const [stopLoss, setStopLoss] = useState<string>(override?.stop_loss_pct?.toString() ?? "");
   const [posSize, setPosSize] = useState<string>(override?.position_size_usd?.toString() ?? "");
   const [contracts, setContracts] = useState<string>(override?.contracts_per_signal?.toString() ?? "");
+  const [minEdge, setMinEdge] = useState<string>(override?.min_edge != null ? (override.min_edge * 100).toString() : "");
+  const [exitEdge, setExitEdge] = useState<string>(override?.exit_edge != null ? (override.exit_edge * 100).toString() : "");
   const [saving, setSaving] = useState(false);
 
-  const effEntryZ = entryZ ? parseFloat(entryZ) : globalEntryZ;
-  const effExitZ = exitZ ? parseFloat(exitZ) : globalExitZ;
   const effStopLoss = stopLoss ? parseFloat(stopLoss) : globalStopLoss;
-  const effPosSize = posSize ? parseFloat(posSize) : (globalPositionSize ?? 25);
   const effContracts = contracts ? parseInt(contracts) : (globalContracts ?? 50);
+  const effMinEdge = minEdge ? parseFloat(minEdge) / 100 : (globalMinEdge ?? 0.05);
+  const effExitEdge = exitEdge ? parseFloat(exitEdge) / 100 : (globalExitEdge ?? -0.02);
 
-  const hasOverride = entryZ || exitZ || stopLoss || posSize || contracts;
+  const hasOverride = venue === "kalshi"
+    ? (minEdge || exitEdge || stopLoss || contracts)
+    : (entryZ || exitZ || stopLoss || posSize || contracts);
   const accentColor = venue === "kalshi" ? "sky" : "emerald";
 
   async function handleBlur() {
     const updates: Partial<botApi.PairConfig> = {};
-    if (entryZ) updates.entry_z_score = parseFloat(entryZ);
-    if (exitZ) updates.exit_z_score = parseFloat(exitZ);
+    if (venue === "crypto") {
+      if (entryZ) updates.entry_z_score = parseFloat(entryZ);
+      if (exitZ) updates.exit_z_score = parseFloat(exitZ);
+      if (posSize) updates.position_size_usd = parseFloat(posSize);
+    } else {
+      if (minEdge) updates.min_edge = parseFloat(minEdge) / 100;
+      if (exitEdge) updates.exit_edge = parseFloat(exitEdge) / 100;
+      if (contracts) updates.contracts_per_signal = parseInt(contracts);
+    }
     if (stopLoss) updates.stop_loss_pct = parseFloat(stopLoss);
-    if (posSize) updates.position_size_usd = parseFloat(posSize);
-    if (contracts) updates.contracts_per_signal = parseInt(contracts);
 
     if (Object.keys(updates).length === 0) return;
 
@@ -882,11 +903,9 @@ function PairOverrideCard({
   }
 
   async function handleClear() {
-    setEntryZ("");
-    setExitZ("");
-    setStopLoss("");
-    setPosSize("");
-    setContracts("");
+    setEntryZ(""); setExitZ(""); setStopLoss("");
+    setPosSize(""); setContracts("");
+    setMinEdge(""); setExitEdge("");
     await onClear();
   }
 
@@ -910,81 +929,70 @@ function PairOverrideCard({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs text-slate-500 block mb-0.5">Entry Z ({globalEntryZ})</label>
-          <input
-            type="number"
-            value={entryZ}
-            onChange={(e) => setEntryZ(e.target.value)}
-            onBlur={handleBlur}
-            placeholder={globalEntryZ.toString()}
-            step={0.1} min={-5} max={-0.5}
-            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-0.5">Exit Z ({globalExitZ})</label>
-          <input
-            type="number"
-            value={exitZ}
-            onChange={(e) => setExitZ(e.target.value)}
-            onBlur={handleBlur}
-            placeholder={globalExitZ.toString()}
-            step={0.1} min={-1} max={3}
-            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
-          />
-        </div>
-        <div>
-          <label className="text-xs text-slate-500 block mb-0.5">Stop Loss % ({globalStopLoss})</label>
-          <input
-            type="number"
-            value={stopLoss}
-            onChange={(e) => setStopLoss(e.target.value)}
-            onBlur={handleBlur}
-            placeholder={globalStopLoss.toString()}
-            step={0.5} min={0.5} max={50}
-            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
-          />
-        </div>
         {venue === "crypto" && (
-          <div>
-            <label className="text-xs text-slate-500 block mb-0.5">Position $ ({globalPositionSize})</label>
-            <input
-              type="number"
-              value={posSize}
-              onChange={(e) => setPosSize(e.target.value)}
-              onBlur={handleBlur}
-              placeholder={(globalPositionSize ?? 25).toString()}
-              step={5} min={5} max={1000}
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
-            />
-          </div>
+          <>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Entry Z ({globalEntryZ})</label>
+              <input type="number" value={entryZ} onChange={(e) => setEntryZ(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalEntryZ ?? -2).toString()} step={0.1} min={-5} max={-0.5}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Exit Z ({globalExitZ})</label>
+              <input type="number" value={exitZ} onChange={(e) => setExitZ(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalExitZ ?? -0.5).toString()} step={0.1} min={-1} max={3}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Position $ ({globalPositionSize})</label>
+              <input type="number" value={posSize} onChange={(e) => setPosSize(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalPositionSize ?? 25).toString()} step={5} min={5} max={1000}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
+            </div>
+          </>
         )}
         {venue === "kalshi" && (
-          <div>
-            <label className="text-xs text-slate-500 block mb-0.5">Contracts ({globalContracts})</label>
-            <input
-              type="number"
-              value={contracts}
-              onChange={(e) => setContracts(e.target.value)}
-              onBlur={handleBlur}
-              placeholder={(globalContracts ?? 50).toString()}
-              step={5} min={1} max={10000}
-              className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums"
-            />
-          </div>
+          <>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Min Edge % ({globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5"})</label>
+              <input type="number" value={minEdge} onChange={(e) => setMinEdge(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5")} step={1} min={1} max={50}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Exit Edge % ({globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2"})</label>
+              <input type="number" value={exitEdge} onChange={(e) => setExitEdge(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2")} step={1} min={-50} max={0}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 block mb-0.5">Contracts ({globalContracts})</label>
+              <input type="number" value={contracts} onChange={(e) => setContracts(e.target.value)} onBlur={handleBlur}
+                placeholder={(globalContracts ?? 50).toString()} step={5} min={1} max={10000}
+                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+            </div>
+          </>
         )}
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Stop Loss % ({globalStopLoss})</label>
+          <input type="number" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} onBlur={handleBlur}
+            placeholder={globalStopLoss.toString()} step={0.5} min={0.5} max={50}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
+        </div>
       </div>
 
       <BacktestPreview
         venue={venue}
         pair={pair}
-        entryZ={effEntryZ}
-        exitZ={effExitZ}
+        entryZ={venue === "crypto" ? (entryZ ? parseFloat(entryZ) : (globalEntryZ ?? -2)) : undefined}
+        exitZ={venue === "crypto" ? (exitZ ? parseFloat(exitZ) : (globalExitZ ?? -0.5)) : undefined}
         stopLoss={effStopLoss}
-        positionSize={venue === "crypto" ? effPosSize : undefined}
+        positionSize={venue === "crypto" ? (posSize ? parseFloat(posSize) : (globalPositionSize ?? 25)) : undefined}
         contracts={venue === "kalshi" ? effContracts : undefined}
         lookback={lookbackPeriods}
+        minEdge={venue === "kalshi" ? effMinEdge : undefined}
+        exitEdge={venue === "kalshi" ? effExitEdge : undefined}
+        volLookbackHours={volLookbackHours}
       />
     </div>
   );

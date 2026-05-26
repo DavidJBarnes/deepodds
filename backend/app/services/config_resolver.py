@@ -14,8 +14,8 @@ def resolve_crypto_config(global_config: BotConfig, override: PairConfig | None)
 
 def resolve_kalshi_config(global_config: KalshiConfig, override: PairConfig | None) -> dict:
     return {
-        "entry_z_score": _pick(override, "entry_z_score", global_config.entry_z_score),
-        "exit_z_score": _pick(override, "exit_z_score", global_config.exit_z_score),
+        "min_edge": _pick(override, "min_edge", global_config.min_edge),
+        "exit_edge": _pick(override, "exit_edge", global_config.exit_edge),
         "contracts_per_signal": _pick(override, "contracts_per_signal", global_config.contracts_per_signal),
         "stop_loss_pct": _pick(override, "stop_loss_pct", global_config.stop_loss_pct),
     }
