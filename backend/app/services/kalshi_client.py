@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import time
+from urllib.parse import urlparse
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -10,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
+URL_PATH_PREFIX = urlparse(BASE_URL).path
 PUBLIC_ENDPOINTS = ("/markets", "/series/", "/events/")
 
 
@@ -28,7 +30,11 @@ class KalshiClient:
         return instance
 
     def _sign(self, timestamp_ms: str, method: str, path: str) -> str:
-        message = f"{timestamp_ms}{method}{path}".encode()
+        # Kalshi expects the FULL URL path (including the /trade-api/v2 prefix)
+        # in the signed message, not just the endpoint suffix. Signing only
+        # "/portfolio/balance" returns 401 Unauthorized.
+        full_path = path if path.startswith(URL_PATH_PREFIX) else f"{URL_PATH_PREFIX}{path}"
+        message = f"{timestamp_ms}{method}{full_path}".encode()
         signature = self._private_key.sign(
             message,
             padding.PSS(
