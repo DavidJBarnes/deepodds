@@ -302,13 +302,18 @@ async def get_dashboard(
     kalshi_markets_list: list[KalshiMarketSnapshot] = []
     kalshi_filtered_list: list[KalshiFilteredMarket] = []
     if kalshi_cfg:
-        kalshi_open = (
+        kalshi_open_stats = (
             await db.execute(
-                select(func.count())
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(Signal.cost_usd), 0.0),
+                    func.coalesce(func.sum(Signal.quantity), 0.0),
+                )
                 .select_from(Signal)
                 .where(Signal.user_id == user.id, Signal.venue == "kalshi", Signal.status.in_(OPEN_STATUSES))
             )
-        ).scalar()
+        ).one()
+        kalshi_open, kalshi_exposure, kalshi_payout = kalshi_open_stats
         kalshi_status = KalshiStatusResponse(
             mode=kalshi_cfg.mode,
             enabled=kalshi_cfg.enabled,
@@ -318,6 +323,8 @@ async def get_dashboard(
             max_open_positions=kalshi_cfg.max_open_positions,
             min_edge=kalshi_cfg.min_edge,
             exit_edge=kalshi_cfg.exit_edge,
+            current_exposure_usd=round(float(kalshi_exposure), 2),
+            max_payout_usd=round(float(kalshi_payout), 2),
         )
 
         kalshi_overrides = {}

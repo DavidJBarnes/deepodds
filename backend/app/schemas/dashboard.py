@@ -95,6 +95,8 @@ class KalshiStatusResponse(BaseModel):
     max_open_positions: int
     min_edge: float
     exit_edge: float
+    current_exposure_usd: float = 0.0
+    max_payout_usd: float = 0.0
 
 
 class DashboardResponse(BaseModel):
