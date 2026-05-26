@@ -269,6 +269,34 @@ class TestTickerReentryBlock:
 # ---------------------------------------------------------------------------
 
 
+class TestLimitPriceSlippage:
+    """Live orders place at ask+1c (capped at config.max_price) so the order
+    crosses the spread as a taker. Replicates the helper used in
+    scan_kalshi_entries."""
+
+    def _limit_cents(self, market_price: float, max_price: float) -> int:
+        max_cents = int(round(max_price * 100))
+        return min(int(round(market_price * 100)) + 1, max_cents)
+
+    def test_adds_one_cent(self):
+        assert self._limit_cents(market_price=0.66, max_price=0.80) == 67
+
+    def test_caps_at_max_price(self):
+        # Ask at exactly max_price — limit can't exceed max
+        assert self._limit_cents(market_price=0.80, max_price=0.80) == 80
+
+    def test_cheap_contract_still_pays_extra_cent(self):
+        assert self._limit_cents(market_price=0.07, max_price=0.80) == 8
+
+    def test_one_cent_contract(self):
+        # A $0.01 contract would limit at $0.02 (or capped by max_price)
+        assert self._limit_cents(market_price=0.01, max_price=0.80) == 2
+
+    def test_atm_just_under_cap(self):
+        # Ask at $0.79, max $0.80 — limit at $0.80 (= ask + 1c, exactly at cap)
+        assert self._limit_cents(market_price=0.79, max_price=0.80) == 80
+
+
 class TestExistingBehaviorRegression:
     def test_low_volume_still_filtered(self):
         m = _make_market("T1", "KXBTC", volume=10, yes_ask=0.40)

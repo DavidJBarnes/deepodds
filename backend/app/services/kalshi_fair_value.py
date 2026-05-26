@@ -320,7 +320,19 @@ def scan_kalshi_entries(
 
         if config.mode == "live" and client:
             try:
-                yes_price_cents = int(round(market_price * 100))
+                # Cross the spread by 1c so the order rests as a taker against
+                # current asks instead of getting stuck as a resting maker
+                # that never fills (the KXETH-B2070 scenario). Kalshi fills
+                # at best-available ask up to our limit, so the effective
+                # entry price is typically still market_price — the +1c is
+                # just headroom if the ask ticks up between scan and order.
+                # Capped at config.max_price to never exceed the user's
+                # max-price guardrail.
+                max_price_cents = int(round(config.max_price * 100))
+                yes_price_cents = min(
+                    int(round(market_price * 100)) + 1,
+                    max_price_cents,
+                )
                 order_result = run_async(client.create_order(
                     ticker=ticker, side="yes", count=count,
                     yes_price_cents=yes_price_cents,
@@ -328,7 +340,10 @@ def scan_kalshi_entries(
                 order = order_result.get("order", order_result)
                 signal.exchange_order_id = order.get("order_id")
                 signal.status = "placed"
-                logger.info("LIVE KALSHI BUY %s: %d @ $%.2f", ticker, count, market_price)
+                logger.info(
+                    "LIVE KALSHI BUY %s: %d @ limit $%.2f (ask was $%.2f)",
+                    ticker, count, yes_price_cents / 100, market_price,
+                )
             except Exception as e:
                 signal.status = "cancelled"
                 signal.error_message = str(e)[:200]

@@ -219,7 +219,7 @@ async def start_scheduler():
             except Exception:
                 logger.exception("Kalshi scan/exit loop failed")
             elapsed = time.monotonic() - t0
-            await asyncio.sleep(max(0, 120 - elapsed))
+            await asyncio.sleep(max(0, 30 - elapsed))
 
     async def kalshi_sync_live_loop():
         while True:
@@ -239,6 +239,6 @@ async def start_scheduler():
     ]
 
     logger.info(
-        "Scheduler running: crypto(60s), crypto_live(30s), kalshi(120s), kalshi_live(30s)"
+        "Scheduler running: crypto(60s), crypto_live(30s), kalshi(30s), kalshi_live(30s)"
     )
     return tasks
