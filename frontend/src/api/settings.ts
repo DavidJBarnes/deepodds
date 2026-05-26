@@ -48,6 +48,16 @@ export async function deleteKalshiKeys() {
   return data;
 }
 
+export interface KalshiBalance {
+  cash_cents: number;
+  portfolio_cents: number;
+}
+
+export async function getKalshiBalance() {
+  const { data } = await client.get<KalshiBalance>("/settings/kalshi-balance");
+  return data;
+}
+
 export async function resetData() {
   const { data } = await client.post<{ status: string; cleared: string[] }>("/settings/reset-data");
   return data;

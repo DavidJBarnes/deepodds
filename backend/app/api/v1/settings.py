@@ -342,6 +342,27 @@ async def delete_pair_config(
     return {"status": "ok"}
 
 
+class KalshiBalanceResponse(BaseModel):
+    cash_cents: int = 0
+    portfolio_cents: int = 0
+
+
+@router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
+async def get_kalshi_balance(user: User = Depends(get_current_user)):
+    if not user.kalshi_api_key_id or not user.kalshi_private_key:
+        return KalshiBalanceResponse()
+    try:
+        client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+        data = await client.get_balance()
+        return KalshiBalanceResponse(
+            cash_cents=data.get("balance", 0),
+            portfolio_cents=data.get("portfolio_value", 0),
+        )
+    except Exception:
+        logger.exception("Failed to fetch Kalshi balance")
+        return KalshiBalanceResponse()
+
+
 class BacktestRequest(BaseModel):
     venue: str
     pair: str
