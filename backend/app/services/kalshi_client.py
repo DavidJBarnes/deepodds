@@ -151,3 +151,9 @@ class KalshiClient:
     async def get_positions(self) -> list[dict]:
         data = await self._request("GET", "/portfolio/positions")
         return data.get("market_positions", [])
+
+    async def get_settlements(self, limit: int = 100) -> list[dict]:
+        data = await self._request(
+            "GET", "/portfolio/settlements", params={"limit": str(limit)}
+        )
+        return data.get("settlements", [])
