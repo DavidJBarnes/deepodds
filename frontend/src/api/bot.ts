@@ -270,7 +270,7 @@ export async function runBacktestPreview(params: {
   return data;
 }
 
-export async function getSignals(params: { status?: string; limit?: number; offset?: number }) {
+export async function getSignals(params: { status?: string; venue?: string; limit?: number; offset?: number }) {
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
   return data;
 }
