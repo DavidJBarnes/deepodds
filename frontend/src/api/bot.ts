@@ -140,6 +140,7 @@ export interface BotConfig {
   stop_loss_pct: number;
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;
+  min_hold_minutes: number;
 }
 
 export interface KalshiConfig {
@@ -155,6 +156,7 @@ export interface KalshiConfig {
   vol_interval: string;
   exit_edge: number;
   contracts_per_signal: number;
+  max_cost_per_signal: number;
   max_open_positions: number;
   stop_loss_pct: number;
   daily_loss_limit_usd: number;

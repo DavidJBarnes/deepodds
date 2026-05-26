@@ -161,7 +161,14 @@ async def get_dashboard(
             .where(Signal.user_id == user.id, Signal.status == "settled_loss")
         )
     ).scalar()
-    settled_count = wins + losses
+    breakevens = (
+        await db.execute(
+            select(func.count())
+            .select_from(Signal)
+            .where(Signal.user_id == user.id, Signal.status == "settled_breakeven")
+        )
+    ).scalar()
+    settled_count = wins + losses + breakevens
     total_pnl = (
         await db.execute(
             select(func.coalesce(func.sum(Signal.pnl_usd), 0.0)).where(
@@ -173,7 +180,7 @@ async def get_dashboard(
         await db.execute(
             select(func.coalesce(func.sum(Signal.cost_usd), 0.0)).where(
                 Signal.user_id == user.id,
-                Signal.status.in_(["settled_win", "settled_loss"]),
+                Signal.status.in_(["settled_win", "settled_loss", "settled_breakeven"]),
             )
         )
     ).scalar()

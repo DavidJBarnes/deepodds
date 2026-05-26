@@ -220,6 +220,11 @@ def scan_kalshi_entries(
             continue
 
         count = eff["contracts_per_signal"]
+        max_cost = eff["max_cost_per_signal"]
+        if market_price > 0 and market_price * count > max_cost:
+            count = int(max_cost / market_price)
+        if count < 1:
+            continue
         cost = market_price * count
 
         signal = Signal(
@@ -401,7 +406,12 @@ def check_kalshi_exits(
         sig.pnl_usd = round(pnl_usd, 4)
         sig.pnl_pct = round(pnl_pct, 2)
         sig.resolved_at = now
-        sig.status = "settled_win" if pnl_usd >= 0 else "settled_loss"
+        if pnl_usd > 0:
+            sig.status = "settled_win"
+        elif pnl_usd < 0:
+            sig.status = "settled_loss"
+        else:
+            sig.status = "settled_breakeven"
 
         exited += 1
         logger.info(
