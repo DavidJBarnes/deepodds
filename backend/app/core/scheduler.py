@@ -14,6 +14,7 @@ from app.services.robinhood_client import RobinhoodClient
 from app.services.kalshi_client import KalshiClient
 from app.services.mean_reversion import check_exits, scan_entries, sync_live_orders
 from app.services.kalshi_fair_value import check_kalshi_exits, scan_kalshi_entries
+from app.services.kalshi_live_sync import sync_kalshi_live
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,36 @@ def _run_kalshi_check_exits():
             logger.info("Exited %d Kalshi positions", exited)
 
 
+def _run_kalshi_sync_live():
+    """Reconcile placed/filled Kalshi signals with Kalshi-side state."""
+    with Session(_sync_engine) as session:
+        users = session.execute(
+            select(User).where(
+                User.kalshi_api_key_id.isnot(None),
+                User.kalshi_private_key.isnot(None),
+            )
+        ).scalars().all()
+
+        exchange_clients = {}
+        for user in users:
+            try:
+                exchange_clients[str(user.id)] = KalshiClient(
+                    user.kalshi_api_key_id, user.kalshi_private_key
+                )
+            except Exception:
+                pass
+
+        if not exchange_clients:
+            return
+
+        counts = sync_kalshi_live(session, exchange_clients)
+        if any(counts.values()):
+            logger.info(
+                "Kalshi live sync: %d filled, %d settled, %d cancelled",
+                counts["filled"], counts["settled"], counts["cancelled"],
+            )
+
+
 async def start_scheduler():
     logger.info("Starting mean-reversion scheduler")
 
@@ -190,11 +221,24 @@ async def start_scheduler():
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 120 - elapsed))
 
+    async def kalshi_sync_live_loop():
+        while True:
+            t0 = time.monotonic()
+            try:
+                await asyncio.to_thread(_run_kalshi_sync_live)
+            except Exception:
+                logger.exception("Kalshi live sync loop failed")
+            elapsed = time.monotonic() - t0
+            await asyncio.sleep(max(0, 30 - elapsed))
+
     tasks = [
         asyncio.create_task(crypto_scan_loop(), name="crypto_scan"),
         asyncio.create_task(crypto_sync_live_loop(), name="crypto_sync_live"),
         asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
+        asyncio.create_task(kalshi_sync_live_loop(), name="kalshi_sync_live"),
     ]
 
-    logger.info("Scheduler running: crypto(60s), crypto_live(30s), kalshi(120s)")
+    logger.info(
+        "Scheduler running: crypto(60s), crypto_live(30s), kalshi(120s), kalshi_live(30s)"
+    )
     return tasks
