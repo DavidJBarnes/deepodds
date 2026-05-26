@@ -17,6 +17,7 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 def _signal_response(s) -> SignalResponse:
     return SignalResponse(
         id=getattr(s, "original_id", s.id),
+        venue=getattr(s, "venue", "crypto") or "crypto",
         pair=s.pair,
         side=s.side,
         signal_type=s.signal_type,
@@ -26,6 +27,14 @@ def _signal_response(s) -> SignalResponse:
         cost_usd=s.cost_usd,
         z_score=s.z_score,
         vwap=s.vwap,
+        model_prob=getattr(s, "model_prob", None),
+        market_prob=getattr(s, "market_prob", None),
+        edge=getattr(s, "edge", None),
+        floor_strike=getattr(s, "floor_strike", None),
+        cap_strike=getattr(s, "cap_strike", None),
+        strike_type=getattr(s, "strike_type", None),
+        underlying_price=getattr(s, "underlying_price", None),
+        realized_vol=getattr(s, "realized_vol", None),
         exchange_order_id=s.exchange_order_id,
         fill_price=s.fill_price,
         fill_quantity=s.fill_quantity,
@@ -34,6 +43,9 @@ def _signal_response(s) -> SignalResponse:
         exit_z_score=s.exit_z_score,
         pnl_usd=s.pnl_usd,
         pnl_pct=s.pnl_pct,
+        market_ticker=getattr(s, "market_ticker", None),
+        event_ticker=getattr(s, "event_ticker", None),
+        expiry_time=getattr(s, "expiry_time", None),
         created_at=s.created_at,
         resolved_at=s.resolved_at,
     )
