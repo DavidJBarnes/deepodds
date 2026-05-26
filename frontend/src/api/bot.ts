@@ -19,8 +19,8 @@ export interface KalshiStatus {
   series_tickers: string;
   open_positions: number;
   max_open_positions: number;
-  entry_z_score: number;
-  exit_z_score: number;
+  min_edge: number;
+  exit_edge: number;
 }
 
 export interface PnLStats {
@@ -48,6 +48,14 @@ export interface Signal {
   cost_usd: number;
   z_score: number | null;
   vwap: number | null;
+  model_prob: number | null;
+  market_prob: number | null;
+  edge: number | null;
+  floor_strike: number | null;
+  cap_strike: number | null;
+  strike_type: string | null;
+  underlying_price: number | null;
+  realized_vol: number | null;
   exchange_order_id: string | null;
   fill_price: number | null;
   fill_quantity: number | null;
@@ -81,14 +89,16 @@ export interface KalshiMarketSnapshot {
   series: string;
   title: string;
   price: number;
-  vwap: number;
-  z_score: number;
-  std_dev: number;
+  model_prob: number;
+  edge: number;
+  floor_strike: number | null;
+  cap_strike: number | null;
+  strike_type: string;
+  underlying_price: number;
+  realized_vol: number;
   volume_24h: number;
   hours_to_expiry: number;
   would_signal: boolean;
-  z_distance: number;
-  effective_entry_z: number;
 }
 
 export interface KalshiFilteredMarket {
@@ -140,10 +150,10 @@ export interface KalshiConfig {
   min_price: number;
   max_price: number;
   min_hours_to_expiry: number;
-  candle_interval: number;
-  lookback_periods: number;
-  entry_z_score: number;
-  exit_z_score: number;
+  min_edge: number;
+  vol_lookback_hours: number;
+  vol_interval: string;
+  exit_edge: number;
   contracts_per_signal: number;
   max_open_positions: number;
   stop_loss_pct: number;
@@ -207,6 +217,8 @@ export interface PairConfig {
   position_size_usd: number | null;
   contracts_per_signal: number | null;
   stop_loss_pct: number | null;
+  min_edge: number | null;
+  exit_edge: number | null;
 }
 
 export interface BacktestResult {
@@ -237,12 +249,15 @@ export async function deletePairConfig(venue: string, pair: string) {
 export async function runBacktestPreview(params: {
   venue: string;
   pair: string;
-  entry_z_score: number;
-  exit_z_score: number;
+  entry_z_score?: number;
+  exit_z_score?: number;
   stop_loss_pct: number;
   position_size_usd?: number;
   contracts_per_signal?: number;
   lookback_periods?: number;
+  min_edge?: number;
+  exit_edge?: number;
+  vol_lookback_hours?: number;
 }) {
   const { data } = await client.post<BacktestResult>("/settings/backtest-preview", params);
   return data;

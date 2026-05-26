@@ -16,8 +16,8 @@ def _crypto_config(**overrides):
 
 def _kalshi_config(**overrides):
     defaults = {
-        "entry_z_score": -2.0,
-        "exit_z_score": -0.3,
+        "min_edge": 0.05,
+        "exit_edge": -0.02,
         "contracts_per_signal": 50,
         "stop_loss_pct": 15.0,
     }
@@ -32,6 +32,8 @@ def _override(**fields):
         "position_size_usd": None,
         "contracts_per_signal": None,
         "stop_loss_pct": None,
+        "min_edge": None,
+        "exit_edge": None,
     }
     defaults.update(fields)
     return SimpleNamespace(**defaults)
@@ -76,16 +78,17 @@ class TestResolveKalshiConfig:
     def test_no_override_returns_global(self):
         cfg = _kalshi_config()
         result = resolve_kalshi_config(cfg, None)
-        assert result["entry_z_score"] == -2.0
+        assert result["min_edge"] == 0.05
+        assert result["exit_edge"] == -0.02
         assert result["contracts_per_signal"] == 50
         assert result["stop_loss_pct"] == 15.0
 
     def test_full_override(self):
         cfg = _kalshi_config()
-        ovr = _override(entry_z_score=-1.0, exit_z_score=0.5, contracts_per_signal=100, stop_loss_pct=10.0)
+        ovr = _override(min_edge=0.10, exit_edge=-0.05, contracts_per_signal=100, stop_loss_pct=10.0)
         result = resolve_kalshi_config(cfg, ovr)
-        assert result["entry_z_score"] == -1.0
-        assert result["exit_z_score"] == 0.5
+        assert result["min_edge"] == 0.10
+        assert result["exit_edge"] == -0.05
         assert result["contracts_per_signal"] == 100
         assert result["stop_loss_pct"] == 10.0
 
@@ -93,6 +96,6 @@ class TestResolveKalshiConfig:
         cfg = _kalshi_config()
         ovr = _override(contracts_per_signal=200)
         result = resolve_kalshi_config(cfg, ovr)
-        assert result["entry_z_score"] == -2.0
+        assert result["min_edge"] == 0.05
         assert result["contracts_per_signal"] == 200
         assert result["stop_loss_pct"] == 15.0

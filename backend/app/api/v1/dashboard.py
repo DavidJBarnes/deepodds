@@ -23,11 +23,11 @@ from app.schemas.dashboard import (
     PnLStats,
 )
 from app.schemas.signal import SignalResponse
-from app.services.binance_client import get_crypto_prices
+from app.services.binance_client import get_crypto_prices, get_realized_vol
 from app.services.config_resolver import resolve_crypto_config, resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
-from app.services.kalshi_mean_reversion import _kalshi_candles_to_generic
 from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
+from app.services.probability_model import compute_edge, series_to_underlying
 
 router = APIRouter(tags=["dashboard"])
 
@@ -116,6 +116,14 @@ async def get_dashboard(
                 cost_usd=s.cost_usd,
                 z_score=s.z_score,
                 vwap=s.vwap,
+                model_prob=s.model_prob,
+                market_prob=s.market_prob,
+                edge=s.edge,
+                floor_strike=s.floor_strike,
+                cap_strike=s.cap_strike,
+                strike_type=s.strike_type,
+                underlying_price=s.underlying_price,
+                realized_vol=s.realized_vol,
                 exchange_order_id=s.exchange_order_id,
                 fill_price=s.fill_price,
                 fill_quantity=s.fill_quantity,
@@ -286,8 +294,8 @@ async def get_dashboard(
             series_tickers=kalshi_cfg.series_tickers,
             open_positions=kalshi_open,
             max_open_positions=kalshi_cfg.max_open_positions,
-            entry_z_score=kalshi_cfg.entry_z_score,
-            exit_z_score=kalshi_cfg.exit_z_score,
+            min_edge=kalshi_cfg.min_edge,
+            exit_edge=kalshi_cfg.exit_edge,
         )
 
         kalshi_overrides = {}
@@ -297,20 +305,31 @@ async def get_dashboard(
             kalshi_overrides[pc.pair] = pc
 
         try:
-            import time as _time
-
             kc = KalshiClient.public()
             series_list = [s.strip() for s in kalshi_cfg.series_tickers.split(",") if s.strip()]
-            now_ts = int(_time.time())
-            cutoff = datetime.now(timezone.utc) + timedelta(hours=kalshi_cfg.min_hours_to_expiry)
-            lookback_sec = kalshi_cfg.lookback_periods * kalshi_cfg.candle_interval * 60
+            now = datetime.now(timezone.utc)
+            cutoff = now + timedelta(hours=kalshi_cfg.min_hours_to_expiry)
+            hours_to_years = 1 / (365.25 * 24)
+
+            underlying_data: dict[str, dict] = {}
+            spot_prices = await get_crypto_prices()
+            for series in series_list:
+                symbol = series_to_underlying(series)
+                if not symbol or symbol not in spot_prices:
+                    continue
+                try:
+                    vol = await get_realized_vol(symbol, hours=kalshi_cfg.vol_lookback_hours, interval=kalshi_cfg.vol_interval)
+                    if vol and vol > 0:
+                        underlying_data[series] = {"spot": spot_prices[symbol], "vol": vol}
+                except Exception:
+                    pass
 
             for series in series_list:
                 eff = resolve_kalshi_config(kalshi_cfg, kalshi_overrides.get(series))
-                eff_entry_z = eff["entry_z_score"]
+                eff_min_edge = eff["min_edge"]
 
                 try:
-                    data = await kc.get_markets(series_ticker=series, limit=50)
+                    data = await kc.get_markets(series_ticker=series, limit=200)
                 except Exception:
                     continue
 
@@ -323,7 +342,7 @@ async def get_dashboard(
                     close_time = m.get("close_time", "")
                     try:
                         ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                        hours_left = (ct - datetime.now(timezone.utc)).total_seconds() / 3600
+                        hours_left = (ct - now).total_seconds() / 3600
                     except (ValueError, AttributeError):
                         ct = None
                         hours_left = None
@@ -349,40 +368,49 @@ async def get_dashboard(
                         ))
                         continue
 
-                    vwap, std, z = 0.0, 0.0, 0.0
-                    try:
-                        candles = await kc.get_candlesticks(
-                            series, ticker,
-                            start_ts=now_ts - lookback_sec - 300,
-                            end_ts=now_ts,
-                            period_interval=kalshi_cfg.candle_interval,
-                        )
-                        generic = _kalshi_candles_to_generic(candles)
-                        if generic:
-                            vwap, std = _compute_vwap_and_std(generic, kalshi_cfg.lookback_periods)
-                            if vwap > 0 and std > 0:
-                                z = compute_z_score(last_price, vwap, std)
-                    except Exception:
-                        pass
+                    model_prob_val = 0.0
+                    edge_val = 0.0
+                    floor_strike = m.get("floor_strike")
+                    cap_strike = m.get("cap_strike")
+                    strike_type = m.get("strike_type", "between")
+                    spot_val = 0.0
+                    vol_val = 0.0
 
-                    z_distance = z - eff_entry_z
+                    if floor_strike is not None:
+                        floor_strike = float(floor_strike)
+                    if cap_strike is not None:
+                        cap_strike = float(cap_strike)
+
+                    if series in underlying_data and (floor_strike is not None or cap_strike is not None):
+                        spot_val = underlying_data[series]["spot"]
+                        vol_val = underlying_data[series]["vol"]
+                        t_years = (hours_left or 0) * hours_to_years
+                        if t_years > 0:
+                            result = compute_edge(
+                                spot_val, floor_strike, cap_strike, strike_type,
+                                t_years, vol_val, last_price,
+                            )
+                            model_prob_val = result.model_prob
+                            edge_val = result.edge
 
                     kalshi_markets_list.append(KalshiMarketSnapshot(
                         ticker=ticker,
                         series=series,
                         title=title,
                         price=round(last_price, 2),
-                        vwap=round(vwap, 4),
-                        z_score=round(z, 2),
-                        std_dev=round(std, 4),
+                        model_prob=round(model_prob_val, 4),
+                        edge=round(edge_val, 4),
+                        floor_strike=floor_strike,
+                        cap_strike=cap_strike,
+                        strike_type=strike_type,
+                        underlying_price=round(spot_val, 2),
+                        realized_vol=round(vol_val, 4),
                         volume_24h=vol_24h,
                         hours_to_expiry=round(hours_left, 1),
-                        would_signal=z <= eff_entry_z and z != 0,
-                        z_distance=round(z_distance, 2),
-                        effective_entry_z=eff_entry_z,
+                        would_signal=edge_val >= eff_min_edge and edge_val > 0,
                     ))
 
-            kalshi_markets_list.sort(key=lambda x: x.volume_24h, reverse=True)
+            kalshi_markets_list.sort(key=lambda x: x.edge, reverse=True)
         except Exception:
             pass
 

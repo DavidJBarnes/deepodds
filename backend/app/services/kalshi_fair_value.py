@@ -1,5 +1,4 @@
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -9,29 +8,15 @@ from app.core.async_util import run_async
 from app.models.kalshi_config import KalshiConfig
 from app.models.pair_config import PairConfig
 from app.models.signal import Signal
+from app.services.binance_client import get_crypto_prices, get_realized_vol
 from app.services.config_resolver import resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
-from app.services.mean_reversion import _compute_vwap_and_std, compute_z_score
+from app.services.probability_model import compute_edge, series_to_underlying
 
 logger = logging.getLogger(__name__)
 
 OPEN_STATUSES = ("signaled", "placed", "filled")
-
-
-def _kalshi_candles_to_generic(candles: list[dict]) -> list[dict]:
-    result = []
-    for c in candles:
-        price = c.get("price", {})
-        close = price.get("close_dollars")
-        volume = c.get("volume_fp")
-        if close is None or volume is None:
-            continue
-        close_f = float(close)
-        vol_f = float(volume)
-        if close_f <= 0 or vol_f <= 0:
-            continue
-        result.append({"close": str(close_f), "volume": str(vol_f)})
-    return result
+HOURS_TO_YEARS = 1 / (365.25 * 24)
 
 
 def _today_pnl_kalshi(session: Session, user_id) -> float:
@@ -128,6 +113,20 @@ def _discover_markets(
     return eligible
 
 
+def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interval: str) -> dict:
+    prices = run_async(get_crypto_prices())
+    result = {}
+    for series in series_tickers:
+        symbol = series_to_underlying(series)
+        if not symbol or symbol not in prices:
+            continue
+        vol = run_async(get_realized_vol(symbol, hours=vol_hours, interval=vol_interval))
+        if vol is None or vol <= 0:
+            continue
+        result[series] = {"spot": prices[symbol], "vol": vol}
+    return result
+
+
 def scan_kalshi_entries(
     user_id,
     session: Session,
@@ -161,22 +160,23 @@ def scan_kalshi_entries(
     ).scalars().all():
         overrides[pc.pair] = pc
 
+    client = client or KalshiClient.public()
     markets = _discover_markets(
-        client or KalshiClient.public(),
-        series,
-        config.min_volume_24h,
-        config.min_price,
-        config.max_price,
+        client, series,
+        config.min_volume_24h, config.min_price, config.max_price,
         config.min_hours_to_expiry,
     )
 
-    now_ts = int(time.time())
-    lookback_seconds = config.lookback_periods * config.candle_interval * 60
+    underlying = _fetch_underlying_data(series, config.vol_lookback_hours, config.vol_interval)
+    now = datetime.now(timezone.utc)
     signals_created = []
 
     for market in markets:
         ticker = market["ticker"]
         series_ticker = market["_series_ticker"]
+
+        if series_ticker not in underlying:
+            continue
 
         if _has_open_kalshi_position(session, user_id, ticker):
             continue
@@ -186,41 +186,41 @@ def scan_kalshi_entries(
 
         eff = resolve_kalshi_config(config, overrides.get(series_ticker))
 
-        try:
-            candles = run_async(client.get_candlesticks(
-                series_ticker, ticker,
-                start_ts=now_ts - lookback_seconds - 300,
-                end_ts=now_ts,
-                period_interval=config.candle_interval,
-            ))
-        except Exception:
-            logger.warning("Failed to fetch candles for %s", ticker)
+        spot = underlying[series_ticker]["spot"]
+        vol = underlying[series_ticker]["vol"]
+        close_dt = market["_close_dt"]
+        t_hours = (close_dt - now).total_seconds() / 3600
+        t_years = t_hours * HOURS_TO_YEARS
+
+        floor_strike = market.get("floor_strike")
+        cap_strike = market.get("cap_strike")
+        strike_type = market.get("strike_type", "between")
+        market_price = float(market.get("last_price_dollars", 0))
+
+        if market_price <= 0:
             continue
 
-        generic = _kalshi_candles_to_generic(candles)
-        if not generic:
-            continue
+        if floor_strike is not None:
+            floor_strike = float(floor_strike)
+        if cap_strike is not None:
+            cap_strike = float(cap_strike)
 
-        vwap, std = _compute_vwap_and_std(generic, config.lookback_periods)
-        if vwap <= 0 or std <= 0:
-            continue
-
-        price = float(market.get("last_price_dollars", 0))
-        if price <= 0:
-            continue
-
-        z = compute_z_score(price, vwap, std)
-
-        logger.info(
-            "KALSHI %s: price=$%.2f vwap=$%.4f std=$%.4f z=%.2f (entry=%.1f)",
-            ticker, price, vwap, std, z, eff["entry_z_score"],
+        result = compute_edge(
+            spot, floor_strike, cap_strike, strike_type,
+            t_years, vol, market_price,
         )
 
-        if z > eff["entry_z_score"]:
+        logger.info(
+            "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% (min=%.1f%%)",
+            ticker, result.model_prob * 100, result.market_prob * 100,
+            result.edge * 100, eff["min_edge"] * 100,
+        )
+
+        if result.edge < eff["min_edge"]:
             continue
 
         count = eff["contracts_per_signal"]
-        cost = price * count
+        cost = market_price * count
 
         signal = Signal(
             user_id=user_id,
@@ -229,37 +229,47 @@ def scan_kalshi_entries(
             side="buy",
             signal_type=config.mode,
             status="signaled",
-            entry_price=price,
+            entry_price=market_price,
             quantity=float(count),
             cost_usd=cost,
-            z_score=z,
-            vwap=vwap,
+            model_prob=result.model_prob,
+            market_prob=result.market_prob,
+            edge=result.edge,
+            floor_strike=floor_strike,
+            cap_strike=cap_strike,
+            strike_type=strike_type,
+            underlying_price=spot,
+            realized_vol=vol,
             market_ticker=ticker,
             event_ticker=market.get("event_ticker"),
-            expiry_time=market.get("_close_dt"),
+            expiry_time=close_dt,
         )
 
         if config.mode == "live" and client:
             try:
-                yes_price_cents = int(round(price * 100))
-                result = run_async(client.create_order(
+                yes_price_cents = int(round(market_price * 100))
+                order_result = run_async(client.create_order(
                     ticker=ticker, side="yes", count=count,
                     yes_price_cents=yes_price_cents,
                 ))
-                order = result.get("order", result)
+                order = order_result.get("order", order_result)
                 signal.exchange_order_id = order.get("order_id")
                 signal.status = "placed"
-                logger.info("LIVE KALSHI BUY %s: %d @ $%.2f", ticker, count, price)
+                logger.info("LIVE KALSHI BUY %s: %d @ $%.2f", ticker, count, market_price)
             except Exception as e:
                 signal.status = "cancelled"
                 signal.error_message = str(e)[:200]
                 logger.exception("Failed to place Kalshi order for %s", ticker)
         else:
             signal.status = "filled"
-            signal.fill_price = price
+            signal.fill_price = market_price
             signal.fill_quantity = float(count)
             signal.filled_at = datetime.now(timezone.utc)
-            logger.info("PAPER KALSHI BUY %s: %d @ $%.2f (z=%.2f)", ticker, count, price, z)
+            logger.info(
+                "PAPER KALSHI BUY %s: %d @ $%.2f (model=%.0f%% edge=+%.0f%%)",
+                ticker, count, market_price,
+                result.model_prob * 100, result.edge * 100,
+            )
 
         session.add(signal)
         signals_created.append(signal)
@@ -299,9 +309,19 @@ def check_kalshi_exits(
             uid_overrides[pc.pair] = pc
         pair_overrides[str(uid)] = uid_overrides
 
+    series_set = {s.pair for s in filled if s.pair}
+    all_series = list(series_set)
+    vol_hours = 24
+    vol_interval = "15m"
+    if configs:
+        first_cfg = next(iter(configs.values()))
+        vol_hours = first_cfg.vol_lookback_hours
+        vol_interval = first_cfg.vol_interval
+
+    underlying = _fetch_underlying_data(all_series, vol_hours, vol_interval)
+
     exited = 0
     now = datetime.now(timezone.utc)
-    now_ts = int(time.time())
     exchange_clients = exchange_clients or {}
 
     for sig in filled:
@@ -330,26 +350,27 @@ def check_kalshi_exits(
         qty = sig.fill_quantity or sig.quantity
         pnl_usd = (price - sig.fill_price) * qty
 
-        lookback_seconds = cfg.lookback_periods * cfg.candle_interval * 60
-        try:
-            candles = run_async((client or KalshiClient.public()).get_candlesticks(
-                sig.pair, sig.market_ticker,
-                start_ts=now_ts - lookback_seconds - 300,
-                end_ts=now_ts,
-                period_interval=cfg.candle_interval,
-            ))
-            generic = _kalshi_candles_to_generic(candles)
-            vwap, std = _compute_vwap_and_std(generic, cfg.lookback_periods)
-            z = compute_z_score(price, vwap, std) if vwap > 0 and std > 0 else 0
-        except Exception:
-            z = 0
+        current_edge = 0.0
+        if sig.pair in underlying and sig.floor_strike is not None:
+            spot = underlying[sig.pair]["spot"]
+            vol = underlying[sig.pair]["vol"]
+            close_dt = sig.expiry_time
+            if close_dt:
+                t_hours = max(0, (close_dt - now).total_seconds() / 3600)
+                t_years = t_hours * HOURS_TO_YEARS
+                result = compute_edge(
+                    spot, sig.floor_strike, sig.cap_strike,
+                    sig.strike_type or "between",
+                    t_years, vol, price,
+                )
+                current_edge = result.edge
 
         should_exit = False
         exit_reason = ""
 
-        if z >= eff["exit_z_score"] and z != 0 and price >= sig.fill_price:
+        if current_edge <= eff["exit_edge"]:
             should_exit = True
-            exit_reason = f"mean_reversion (z={z:.2f})"
+            exit_reason = f"edge_lost ({current_edge:+.1%})"
         elif pnl_pct <= -eff["stop_loss_pct"]:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
@@ -377,7 +398,6 @@ def check_kalshi_exits(
                 continue
 
         sig.exit_price = price
-        sig.exit_z_score = z
         sig.pnl_usd = round(pnl_usd, 4)
         sig.pnl_pct = round(pnl_pct, 2)
         sig.resolved_at = now

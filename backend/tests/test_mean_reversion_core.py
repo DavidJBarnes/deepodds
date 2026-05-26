@@ -57,8 +57,8 @@ class TestComputeVwapAndStd:
         expected_var = sum((p - mean) ** 2 for p in prices) / (len(prices) - 1)
         assert std == pytest.approx(math.sqrt(expected_var))
 
-    def test_uses_first_n_candles_only(self):
-        prices = [100.0, 101.0, 102.0, 103.0, 999.0]
+    def test_uses_last_n_candles_only(self):
+        prices = [999.0, 100.0, 101.0, 102.0, 103.0]
         candles = _make_candles(prices)
         vwap_4, _ = _compute_vwap_and_std(candles, 4)
         assert vwap_4 == pytest.approx(101.5)

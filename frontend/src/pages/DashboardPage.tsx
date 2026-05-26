@@ -140,12 +140,12 @@ export default function DashboardPage() {
 
             <div className="flex gap-4 text-sm">
               <div>
-                <span className="text-slate-500">Entry: </span>
-                <span className="text-white font-medium">&le;{dashboard.kalshi_status.entry_z_score}z</span>
+                <span className="text-slate-500">Min Edge: </span>
+                <span className="text-white font-medium">{(dashboard.kalshi_status.min_edge * 100).toFixed(0)}%</span>
               </div>
               <div>
-                <span className="text-slate-500">Exit: </span>
-                <span className="text-white font-medium">&ge;{dashboard.kalshi_status.exit_z_score}z</span>
+                <span className="text-slate-500">Exit Edge: </span>
+                <span className="text-white font-medium">{(dashboard.kalshi_status.exit_edge * 100).toFixed(0)}%</span>
               </div>
               <div>
                 <span className="text-slate-500">Series: </span>
@@ -198,7 +198,7 @@ export default function DashboardPage() {
       {tab === "kalshi" && (
         <div className="space-y-3">
           {dashboard.kalshi_markets.map((m) => (
-            <div key={m.ticker} className={`bg-slate-900 border rounded-xl p-4 space-y-2 ${m.z_distance > 0 && m.z_distance < 0.5 ? "border-amber-500/30" : "border-slate-800"}`}>
+            <div key={m.ticker} className={`bg-slate-900 border rounded-xl p-4 space-y-2 ${m.would_signal ? "border-sky-500/30" : m.edge > 0 ? "border-amber-500/30" : "border-slate-800"}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="font-mono text-sm font-semibold text-white">{m.ticker}</span>
@@ -206,11 +206,6 @@ export default function DashboardPage() {
                   {m.would_signal && (
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full">
                       Buy signal
-                    </span>
-                  )}
-                  {!m.would_signal && m.z_distance > 0 && m.z_distance < 0.5 && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                      Near miss
                     </span>
                   )}
                 </div>
@@ -221,20 +216,17 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 truncate">{m.title}</p>
               <div className="flex items-center justify-between text-xs">
                 <div className="flex gap-4">
-                  <span className="text-slate-500">VWAP <span className="text-slate-400 tabular-nums">${m.vwap.toFixed(2)}</span></span>
+                  <span className="text-slate-500">Model <span className="text-slate-400 tabular-nums">{(m.model_prob * 100).toFixed(1)}%</span></span>
+                  <span className="text-slate-500">Market <span className="text-slate-400 tabular-nums">{(m.price * 100).toFixed(1)}%</span></span>
                   <span className="text-slate-500">Vol 24h <span className="text-slate-400 tabular-nums">{m.volume_24h.toLocaleString()}</span></span>
                   <span className="text-slate-500">Expires <span className="text-slate-400 tabular-nums">{m.hours_to_expiry.toFixed(1)}h</span></span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {!m.would_signal && m.z_distance > 0 && m.z_distance < 1.0 && (
-                    <span className={`tabular-nums ${m.z_distance < 0.5 ? "text-amber-400" : "text-slate-500"}`}>
-                      {m.z_distance.toFixed(1)} away
-                    </span>
+                  {m.floor_strike != null && m.cap_strike != null && (
+                    <span className="text-slate-500">Strike <span className="text-slate-400 tabular-nums">${m.floor_strike.toLocaleString()}-${m.cap_strike.toLocaleString()}</span></span>
                   )}
-                  <span className={`font-mono font-bold tabular-nums ${m.z_score <= m.effective_entry_z ? "text-sky-400" : "text-slate-300"}`}>
-                    z = {m.z_score.toFixed(2)}
-                  </span>
                 </div>
+                <span className={`font-mono font-bold tabular-nums ${m.edge > 0 ? "text-emerald-400" : m.edge < -0.02 ? "text-red-400" : "text-slate-300"}`}>
+                  edge {m.edge >= 0 ? "+" : ""}{(m.edge * 100).toFixed(1)}%
+                </span>
               </div>
             </div>
           ))}

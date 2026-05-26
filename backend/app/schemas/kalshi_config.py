@@ -9,10 +9,10 @@ class KalshiConfigResponse(BaseModel):
     min_price: float = 0.01
     max_price: float = 0.95
     min_hours_to_expiry: int = 2
-    candle_interval: int = 60
-    lookback_periods: int = 3
-    entry_z_score: float = -1.5
-    exit_z_score: float = -0.3
+    min_edge: float = 0.05
+    vol_lookback_hours: int = 24
+    vol_interval: str = "15m"
+    exit_edge: float = -0.02
     contracts_per_signal: int = 50
     max_open_positions: int = 5
     stop_loss_pct: float = 15.0
@@ -28,10 +28,10 @@ class KalshiConfigUpdate(BaseModel):
     min_price: float | None = Field(None, ge=0.0, le=0.50)
     max_price: float | None = Field(None, ge=0.50, le=0.99)
     min_hours_to_expiry: int | None = Field(None, ge=0, le=48)
-    candle_interval: int | None = Field(None)
-    lookback_periods: int | None = Field(None, ge=3, le=200)
-    entry_z_score: float | None = Field(None, ge=-5.0, le=-0.5)
-    exit_z_score: float | None = Field(None, ge=-1.0, le=3.0)
+    min_edge: float | None = Field(None, ge=0.01, le=0.50)
+    vol_lookback_hours: int | None = Field(None, ge=1, le=168)
+    vol_interval: str | None = None
+    exit_edge: float | None = Field(None, ge=-0.50, le=0.0)
     contracts_per_signal: int | None = Field(None, ge=1, le=10000)
     max_open_positions: int | None = Field(None, ge=1, le=20)
     stop_loss_pct: float | None = Field(None, ge=1.0, le=50.0)

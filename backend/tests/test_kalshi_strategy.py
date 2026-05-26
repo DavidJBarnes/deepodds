@@ -1,7 +1,7 @@
-"""Unit tests for Kalshi mean-reversion strategy logic.
+"""Unit tests for Kalshi fair-value probability strategy logic.
 
-Tests the entry/exit decision logic, market discovery filters,
-and the Kalshi-specific exit conditions (approaching expiry).
+Tests market discovery filters, edge-based exit conditions,
+and contract P&L calculations.
 """
 
 import uuid
@@ -11,11 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.kalshi_mean_reversion import (
-    _discover_markets,
-    _kalshi_candles_to_generic,
-)
-from app.services.mean_reversion import _compute_vwap_and_std, compute_z_score
+from app.services.kalshi_fair_value import _discover_markets
 
 
 def _make_kalshi_config(**overrides):
@@ -28,10 +24,10 @@ def _make_kalshi_config(**overrides):
         min_price=0.15,
         max_price=0.85,
         min_hours_to_expiry=4,
-        candle_interval=60,
-        lookback_periods=24,
-        entry_z_score=-2.0,
-        exit_z_score=-0.3,
+        min_edge=0.05,
+        exit_edge=-0.02,
+        vol_lookback_hours=24,
+        vol_interval="15m",
         contracts_per_signal=50,
         max_open_positions=5,
         stop_loss_pct=15.0,
@@ -56,8 +52,12 @@ def _make_kalshi_signal(**overrides):
         fill_quantity=50.0,
         quantity=50.0,
         cost_usd=27.50,
-        z_score=-2.8,
-        vwap=0.60,
+        model_prob=0.62,
+        market_prob=0.55,
+        edge=0.07,
+        floor_strike=100000.0,
+        cap_strike=105000.0,
+        strike_type="between",
         market_ticker="KXBTC-26MAY24-BTC-100000",
         event_ticker="KXBTC-26MAY24",
         expiry_time=datetime.now(timezone.utc) + timedelta(hours=12),
@@ -68,23 +68,17 @@ def _make_kalshi_signal(**overrides):
 
 
 class TestKalshiExitLogic:
-    """Test the Kalshi-specific exit conditions."""
-
-    def test_mean_reversion_exit_requires_price_above_entry(self):
-        sig = _make_kalshi_signal(fill_price=0.55)
-        cfg = _make_kalshi_config(exit_z_score=-0.3)
-        price = 0.52
-        z = -0.1
-        should_exit = z >= cfg.exit_z_score and z != 0 and price >= sig.fill_price
-        assert not should_exit
-
-    def test_mean_reversion_exit_when_price_above_entry(self):
-        sig = _make_kalshi_signal(fill_price=0.55)
-        cfg = _make_kalshi_config(exit_z_score=-0.3)
-        price = 0.60
-        z = -0.1
-        should_exit = z >= cfg.exit_z_score and z != 0 and price >= sig.fill_price
+    def test_edge_lost_exit(self):
+        cfg = _make_kalshi_config(exit_edge=-0.02)
+        current_edge = -0.03
+        should_exit = current_edge <= cfg.exit_edge
         assert should_exit
+
+    def test_no_exit_when_edge_positive(self):
+        cfg = _make_kalshi_config(exit_edge=-0.02)
+        current_edge = 0.04
+        should_exit = current_edge <= cfg.exit_edge
+        assert not should_exit
 
     def test_stop_loss(self):
         sig = _make_kalshi_signal(fill_price=0.55)
@@ -147,8 +141,6 @@ class TestKalshiPnl:
 
 
 class TestDiscoverMarkets:
-    """Test market discovery filtering logic."""
-
     def _mock_client(self, markets_by_series: dict[str, list[dict]]):
         client = MagicMock()
 
@@ -233,10 +225,17 @@ class TestDiscoverMarkets:
 
 
 class TestKalshiEntryConditions:
-    def test_entry_z_score_threshold(self):
-        cfg = _make_kalshi_config(entry_z_score=-2.5)
-        assert -3.0 <= cfg.entry_z_score
-        assert -2.0 > cfg.entry_z_score
+    def test_edge_threshold(self):
+        cfg = _make_kalshi_config(min_edge=0.05)
+        edge = 0.07
+        should_signal = edge >= cfg.min_edge
+        assert should_signal
+
+    def test_no_signal_below_threshold(self):
+        cfg = _make_kalshi_config(min_edge=0.05)
+        edge = 0.03
+        should_signal = edge >= cfg.min_edge
+        assert not should_signal
 
     def test_paper_kalshi_fills_immediately(self):
         cfg = _make_kalshi_config(mode="paper")
