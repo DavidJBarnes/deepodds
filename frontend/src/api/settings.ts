@@ -51,6 +51,7 @@ export async function deleteKalshiKeys() {
 export interface KalshiBalance {
   cash_cents: number;
   portfolio_cents: number;
+  error: string | null;
 }
 
 export async function getKalshiBalance() {

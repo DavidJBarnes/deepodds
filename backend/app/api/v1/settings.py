@@ -236,8 +236,8 @@ async def get_kalshi_keys(user: User = Depends(get_current_user)):
         return KalshiKeysStatus(has_keys=False)
     valid = False
     try:
-        KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
-        valid = True
+        kc = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+        valid = await kc.validate()
     except Exception:
         pass
     return KalshiKeysStatus(
@@ -345,22 +345,44 @@ async def delete_pair_config(
 class KalshiBalanceResponse(BaseModel):
     cash_cents: int = 0
     portfolio_cents: int = 0
+    error: str | None = None
 
 
 @router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
 async def get_kalshi_balance(user: User = Depends(get_current_user)):
     if not user.kalshi_api_key_id or not user.kalshi_private_key:
-        return KalshiBalanceResponse()
+        return KalshiBalanceResponse(error="no_keys")
+
     try:
         client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+    except Exception as e:
+        logger.exception("Failed to initialize KalshiClient")
+        return KalshiBalanceResponse(error=f"key_parse_error: {str(e)[:80]}")
+
+    cash_cents = 0
+    portfolio_cents = 0
+    error: str | None = None
+
+    try:
         data = await client.get_balance()
-        return KalshiBalanceResponse(
-            cash_cents=data.get("balance", 0),
-            portfolio_cents=data.get("portfolio_value", 0),
-        )
-    except Exception:
+        cash_cents = int(data.get("balance", 0))
+    except Exception as e:
         logger.exception("Failed to fetch Kalshi balance")
-        return KalshiBalanceResponse()
+        error = f"balance_error: {str(e)[:80]}"
+
+    try:
+        positions = await client.get_positions()
+        portfolio_cents = sum(int(p.get("market_exposure", 0)) for p in positions)
+    except Exception as e:
+        logger.exception("Failed to fetch Kalshi positions")
+        if not error:
+            error = f"positions_error: {str(e)[:80]}"
+
+    return KalshiBalanceResponse(
+        cash_cents=cash_cents,
+        portfolio_cents=portfolio_cents,
+        error=error,
+    )
 
 
 class BacktestRequest(BaseModel):

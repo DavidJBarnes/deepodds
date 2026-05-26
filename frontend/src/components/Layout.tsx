@@ -50,17 +50,23 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        {balance && (balance.cash_cents > 0 || balance.portfolio_cents > 0) && (
+        {balance && (
           <div className="px-4 py-3 border-t border-slate-800 space-y-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Kalshi Account</p>
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-400">Cash</span>
-              <span className="text-white font-medium">${(balance.cash_cents / 100).toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-400">Portfolio</span>
-              <span className="text-emerald-400 font-medium">${(balance.portfolio_cents / 100).toFixed(2)}</span>
-            </div>
+            {balance.error ? (
+              <p className="text-[10px] text-amber-400 break-words">{balance.error}</p>
+            ) : (
+              <>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Cash</span>
+                  <span className="text-white font-medium">${(balance.cash_cents / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-400">Portfolio</span>
+                  <span className="text-emerald-400 font-medium">${(balance.portfolio_cents / 100).toFixed(2)}</span>
+                </div>
+              </>
+            )}
           </div>
         )}
         <div className="p-4 border-t border-slate-800">
