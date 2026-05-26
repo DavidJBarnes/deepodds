@@ -14,6 +14,7 @@ export interface BotStatus {
 }
 
 export interface KalshiStatus {
+  mode: string;
   enabled: boolean;
   has_keys: boolean;
   series_tickers: string;
