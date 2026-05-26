@@ -47,39 +47,59 @@ async def get_metals_prices() -> dict[str, float]:
         return {}
 
 
-async def get_crypto_prices() -> dict[str, float]:
+_DEFAULT_SYMBOLS = ("BTC", "ETH", "SOL", "XRP", "DOGE")
+
+_COINGECKO_IDS = {
+    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "XRP": "ripple",
+    "DOGE": "dogecoin", "LINK": "chainlink", "NEAR": "near", "ONDO": "ondo-finance",
+    "SUI": "sui", "AVAX": "avalanche-2", "ADA": "cardano", "MATIC": "matic-network",
+    "DOT": "polkadot", "LTC": "litecoin", "BCH": "bitcoin-cash",
+}
+
+
+async def get_crypto_prices(symbols: list[str] | tuple[str, ...] | None = None) -> dict[str, float]:
+    """Fetch USD spot prices for the requested crypto symbols.
+
+    Symbols are upper-case ticker prefixes (e.g. "BTC", "XRP"). Defaults to a
+    common set for backwards compatibility; pass the symbols you actually need
+    for efficiency.
+
+    Returns whatever was found — missing symbols are silently omitted (the
+    caller should check membership).
+    """
+    source = _DEFAULT_SYMBOLS if symbols is None else symbols
+    requested = tuple(s.upper() for s in source)
+    if not requested:
+        return {}
+
     async with httpx.AsyncClient(timeout=10) as client:
         try:
+            pairs = [f"{s}USDT" for s in requested]
             resp = await client.get(
                 "https://api.binance.us/api/v3/ticker/price",
-                params={"symbols": "[" + ",".join('"' + s + '"' for s in ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "DOGEUSDT"]) + "]"},
+                params={"symbols": "[" + ",".join('"' + p + '"' for p in pairs) + "]"},
             )
             resp.raise_for_status()
-            return {item["symbol"].replace("USDT", ""): float(item["price"]) for item in resp.json()}
+            data = resp.json()
+            return {item["symbol"].replace("USDT", ""): float(item["price"]) for item in data}
         except Exception:
             pass
 
         try:
+            ids = [_COINGECKO_IDS[s] for s in requested if s in _COINGECKO_IDS]
+            if not ids:
+                logger.warning("No CoinGecko mapping for any of %s", requested)
+                return {}
             resp = await client.get(
                 "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "bitcoin,ethereum,solana,ripple,dogecoin", "vs_currencies": "usd"},
+                params={"ids": ",".join(ids), "vs_currencies": "usd"},
             )
             resp.raise_for_status()
             data = resp.json()
-            result = {}
-            if "bitcoin" in data:
-                result["BTC"] = float(data["bitcoin"]["usd"])
-            if "ethereum" in data:
-                result["ETH"] = float(data["ethereum"]["usd"])
-            if "solana" in data:
-                result["SOL"] = float(data["solana"]["usd"])
-            if "ripple" in data:
-                result["XRP"] = float(data["ripple"]["usd"])
-            if "dogecoin" in data:
-                result["DOGE"] = float(data["dogecoin"]["usd"])
-            return result
+            reverse = {v: k for k, v in _COINGECKO_IDS.items()}
+            return {reverse[gid]: float(d["usd"]) for gid, d in data.items() if gid in reverse}
         except Exception:
-            logger.warning("All crypto price sources failed")
+            logger.warning("All crypto price sources failed for %s", requested)
             raise
 
 

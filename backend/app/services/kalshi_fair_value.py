@@ -159,16 +159,29 @@ def _discover_markets(
 
 
 def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interval: str) -> dict:
-    prices = run_async(get_crypto_prices())
-    result = {}
+    symbol_to_series = {}
     for series in series_tickers:
         symbol = series_to_underlying(series)
-        if not symbol or symbol not in prices:
+        if symbol:
+            symbol_to_series.setdefault(symbol, []).append(series)
+        else:
+            logger.warning("Kalshi series %s does not match KX{SYMBOL} convention; skipping", series)
+
+    if not symbol_to_series:
+        return {}
+
+    prices = run_async(get_crypto_prices(list(symbol_to_series.keys())))
+    result = {}
+    for symbol, series_list in symbol_to_series.items():
+        if symbol not in prices:
+            logger.warning("No spot price available for %s (series %s)", symbol, series_list)
             continue
         vol = run_async(get_realized_vol(symbol, hours=vol_hours, interval=vol_interval))
         if vol is None or vol <= 0:
+            logger.warning("No realized vol for %s (series %s)", symbol, series_list)
             continue
-        result[series] = {"spot": prices[symbol], "vol": vol}
+        for series in series_list:
+            result[series] = {"spot": prices[symbol], "vol": vol}
     return result
 
 

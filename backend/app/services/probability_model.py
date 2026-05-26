@@ -1,7 +1,10 @@
 import math
 from dataclasses import dataclass
 
-SERIES_TO_SYMBOL = {"KXBTC": "BTC", "KXETH": "ETH"}
+# Kalshi crypto series follow the convention KX{SYMBOL} (KXBTC, KXETH, KXXRP,
+# KXSOL, ...). We derive the underlying instead of hardcoding a whitelist so
+# any series the user puts in their config works without a code change.
+SERIES_PREFIX = "KX"
 
 
 def _norm_cdf(x: float) -> float:
@@ -81,4 +84,14 @@ def compute_edge(
 
 
 def series_to_underlying(series_ticker: str) -> str | None:
-    return SERIES_TO_SYMBOL.get(series_ticker)
+    """Derive the underlying crypto symbol from a Kalshi series ticker.
+
+    Kalshi crypto series follow the convention `KX{SYMBOL}` (e.g. KXBTC → BTC,
+    KXETH → ETH, KXXRP → XRP). Returns None for non-conforming tickers.
+    """
+    if not isinstance(series_ticker, str):
+        return None
+    if not series_ticker.startswith(SERIES_PREFIX):
+        return None
+    symbol = series_ticker[len(SERIES_PREFIX):]
+    return symbol or None

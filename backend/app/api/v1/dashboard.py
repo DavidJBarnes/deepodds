@@ -89,19 +89,32 @@ async def get_dashboard(
         )
     ).scalars().all()
 
+    needed_symbols: set[str] = set()
+    for s in recent:
+        if s.status == "filled" and s.fill_price:
+            if s.venue == "crypto":
+                needed_symbols.add(s.pair.replace("-USD", ""))
+            elif s.venue == "kalshi" and s.pair:
+                sym = series_to_underlying(s.pair)
+                if sym:
+                    needed_symbols.add(sym)
+
+    unrealized_prices: dict[str, float] = {}
+    if needed_symbols:
+        try:
+            unrealized_prices = await get_crypto_prices(sorted(needed_symbols))
+        except Exception:
+            unrealized_prices = {}
+
     recent_signals = []
     for s in recent:
         unrealized = None
         if s.status == "filled" and s.fill_price:
-            try:
-                prices = await get_crypto_prices()
-                symbol = s.pair.replace("-USD", "")
-                current = prices.get(symbol, 0)
-                if current > 0:
-                    qty = s.fill_quantity or s.quantity
-                    unrealized = round((current - s.fill_price) * qty, 4)
-            except Exception:
-                pass
+            symbol = s.pair.replace("-USD", "") if s.venue == "crypto" else series_to_underlying(s.pair or "")
+            current = unrealized_prices.get(symbol or "", 0)
+            if current > 0:
+                qty = s.fill_quantity or s.quantity
+                unrealized = round((current - s.fill_price) * qty, 4)
 
         recent_signals.append(
             SignalResponse(
@@ -219,8 +232,9 @@ async def get_dashboard(
 
     markets = []
     pairs = [p.strip() for p in config.pairs.split(",") if p.strip()]
+    crypto_symbols = [p.replace("-USD", "") for p in pairs]
     try:
-        prices = await get_crypto_prices()
+        prices = await get_crypto_prices(crypto_symbols) if crypto_symbols else {}
         for pair in pairs:
             symbol = pair.replace("-USD", "")
             price = prices.get(symbol, 0)
@@ -319,10 +333,13 @@ async def get_dashboard(
             hours_to_years = 1 / (365.25 * 24)
 
             underlying_data: dict[str, dict] = {}
-            spot_prices = await get_crypto_prices()
+            kalshi_symbols = [s for s in (series_to_underlying(x) for x in series_list) if s]
+            spot_prices = await get_crypto_prices(kalshi_symbols) if kalshi_symbols else {}
             for series in series_list:
                 symbol = series_to_underlying(series)
-                if not symbol or symbol not in spot_prices:
+                if not symbol:
+                    continue
+                if symbol not in spot_prices:
                     continue
                 try:
                     vol = await get_realized_vol(symbol, hours=kalshi_cfg.vol_lookback_hours, interval=kalshi_cfg.vol_interval)
