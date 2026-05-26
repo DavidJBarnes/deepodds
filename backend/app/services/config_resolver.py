@@ -17,6 +17,7 @@ def resolve_kalshi_config(global_config: KalshiConfig, override: PairConfig | No
         "min_edge": _pick(override, "min_edge", global_config.min_edge),
         "exit_edge": _pick(override, "exit_edge", global_config.exit_edge),
         "contracts_per_signal": _pick(override, "contracts_per_signal", global_config.contracts_per_signal),
+        "max_cost_per_signal": global_config.max_cost_per_signal,
         "stop_loss_pct": _pick(override, "stop_loss_pct", global_config.stop_loss_pct),
     }
 

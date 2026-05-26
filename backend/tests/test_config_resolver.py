@@ -19,6 +19,7 @@ def _kalshi_config(**overrides):
         "min_edge": 0.05,
         "exit_edge": -0.02,
         "contracts_per_signal": 50,
+        "max_cost_per_signal": 25.0,
         "stop_loss_pct": 15.0,
     }
     defaults.update(overrides)
@@ -81,6 +82,7 @@ class TestResolveKalshiConfig:
         assert result["min_edge"] == 0.05
         assert result["exit_edge"] == -0.02
         assert result["contracts_per_signal"] == 50
+        assert result["max_cost_per_signal"] == 25.0
         assert result["stop_loss_pct"] == 15.0
 
     def test_full_override(self):

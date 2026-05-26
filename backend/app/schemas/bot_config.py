@@ -13,6 +13,7 @@ class BotConfigResponse(BaseModel):
     stop_loss_pct: float = 3.0
     daily_loss_limit_usd: float = 50.0
     max_signals_per_hour: int = 5
+    min_hold_minutes: int = 30
 
 
 class BotConfigUpdate(BaseModel):
@@ -27,3 +28,4 @@ class BotConfigUpdate(BaseModel):
     stop_loss_pct: float | None = Field(None, ge=0.5, le=20.0)
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)
+    min_hold_minutes: int | None = Field(None, ge=0, le=480)

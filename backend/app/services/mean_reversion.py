@@ -255,6 +255,7 @@ def check_exits(
 ) -> int:
     filled = session.execute(
         select(Signal).where(
+            Signal.venue == "crypto",
             Signal.status == "filled",
             Signal.fill_price.isnot(None),
         )
@@ -315,10 +316,13 @@ def check_exits(
         except Exception:
             z = 0
 
+        hold_minutes = (now - sig.filled_at).total_seconds() / 60 if sig.filled_at else 999
+        min_hold = cfg.min_hold_minutes
+
         should_exit = False
         exit_reason = ""
 
-        if z >= eff["exit_z_score"] and z != 0 and price >= sig.fill_price:
+        if z >= eff["exit_z_score"] and z != 0 and price >= sig.fill_price and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"mean_reversion (z={z:.2f})"
         elif pnl_pct <= -eff["stop_loss_pct"]:
@@ -346,7 +350,12 @@ def check_exits(
         sig.pnl_usd = round(pnl_usd, 4)
         sig.pnl_pct = round(pnl_pct, 2)
         sig.resolved_at = now
-        sig.status = "settled_win" if pnl_usd >= 0 else "settled_loss"
+        if pnl_usd > 0:
+            sig.status = "settled_win"
+        elif pnl_usd < 0:
+            sig.status = "settled_loss"
+        else:
+            sig.status = "settled_breakeven"
 
         exited += 1
         logger.info(

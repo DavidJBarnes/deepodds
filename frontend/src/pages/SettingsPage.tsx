@@ -373,6 +373,15 @@ export default function SettingsPage() {
                   onBlur={() => saveConfig({ max_signals_per_hour: config.max_signals_per_hour })}
                   step={1} min={0} max={20}
                 />
+                <ConfigField
+                  label="Min Hold Time"
+                  description="Minimum minutes to hold before allowing mean-reversion exit."
+                  value={config.min_hold_minutes}
+                  onChange={(v) => setConfig({ ...config, min_hold_minutes: v })}
+                  onBlur={() => saveConfig({ min_hold_minutes: config.min_hold_minutes })}
+                  suffix="min"
+                  step={5} min={0} max={480}
+                />
               </div>
             </div>
           </>
@@ -636,11 +645,20 @@ export default function SettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <ConfigField
                   label="Contracts per Signal"
-                  description="Number of contracts to buy per signal. Each contract costs the market price (e.g. $0.50)."
+                  description="Max contracts to buy per signal. Capped by max cost."
                   value={kalshiConfig.contracts_per_signal}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, contracts_per_signal: v })}
                   onBlur={() => saveKalshiConfig({ contracts_per_signal: kalshiConfig.contracts_per_signal })}
                   step={5} min={1} max={500}
+                />
+                <ConfigField
+                  label="Max Cost per Signal"
+                  description="Caps total cost per signal. Reduces contract count for expensive contracts."
+                  prefix="$"
+                  value={kalshiConfig.max_cost_per_signal}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_cost_per_signal: v })}
+                  onBlur={() => saveKalshiConfig({ max_cost_per_signal: kalshiConfig.max_cost_per_signal })}
+                  step={5} min={1} max={1000}
                 />
                 <ConfigField
                   label="Max Open Positions"

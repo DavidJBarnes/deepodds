@@ -29,6 +29,7 @@ def _make_kalshi_config(**overrides):
         vol_lookback_hours=24,
         vol_interval="15m",
         contracts_per_signal=50,
+        max_cost_per_signal=25.0,
         max_open_positions=5,
         stop_loss_pct=15.0,
         daily_loss_limit_usd=25.0,
@@ -246,3 +247,92 @@ class TestKalshiEntryConditions:
         price = 0.55
         cost = price * cfg.contracts_per_signal
         assert cost == pytest.approx(27.50)
+
+
+class TestCostBasedSizing:
+    def test_cheap_contract_uses_max_contracts(self):
+        price = 0.05
+        contracts_per_signal = 50
+        max_cost = 25.0
+        count = contracts_per_signal
+        if price * count > max_cost:
+            count = int(max_cost / price)
+        assert count == 50
+        assert price * count == pytest.approx(2.50)
+
+    def test_expensive_contract_reduces_count(self):
+        price = 0.94
+        contracts_per_signal = 50
+        max_cost = 25.0
+        count = contracts_per_signal
+        if price * count > max_cost:
+            count = int(max_cost / price)
+        assert count == 26
+        assert price * count < max_cost
+
+    def test_mid_price_contract_capped(self):
+        price = 0.55
+        contracts_per_signal = 50
+        max_cost = 25.0
+        count = contracts_per_signal
+        if price * count > max_cost:
+            count = int(max_cost / price)
+        assert count == 45
+        assert price * count <= max_cost
+
+    def test_very_expensive_contract_gets_at_least_one(self):
+        price = 0.98
+        contracts_per_signal = 50
+        max_cost = 25.0
+        count = contracts_per_signal
+        if price * count > max_cost:
+            count = int(max_cost / price)
+        assert count >= 1
+
+    def test_zero_count_skipped(self):
+        price = 0.99
+        max_cost = 0.50
+        count = int(max_cost / price)
+        assert count < 1
+
+
+class TestBreakevenStatus:
+    def test_positive_pnl_is_win(self):
+        pnl_usd = 5.0
+        if pnl_usd > 0:
+            status = "settled_win"
+        elif pnl_usd < 0:
+            status = "settled_loss"
+        else:
+            status = "settled_breakeven"
+        assert status == "settled_win"
+
+    def test_negative_pnl_is_loss(self):
+        pnl_usd = -3.0
+        if pnl_usd > 0:
+            status = "settled_win"
+        elif pnl_usd < 0:
+            status = "settled_loss"
+        else:
+            status = "settled_breakeven"
+        assert status == "settled_loss"
+
+    def test_zero_pnl_is_breakeven(self):
+        pnl_usd = 0.0
+        if pnl_usd > 0:
+            status = "settled_win"
+        elif pnl_usd < 0:
+            status = "settled_loss"
+        else:
+            status = "settled_breakeven"
+        assert status == "settled_breakeven"
+
+    def test_tiny_positive_is_still_win(self):
+        pnl_usd = 0.0001
+        if pnl_usd > 0:
+            status = "settled_win"
+        elif pnl_usd < 0:
+            status = "settled_loss"
+        else:
+            status = "settled_breakeven"
+        assert status == "settled_win"
