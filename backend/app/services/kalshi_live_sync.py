@@ -190,13 +190,28 @@ def _apply_settlement(sig: Signal, settlement: dict, counts: dict) -> None:
     result = (settlement.get("market_result") or "").lower()
     # `revenue` is in cents (integer). `fee_cost` and *_dollars are strings.
     revenue_dollars = _to_float(settlement.get("revenue")) / 100
-    cost_dollars = _to_float(settlement.get("yes_total_cost_dollars"))
+    yes_count = _to_float(settlement.get("yes_count_fp"))
+    no_count = _to_float(settlement.get("no_count_fp"))
+    yes_cost = _to_float(settlement.get("yes_total_cost_dollars"))
+    no_cost = _to_float(settlement.get("no_total_cost_dollars"))
     fee_dollars = _to_float(settlement.get("fee_cost"))
 
-    # Prefer Kalshi's own cost basis if present; otherwise stick with what we
-    # had recorded at order placement.
-    if cost_dollars <= 0:
-        cost_dollars = _to_float(sig.cost_usd)
+    # If Kalshi shows we owned zero contracts and paid nothing on either side
+    # at settlement, our limit order never filled. Treat as cancelled — the
+    # cost_usd in our DB is the theoretical limit cost, not money actually
+    # spent. We never lost it.
+    if yes_count == 0 and no_count == 0 and yes_cost == 0 and no_cost == 0:
+        sig.status = "cancelled"
+        sig.error_message = "order_never_filled_before_settlement"
+        sig.resolved_at = datetime.now(timezone.utc)
+        counts["cancelled"] += 1
+        logger.info(
+            "Kalshi sync cancelled %s: order never filled before settlement",
+            sig.market_ticker,
+        )
+        return
+
+    cost_dollars = yes_cost if yes_cost > 0 else _to_float(sig.cost_usd)
 
     pnl_usd = revenue_dollars - cost_dollars - fee_dollars
 

@@ -62,15 +62,19 @@ def _position(ticker, contracts, total_traded):
     }
 
 
-def _settlement(ticker, result, revenue_cents, cost_dollars=0.0, fees=0.0):
+def _settlement(ticker, result, revenue_cents, cost_dollars=0.0, fees=0.0, yes_count=39):
+    """Build a settlement record. `yes_count` defaults to a non-zero value so
+    the never-filled-cancellation branch doesn't fire; pass yes_count=0
+    explicitly to test that path."""
     return {
         "ticker": ticker,
         "event_ticker": ticker.rsplit("-", 1)[0],
         "market_result": result,
         "revenue": revenue_cents,
         "yes_total_cost_dollars": str(cost_dollars),
+        "no_total_cost_dollars": "0.0",
         "fee_cost": str(fees),
-        "yes_count_fp": "0.00",
+        "yes_count_fp": str(yes_count),
         "no_count_fp": "0.00",
     }
 
@@ -417,6 +421,84 @@ class TestSyncKalshiLive:
 # ---------------------------------------------------------------------------
 # Regression: the +$39 win exact scenario
 # ---------------------------------------------------------------------------
+
+
+class TestNeverFilledSettlement:
+    """Settlements where Kalshi shows we owned zero contracts mean our limit
+    order never filled before the market settled. The cost_usd in our DB is
+    theoretical, not money actually spent — should be cancelled, not lost."""
+
+    def _zero_position_settlement(self, ticker, result):
+        return {
+            "ticker": ticker,
+            "event_ticker": "X",
+            "market_result": result,
+            "revenue": 0,
+            "yes_count_fp": "0.00",
+            "no_count_fp": "0.00",
+            "yes_total_cost_dollars": "0.000000",
+            "no_total_cost_dollars": "0.000000",
+            "fee_cost": "0.000000",
+        }
+
+    def test_yes_result_with_zero_position_is_cancelled(self):
+        # The KXETH-B2070 production bug: settled YES on Kalshi, but our limit
+        # order at $0.66 never filled. Sync was marking settled_loss with the
+        # full cost_usd as the loss. Should be cancelled.
+        sig = _make_signal(
+            status="placed",
+            market_ticker="KXETH-26MAY2616-B2070",
+            entry_price=0.66,
+            quantity=37,
+            cost_usd=24.42,
+        )
+        counts = {"filled": 0, "settled": 0, "cancelled": 0}
+
+        _apply_settlement(
+            sig,
+            self._zero_position_settlement("KXETH-26MAY2616-B2070", "yes"),
+            counts,
+        )
+
+        assert sig.status == "cancelled"
+        assert sig.pnl_usd is None  # not a P&L event
+        assert sig.exit_price is None
+        assert sig.error_message and "never_filled" in sig.error_message
+        assert counts["cancelled"] == 1
+        assert counts["settled"] == 0
+
+    def test_no_result_with_zero_position_is_cancelled(self):
+        sig = _make_signal(status="placed", market_ticker="X", cost_usd=10.0)
+        counts = {"filled": 0, "settled": 0, "cancelled": 0}
+
+        _apply_settlement(sig, self._zero_position_settlement("X", "no"), counts)
+
+        assert sig.status == "cancelled"
+        assert counts["cancelled"] == 1
+
+    def test_nonzero_position_still_settles_normally(self):
+        # Regression: a real position that lost should still settle_loss, not
+        # be misread as never-filled.
+        sig = _make_signal(status="filled", cost_usd=18.0, fill_price=0.36, fill_quantity=50)
+        counts = {"filled": 0, "settled": 0, "cancelled": 0}
+        sett = {
+            "ticker": "X",
+            "event_ticker": "X",
+            "market_result": "no",
+            "revenue": 0,
+            "yes_count_fp": "50.00",
+            "no_count_fp": "0.00",
+            "yes_total_cost_dollars": "18.000000",
+            "no_total_cost_dollars": "0.000000",
+            "fee_cost": "0.05",
+        }
+
+        _apply_settlement(sig, sett, counts)
+
+        assert sig.status == "settled_loss"
+        assert sig.pnl_usd == pytest.approx(-18.05)
+        assert counts["settled"] == 1
+        assert counts["cancelled"] == 0
 
 
 class TestRealWorldScenario:

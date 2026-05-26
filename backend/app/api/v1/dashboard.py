@@ -89,15 +89,16 @@ async def get_dashboard(
         )
     ).scalars().all()
 
+    # Unrealized P&L applies to crypto positions where we hold the underlying
+    # and its current price drives our position value. Kalshi binary contracts
+    # price in [$0, $1] — applying the same formula gives nonsense (a $0.07
+    # contract vs ETH spot of $2,070 would yield ~$41k unrealized "profit").
+    # Kalshi unrealized requires querying current Kalshi market prices per
+    # ticker; do that as a follow-up. For now we omit it for Kalshi signals.
     needed_symbols: set[str] = set()
     for s in recent:
-        if s.status == "filled" and s.fill_price:
-            if s.venue == "crypto":
-                needed_symbols.add(s.pair.replace("-USD", ""))
-            elif s.venue == "kalshi" and s.pair:
-                sym = series_to_underlying(s.pair)
-                if sym:
-                    needed_symbols.add(sym)
+        if s.status == "filled" and s.fill_price and s.venue == "crypto":
+            needed_symbols.add(s.pair.replace("-USD", ""))
 
     unrealized_prices: dict[str, float] = {}
     if needed_symbols:
@@ -109,9 +110,9 @@ async def get_dashboard(
     recent_signals = []
     for s in recent:
         unrealized = None
-        if s.status == "filled" and s.fill_price:
-            symbol = s.pair.replace("-USD", "") if s.venue == "crypto" else series_to_underlying(s.pair or "")
-            current = unrealized_prices.get(symbol or "", 0)
+        if s.status == "filled" and s.fill_price and s.venue == "crypto":
+            symbol = s.pair.replace("-USD", "")
+            current = unrealized_prices.get(symbol, 0)
             if current > 0:
                 qty = s.fill_quantity or s.quantity
                 unrealized = round((current - s.fill_price) * qty, 4)
