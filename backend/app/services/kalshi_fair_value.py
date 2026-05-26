@@ -440,13 +440,16 @@ def check_kalshi_exits(
                 )
                 current_edge = result.edge
 
+        hold_minutes = (now - sig.filled_at).total_seconds() / 60 if sig.filled_at else 999
+        min_hold = cfg.min_hold_minutes
+
         should_exit = False
         exit_reason = ""
 
-        if current_edge <= eff["exit_edge"]:
-            should_exit = True
-            exit_reason = f"edge_lost ({current_edge:+.1%})"
-        elif pnl_pct <= -eff["stop_loss_pct"]:
+        # Stop loss and approaching expiry are real risk events — never gated.
+        # edge_lost is gated by min_hold to prevent panic-selling on
+        # short-term spot/vol noise (the +-95% in 6min scenario).
+        if pnl_pct <= -eff["stop_loss_pct"]:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
@@ -455,6 +458,9 @@ def check_kalshi_exits(
         elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
             should_exit = True
             exit_reason = "max_hold (24h)"
+        elif current_edge <= eff["exit_edge"] and hold_minutes >= min_hold:
+            should_exit = True
+            exit_reason = f"edge_lost ({current_edge:+.1%})"
 
         if not should_exit:
             continue

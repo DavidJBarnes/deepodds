@@ -88,7 +88,12 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                     <span className={s.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
                       {s.pnl_usd >= 0 ? "+" : ""}${s.pnl_usd.toFixed(2)}
                       {s.pnl_pct != null && (
-                        <span className="text-xs ml-1 opacity-60">({s.pnl_pct.toFixed(1)}%)</span>
+                        <span
+                          className="text-xs ml-1 opacity-60"
+                          title={s.pnl_pct < -100 ? "Loss exceeds 100% of position cost due to Kalshi fees" : undefined}
+                        >
+                          ({Math.max(s.pnl_pct, -100).toFixed(1)}%{s.pnl_pct < -100 ? "+" : ""})
+                        </span>
                       )}
                     </span>
                   ) : s.unrealized_pnl_usd != null ? (

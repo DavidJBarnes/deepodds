@@ -702,6 +702,15 @@ export default function SettingsPage() {
                   onBlur={() => saveKalshiConfig({ max_signals_per_hour: kalshiConfig.max_signals_per_hour })}
                   step={1} min={0} max={20}
                 />
+                <ConfigField
+                  label="Min Hold Time"
+                  description="Minimum minutes to hold before edge_lost exit can fire. Stop loss and approaching-expiry exits ignore this."
+                  value={kalshiConfig.min_hold_minutes}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hold_minutes: v })}
+                  onBlur={() => saveKalshiConfig({ min_hold_minutes: kalshiConfig.min_hold_minutes })}
+                  suffix="min"
+                  step={5} min={0} max={480}
+                />
               </div>
             </div>
           </>
