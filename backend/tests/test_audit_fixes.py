@@ -82,9 +82,13 @@ class TestKalshiConfigDefaults:
     """Fix 3: Safer default values for Kalshi config."""
 
     def test_min_edge_default(self):
+        # Default lowered from 0.07 to 0.05 after live attribution analysis
+        # showed the 5-8% edge band is profitable (50% win rate, +$11) while
+        # 3-5% loses everything (0%, -$8). 0.05 lets the working band through
+        # while still excluding noise-range edges.
         from app.models.kalshi_config import KalshiConfig
         col = KalshiConfig.__table__.columns["min_edge"]
-        assert col.default.arg == 0.07
+        assert col.default.arg == 0.05
 
     def test_max_price_default(self):
         from app.models.kalshi_config import KalshiConfig
