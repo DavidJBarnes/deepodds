@@ -128,5 +128,25 @@ class TestSeriesToUnderlying:
         assert series_to_underlying("KXBTC") == "BTC"
         assert series_to_underlying("KXETH") == "ETH"
 
-    def test_unknown_series(self):
-        assert series_to_underlying("KXFOO") is None
+    def test_derives_new_symbols_from_convention(self):
+        # Any KX-prefixed series should derive its underlying — no code change
+        # needed to support new tickers Kalshi adds.
+        assert series_to_underlying("KXXRP") == "XRP"
+        assert series_to_underlying("KXSOL") == "SOL"
+        assert series_to_underlying("KXDOGE") == "DOGE"
+        assert series_to_underlying("KXFOO") == "FOO"
+
+    def test_non_kx_prefix_returns_none(self):
+        # Only the KX-crypto convention is supported. Non-crypto series (e.g.
+        # presidential election series) should not be treated as crypto.
+        assert series_to_underlying("PRES2028") is None
+        assert series_to_underlying("INX") is None
+        assert series_to_underlying("") is None
+
+    def test_kx_alone_returns_none(self):
+        # "KX" with nothing after it should not produce an empty-string symbol.
+        assert series_to_underlying("KX") is None
+
+    def test_non_string_returns_none(self):
+        assert series_to_underlying(None) is None
+        assert series_to_underlying(123) is None
