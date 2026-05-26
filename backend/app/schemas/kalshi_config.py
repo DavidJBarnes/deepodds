@@ -16,6 +16,7 @@ class KalshiConfigResponse(BaseModel):
     contracts_per_signal: int = 50
     max_cost_per_signal: float = 25.0
     max_open_positions: int = 5
+    max_positions_per_event: int = 1
     stop_loss_pct: float = 15.0
     daily_loss_limit_usd: float = 25.0
     max_signals_per_hour: int = 3
@@ -36,6 +37,7 @@ class KalshiConfigUpdate(BaseModel):
     contracts_per_signal: int | None = Field(None, ge=1, le=10000)
     max_cost_per_signal: float | None = Field(None, ge=1.0, le=1000.0)
     max_open_positions: int | None = Field(None, ge=1, le=20)
+    max_positions_per_event: int | None = Field(None, ge=1, le=20)
     stop_loss_pct: float | None = Field(None, ge=1.0, le=50.0)
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)

@@ -92,7 +92,7 @@ async def _backtest_kalshi(
     signals = []
 
     for m in data.get("markets", []):
-        last_price = float(m.get("last_price_dollars", 0))
+        last_price = float(m.get("yes_ask_dollars", 0) or 0) or float(m.get("last_price_dollars", 0) or 0)
         if last_price <= 0:
             continue
 

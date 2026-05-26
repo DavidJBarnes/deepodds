@@ -174,6 +174,7 @@ def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
         contracts_per_signal=config.contracts_per_signal,
         max_cost_per_signal=config.max_cost_per_signal,
         max_open_positions=config.max_open_positions,
+        max_positions_per_event=config.max_positions_per_event,
         stop_loss_pct=config.stop_loss_pct,
         daily_loss_limit_usd=config.daily_loss_limit_usd,
         max_signals_per_hour=config.max_signals_per_hour,
@@ -359,30 +360,15 @@ async def get_kalshi_balance(user: User = Depends(get_current_user)):
         logger.exception("Failed to initialize KalshiClient")
         return KalshiBalanceResponse(error=f"key_parse_error: {str(e)[:80]}")
 
-    cash_cents = 0
-    portfolio_cents = 0
-    error: str | None = None
-
     try:
         data = await client.get_balance()
-        cash_cents = int(data.get("balance", 0))
+        return KalshiBalanceResponse(
+            cash_cents=int(data.get("balance", 0)),
+            portfolio_cents=int(data.get("portfolio_value", 0)),
+        )
     except Exception as e:
         logger.exception("Failed to fetch Kalshi balance")
-        error = f"balance_error: {str(e)[:80]}"
-
-    try:
-        positions = await client.get_positions()
-        portfolio_cents = sum(int(p.get("market_exposure", 0)) for p in positions)
-    except Exception as e:
-        logger.exception("Failed to fetch Kalshi positions")
-        if not error:
-            error = f"positions_error: {str(e)[:80]}"
-
-    return KalshiBalanceResponse(
-        cash_cents=cash_cents,
-        portfolio_cents=portfolio_cents,
-        error=error,
-    )
+        return KalshiBalanceResponse(error=f"balance_error: {str(e)[:80]}")
 
 
 class BacktestRequest(BaseModel):

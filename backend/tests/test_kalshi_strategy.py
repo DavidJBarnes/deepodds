@@ -151,7 +151,10 @@ class TestDiscoverMarkets:
         client.get_markets = mock_get_markets
         return client
 
-    def _make_market(self, ticker: str, series: str, volume: float, price: float, hours_to_close: float) -> dict:
+    def _make_market(
+        self, ticker: str, series: str, volume: float, price: float, hours_to_close: float,
+        ask_size: float = 100.0,
+    ) -> dict:
         close_time = (datetime.now(timezone.utc) + timedelta(hours=hours_to_close)).isoformat()
         return {
             "ticker": ticker,
@@ -159,6 +162,8 @@ class TestDiscoverMarkets:
             "series_ticker": series,
             "volume_24h_fp": str(volume),
             "last_price_dollars": str(price),
+            "yes_ask_dollars": str(price),
+            "yes_ask_size_fp": str(ask_size),
             "close_time": close_time,
         }
 
