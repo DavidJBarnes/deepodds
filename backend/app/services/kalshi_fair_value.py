@@ -158,6 +158,71 @@ def _discover_markets(
     return eligible
 
 
+def _compute_vol_scaling(symbol: str, current_vol: float) -> float:
+    """Return a position-sizing multiplier based on vol regime.
+
+    Compares current short/medium-term vol to a 7-day baseline:
+      ratio ≤ 1.5 → 1.0  (normal — no reduction)
+      ratio > 1.5 → 0.5  (elevated — halve size)
+      ratio > 2.5 → 0.0  (extreme — skip entirely)
+
+    The 7-day baseline is fetched with 1h candles to avoid excessive API
+    calls while still capturing the medium-term vol regime.
+    """
+    try:
+        baseline = run_async(get_realized_vol(symbol, hours=168, interval="1h"))
+    except Exception:
+        return 1.0
+
+    if baseline is None or baseline <= 0:
+        return 1.0
+
+    ratio = current_vol / baseline if baseline > 0 else 1.0
+    if ratio > 2.5:
+        logger.info("Vol regime extreme for %s: ratio=%.2f — skipping", symbol, ratio)
+        return 0.0
+    if ratio > 1.5:
+        logger.info("Vol regime elevated for %s: ratio=%.2f — halving size", symbol, ratio)
+        return 0.5
+    return 1.0
+
+
+def _read_balance_cache(user_id: str) -> float | None:
+    """Return portfolio_cents from the scheduler-written balance cache, or None."""
+    import json as _json
+    from pathlib import Path
+
+    try:
+        path = Path(f"/tmp/kalshi_balance_{user_id}.json")
+        if not path.exists():
+            return None
+        data = _json.loads(path.read_text())
+        return float(data.get("portfolio_cents", 0))
+    except Exception:
+        return None
+
+
+def _kelly_count(edge: float, market_price: float, bankroll_cents: float, max_contracts: int, max_cost: float) -> int:
+    """Compute position size using fractional Kelly.
+
+    For a binary YES bet at price P with edge e = model_prob - P:
+      Kelly fraction f* = e / (1 - P)
+
+    Contracts = floor(f* × bankroll / P), capped by max_contracts and max_cost.
+    Uses 1/4 Kelly (quarter-Kelly) as a conservative default.
+    """
+    if market_price <= 0 or edge <= 0:
+        return 0
+    kelly = edge / (1 - market_price)
+    quarter_kelly = kelly * 0.25
+    bankroll_dollars = bankroll_cents / 100
+    count = int(quarter_kelly * bankroll_dollars / market_price)
+    count = min(count, max_contracts)
+    if market_price * count > max_cost:
+        count = int(max_cost / market_price)
+    return max(count, 0)
+
+
 def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interval: str) -> dict:
     symbol_to_series = {}
     for series in series_tickers:
@@ -180,8 +245,9 @@ def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interv
         if vol is None or vol <= 0:
             logger.warning("No realized vol for %s (series %s)", symbol, series_list)
             continue
+        vol_scaling = _compute_vol_scaling(symbol, vol)
         for series in series_list:
-            result[series] = {"spot": prices[symbol], "vol": vol}
+            result[series] = {"spot": prices[symbol], "vol": vol, "vol_scaling": vol_scaling}
     return result
 
 
@@ -306,14 +372,28 @@ def scan_kalshi_entries(
             if result.edge < eff["min_edge"]:
                 continue
 
-            count = eff["contracts_per_signal"]
-            max_cost = eff["max_cost_per_signal"]
-            if market_price > 0 and market_price * count > max_cost:
-                count = int(max_cost / market_price)
+            # P0: Vol regime filter + Kelly position sizing
+            vol_scaling = underlying[series_ticker].get("vol_scaling", 1.0)
+            if vol_scaling <= 0:
+                logger.info("Skipping %s: vol regime extreme", ticker)
+                continue
+
+            bankroll_cents = _read_balance_cache(str(user_id))
+            if bankroll_cents and bankroll_cents > 0:
+                count = _kelly_count(
+                    result.edge, market_price, bankroll_cents,
+                    eff["contracts_per_signal"], eff["max_cost_per_signal"],
+                )
+            else:
+                # Fallback to flat sizing when no balance cache
+                count = eff["contracts_per_signal"]
+                if market_price > 0 and market_price * count > eff["max_cost_per_signal"]:
+                    count = int(eff["max_cost_per_signal"] / market_price)
+
+            count = int(count * vol_scaling)
             if count < 1:
                 continue
 
-            # B2: Verify ask depth can support the position size
             if _market_ask_size(market) < count:
                 continue
 
