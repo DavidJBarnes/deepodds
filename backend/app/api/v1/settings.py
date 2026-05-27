@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
 from app.models.pair_config import PairConfig
 from app.models.user import User
@@ -17,6 +18,44 @@ from app.services.kalshi_client import KalshiClient
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+_FIELD_LABELS: dict[str, str] = {
+    "mode": "Mode",
+    "enabled": "Enabled",
+    "series_tickers": "Series Tickers",
+    "min_volume_24h": "Min 24h Volume",
+    "min_price": "Min Price",
+    "max_price": "Max Price",
+    "min_hours_to_expiry": "Min Hours to Expiry",
+    "min_edge": "Min Edge",
+    "vol_lookback_hours": "Vol Lookback Hours",
+    "vol_interval": "Vol Interval",
+    "exit_edge": "Exit Edge",
+    "contracts_per_signal": "Contracts per Signal",
+    "max_cost_per_signal": "Max Cost per Signal",
+    "max_open_positions": "Max Open Positions",
+    "max_positions_per_event": "Max Positions per Event",
+    "stop_loss_pct": "Stop Loss %",
+    "take_profit_pct": "Take Profit %",
+    "daily_loss_limit_usd": "Daily Loss Limit ($)",
+    "max_signals_per_hour": "Max Signals per Hour",
+    "min_hold_minutes": "Min Hold Minutes",
+}
+
+
+async def _log_config_changes(db: AsyncSession, user_id, old_values: dict, new_values: dict):
+    """Create a History entry for each changed config field."""
+    for key, value in new_values.items():
+        old = old_values.get(key)
+        old_str = str(old) if old is not None else "(none)"
+        new_str = str(value) if value is not None else "(none)"
+        if old_str == new_str:
+            continue
+        label = _FIELD_LABELS.get(key, key)
+        text = f"User changed {label} from {old_str} to {new_str}"
+        db.add(History(user_id=user_id, text=text))
+    if new_values:
+        await db.commit()
 
 
 @router.get("/kalshi-config", response_model=KalshiConfigResponse)
@@ -80,10 +119,16 @@ async def update_kalshi_config(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Mode must be 'paper' or 'live'",
         )
+
+    old_values = {key: getattr(config, key, None) for key in updates}
+
     for key, value in updates.items():
         setattr(config, key, value)
     await db.commit()
     await db.refresh(config)
+
+    _log_config_changes(db, user.id, old_values, updates)
+
     return _kalshi_config_response(config)
 
 
