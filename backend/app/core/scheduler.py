@@ -10,7 +10,12 @@ from app.core.config import settings
 from app.models.kalshi_config import KalshiConfig
 from app.models.user import User
 from app.services.kalshi_client import KalshiClient
-from app.services.kalshi_fair_value import check_kalshi_exits, scan_kalshi_entries
+from app.services.kalshi_fair_value import (
+    cancel_stale_placed_orders,
+    check_kalshi_exits,
+    scan_kalshi_entries,
+    settle_expired_paper,
+)
 from app.services.kalshi_live_sync import sync_kalshi_live
 
 _BALANCE_CACHE_TTL = 60  # seconds; scheduler refreshes every 30s
@@ -143,6 +148,18 @@ def _run_kalshi_sync_live():
             )
 
 
+def _run_kalshi_housekeeping():
+    """Run periodic housekeeping tasks: paper settlement, order timeouts."""
+    with Session(_sync_engine) as session:
+        settled = settle_expired_paper(session)
+        if settled:
+            logger.info("Settled %d expired paper signals", settled)
+
+        cancelled = cancel_stale_placed_orders(session)
+        if cancelled:
+            logger.info("Cancelled %d stale placed orders", cancelled)
+
+
 async def start_scheduler():
     logger.info("Starting Kalshi scheduler")
 
@@ -152,6 +169,7 @@ async def start_scheduler():
             try:
                 await asyncio.to_thread(_run_kalshi_scan)
                 await asyncio.to_thread(_run_kalshi_check_exits)
+                await asyncio.to_thread(_run_kalshi_housekeeping)
                 _write_scanner_health("online")
             except Exception as exc:
                 _write_scanner_health("error", str(exc)[:200])
