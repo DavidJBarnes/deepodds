@@ -13,6 +13,8 @@ from app.services.kalshi_client import KalshiClient
 from app.services.kalshi_fair_value import check_kalshi_exits, scan_kalshi_entries
 from app.services.kalshi_live_sync import sync_kalshi_live
 
+_BALANCE_CACHE_TTL = 60  # seconds; scheduler refreshes every 30s
+
 logger = logging.getLogger(__name__)
 
 _sync_engine = create_engine(settings.DATABASE_URL_SYNC, pool_size=5, max_overflow=5)
@@ -34,6 +36,22 @@ def _write_scanner_health(status: str, error: str | None = None) -> None:
         Path("/tmp/scanner_health.json").write_text(_json.dumps(health))
     except Exception:
         logger.warning("Failed to write scanner health file")
+
+
+def _write_balance_cache(user_id: str, data: dict) -> None:
+    import json as _json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    try:
+        cache = {
+            "cash_cents": int(data.get("balance", 0)),
+            "portfolio_cents": int(data.get("portfolio_value", 0)),
+            "cached_at": datetime.now(timezone.utc).isoformat(),
+        }
+        Path(f"/tmp/kalshi_balance_{user_id}.json").write_text(_json.dumps(cache))
+    except Exception:
+        logger.warning("Failed to write balance cache for user %s", user_id)
 
 
 def _run_kalshi_scan():
@@ -62,6 +80,14 @@ def _run_kalshi_scan():
                     logger.info("Created %d Kalshi signals for %s", len(signals), user.email)
             except Exception:
                 logger.exception("Kalshi scan failed for user %s", cfg.user_id)
+
+            # Re-fetch portfolio/cash balance after each scan cycle
+            if client:
+                try:
+                    bal = run_async(client.get_balance())
+                    _write_balance_cache(str(cfg.user_id), bal)
+                except Exception:
+                    logger.exception("Failed to cache Kalshi balance for user %s", cfg.user_id)
 
 
 def _run_kalshi_check_exits():
