@@ -9,10 +9,8 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
-from app.models.pair_config import PairConfig
 from app.models.user import User
 from app.schemas.kalshi_config import KalshiConfigResponse, KalshiConfigUpdate, KalshiKeysStatus, KalshiKeysUpdate
-from app.schemas.pair_config import PairConfigResponse, PairConfigUpdate
 from app.services.kalshi_client import KalshiClient
 
 logger = logging.getLogger(__name__)
@@ -178,88 +176,6 @@ async def delete_kalshi_keys(
     user.kalshi_private_key = None
     await db.commit()
     return KalshiKeysStatus(has_keys=False)
-
-
-@router.get("/pair-configs", response_model=list[PairConfigResponse])
-async def list_pair_configs(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    rows = (
-        await db.execute(select(PairConfig).where(PairConfig.user_id == user.id))
-    ).scalars().all()
-    return [
-        PairConfigResponse(
-            venue=pc.venue, pair=pc.pair,
-            contracts_per_signal=pc.contracts_per_signal,
-            stop_loss_pct=pc.stop_loss_pct,
-            min_edge=pc.min_edge,
-            exit_edge=pc.exit_edge,
-        )
-        for pc in rows
-    ]
-
-
-@router.put("/pair-configs/{venue}/{pair:path}", response_model=PairConfigResponse)
-async def upsert_pair_config(
-    venue: str,
-    pair: str,
-    body: PairConfigUpdate,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    if venue not in ("crypto", "kalshi"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Venue must be 'crypto' or 'kalshi'")
-
-    pc = (
-        await db.execute(
-            select(PairConfig).where(
-                PairConfig.user_id == user.id, PairConfig.venue == venue, PairConfig.pair == pair
-            )
-        )
-    ).scalar_one_or_none()
-
-    if not pc:
-        pc = PairConfig(user_id=user.id, venue=venue, pair=pair)
-        db.add(pc)
-
-    updates = body.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        setattr(pc, key, value)
-
-    await db.commit()
-    await db.refresh(pc)
-
-    return PairConfigResponse(
-        venue=pc.venue, pair=pc.pair,
-        contracts_per_signal=pc.contracts_per_signal,
-        stop_loss_pct=pc.stop_loss_pct,
-        min_edge=pc.min_edge,
-        exit_edge=pc.exit_edge,
-    )
-
-
-@router.delete("/pair-configs/{venue}/{pair:path}")
-async def delete_pair_config(
-    venue: str,
-    pair: str,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    pc = (
-        await db.execute(
-            select(PairConfig).where(
-                PairConfig.user_id == user.id, PairConfig.venue == venue, PairConfig.pair == pair
-            )
-        )
-    ).scalar_one_or_none()
-
-    if not pc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
-
-    await db.delete(pc)
-    await db.commit()
-    return {"status": "ok"}
 
 
 class KalshiBalanceResponse(BaseModel):

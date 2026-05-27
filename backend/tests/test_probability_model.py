@@ -3,12 +3,26 @@ import pytest
 
 from app.services.probability_model import (
     FairValueResult,
+    _implied_vol,
     compute_edge,
     compute_fair_probability,
     series_to_underlying,
 )
 
 HOURS_TO_YEARS = 1 / (365.25 * 24)
+
+# Use "less" type (OTM put: spot above cap, betting on a decline).
+# This is monotonically increasing in vol, avoiding the GBM vol-drag
+# non-monotonicity that affects OTM calls and "between" buckets.
+SPOT = 2130.0
+CAP = 2100.0   # slightly below spot, so S > K
+STRIKE_TYPE = "less"
+T_24H = 24 * HOURS_TO_YEARS
+
+# Probability under realized_vol=0.40 for the zero-edge test
+# d2 = (ln(S/K)-σ²T/2)/(σ√T) = (0.01418-0.000219)/(0.02094) = 0.6668
+# P = N(-0.6668) = 0.2525
+FAIR_P_AT_40 = compute_fair_probability(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40)
 
 
 class TestComputeFairProbability:
@@ -82,48 +96,95 @@ class TestComputeFairProbability:
         assert prob_high_vol > prob_low_vol
 
 
+class TestImpliedVol:
+    def test_recovers_known_vol(self):
+        """If we price with vol X, implied_vol should recover X."""
+        target = compute_fair_probability(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40)
+        recovered = _implied_vol(SPOT, None, CAP, STRIKE_TYPE, T_24H, target)
+        assert recovered is not None
+        assert abs(recovered - 0.40) < 0.02
+
+    def test_lower_market_price_yields_lower_implied_vol(self):
+        """Cheaper OTM put → lower implied vol."""
+        iv_low = _implied_vol(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.15)
+        iv_high = _implied_vol(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.35)
+        assert iv_low is not None
+        assert iv_high is not None
+        assert iv_low < iv_high
+
+    def test_higher_strike_needs_higher_vol_for_same_price(self):
+        """A deeper OTM put (cap farther below spot) needs more vol for the same price."""
+        iv_close = _implied_vol(SPOT, None, 2120, STRIKE_TYPE, T_24H, 0.30)
+        iv_far = _implied_vol(SPOT, None, 2050, STRIKE_TYPE, T_24H, 0.30)
+        assert iv_close is not None
+        assert iv_far is not None
+        assert iv_far > iv_close
+
+
+class TestVolDivergence:
+    """Edge comes from realized vol diverging from implied vol."""
+
+    def test_positive_edge_when_realized_exceeds_implied(self):
+        """Cheap put (mkt_price < fair) → implied < realized → blended > implied → edge > 0."""
+        market_price = 0.15  # cheaper than fair value at σ=0.40
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, market_price)
+        assert result.implied_vol > 0
+        assert result.implied_vol < 0.40
+        assert result.blended_vol > result.implied_vol
+        assert result.model_prob > result.market_prob
+        assert result.edge > 0
+
+    def test_negative_edge_when_realized_below_implied(self):
+        """Expensive put → implied > realized → blended < implied → edge < 0."""
+        market_price = 0.35  # more expensive than fair value
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, market_price)
+        assert result.implied_vol > 0
+        assert result.implied_vol > 0.40
+        assert result.blended_vol < result.implied_vol
+        assert result.model_prob < result.market_prob
+        assert result.edge < 0
+
+    def test_edge_near_zero_when_vols_match(self):
+        """Market priced at fair value → implied ≈ realized → blended ≈ realized → edge ≈ 0."""
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, FAIR_P_AT_40)
+        assert result.implied_vol > 0
+        assert abs(result.implied_vol - 0.40) < 0.02
+        assert abs(result.blended_vol - 0.40) < 0.02
+        assert abs(result.edge) < 0.005
+
+
 class TestComputeEdge:
     def test_positive_edge(self):
-        result = compute_edge(
-            spot=2130, floor_strike=2120, cap_strike=2139.99,
-            strike_type="between", t_years=1 * HOURS_TO_YEARS,
-            sigma=0.40, market_price=0.30,
-        )
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.15)
         assert isinstance(result, FairValueResult)
         assert result.edge > 0
         assert result.model_prob > result.market_prob
 
     def test_negative_edge(self):
-        result = compute_edge(
-            spot=2130, floor_strike=2120, cap_strike=2139.99,
-            strike_type="between", t_years=1 * HOURS_TO_YEARS,
-            sigma=0.40, market_price=0.95,
-        )
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.35)
         assert result.edge < 0
 
     def test_edge_equals_model_minus_market(self):
-        result = compute_edge(
-            spot=2130, floor_strike=2120, cap_strike=2139.99,
-            strike_type="between", t_years=1 * HOURS_TO_YEARS,
-            sigma=0.40, market_price=0.50,
-        )
-        # Edge is now blended: edge = (1-MARKET_WEIGHT) * (model_prob - market_prob)
-        # With MARKET_WEIGHT=0.5, edge = 0.5 * (model_prob - market_prob)
-        expected = 0.5 * (result.model_prob - result.market_prob)
-        assert abs(result.edge - expected) < 1e-10
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, FAIR_P_AT_40)
+        assert abs(result.edge - (result.model_prob - result.market_prob)) < 1e-10
+        assert result.implied_vol > 0
 
     def test_result_fields_populated(self):
-        result = compute_edge(
-            spot=2130, floor_strike=2120, cap_strike=2139.99,
-            strike_type="between", t_years=4 * HOURS_TO_YEARS,
-            sigma=0.40, market_price=0.30,
-        )
-        assert result.underlying_price == 2130
-        assert result.annualized_vol == 0.40
-        assert abs(result.time_to_expiry_hours - 4.0) < 0.01
-        assert result.strike_type == "between"
-        assert result.floor_strike == 2120
-        assert result.cap_strike == 2139.99
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, FAIR_P_AT_40)
+        assert result.underlying_price == SPOT
+        assert result.realized_vol == 0.40
+        assert result.implied_vol > 0
+        assert result.blended_vol > 0
+        assert result.strike_type == "less"
+        assert result.cap_strike == CAP
+
+    def test_bad_inputs_return_zero_edge(self):
+        result = compute_edge(None, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.30)
+        assert result.edge == -1.0
+
+    def test_unknown_strike_type(self):
+        result = compute_edge(SPOT, None, CAP, "unknown", T_24H, 0.40, 0.30)
+        assert result.edge == -1.0
 
 
 class TestSeriesToUnderlying:
@@ -132,22 +193,17 @@ class TestSeriesToUnderlying:
         assert series_to_underlying("KXETH") == "ETH"
 
     def test_derives_new_symbols_from_convention(self):
-        # Any KX-prefixed series should derive its underlying — no code change
-        # needed to support new tickers Kalshi adds.
         assert series_to_underlying("KXXRP") == "XRP"
         assert series_to_underlying("KXSOL") == "SOL"
         assert series_to_underlying("KXDOGE") == "DOGE"
         assert series_to_underlying("KXFOO") == "FOO"
 
     def test_non_kx_prefix_returns_none(self):
-        # Only the KX-crypto convention is supported. Non-crypto series (e.g.
-        # presidential election series) should not be treated as crypto.
         assert series_to_underlying("PRES2028") is None
         assert series_to_underlying("INX") is None
         assert series_to_underlying("") is None
 
     def test_kx_alone_returns_none(self):
-        # "KX" with nothing after it should not produce an empty-string symbol.
         assert series_to_underlying("KX") is None
 
     def test_non_string_returns_none(self):

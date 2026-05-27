@@ -41,4 +41,4 @@ Before writing any code, briefly outline the financial rationale, the performanc
 ## Data & Config
 - DB local: `postgresql://deepodds:deepodds@localhost:5433/deepodds`
 - Scheduler writes health to `/tmp/scanner_health.json`, balance to `/tmp/kalshi_balance_{user_id}.json`
-- Kalshi config stored in `kalshi_configs` table with per-pair overrides in `pair_configs`
+- Kalshi config stored in `kalshi_configs` table

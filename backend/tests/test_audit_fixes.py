@@ -1,7 +1,5 @@
 """Tests for Kalshi config defaults and cost-based position sizing."""
 
-from types import SimpleNamespace
-
 import pytest
 
 
@@ -146,12 +144,3 @@ class TestKalshiMaxCostSchema:
         with pytest.raises(ValidationError):
             KalshiConfigUpdate(max_cost_per_signal=0.5)
 
-    def test_config_resolver_includes_max_cost(self):
-        from app.services.config_resolver import resolve_kalshi_config
-        cfg = SimpleNamespace(
-            min_edge=0.07, exit_edge=-0.02,
-            contracts_per_signal=50, max_cost_per_signal=25.0,
-            stop_loss_pct=15.0, take_profit_pct=0.0,
-        )
-        result = resolve_kalshi_config(cfg, None)
-        assert result["max_cost_per_signal"] == 25.0

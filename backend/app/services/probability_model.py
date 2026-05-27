@@ -1,31 +1,32 @@
 import math
 from dataclasses import dataclass
 
-# Kalshi crypto series follow the convention KX{SYMBOL} (KXBTC, KXETH, KXXRP,
-# KXSOL, ...). We derive the underlying instead of hardcoding a whitelist so
-# any series the user puts in their config works without a code change.
 SERIES_PREFIX = "KX"
+
+# Weight on realized vol when blending with implied vol.
+# VOL_WEIGHT=0.3 means 30% realized, 70% implied — the market's vol
+# estimate dominates because market Brier is 2x better than our model.
+# The edge comes from vol divergence: when realized > implied, the
+# market is pricing lower vol than recent history, creating a buy signal.
+VOL_WEIGHT = 0.3
+
+IMPLIED_VOL_MAX = 5.0
+IMPLIED_VOL_ITERS = 80
 
 
 def _norm_cdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-# Weight on market price when blending model and market probabilities.
-# The Black-Scholes model is systematically overconfident (model_prob ~7%
-# higher than actual outcomes). Blending pulls it toward the more accurate
-# market-implied probability. MARKET_WEIGHT=0.5 means equal weight.
-MARKET_WEIGHT = 0.5
-
-
 @dataclass
 class FairValueResult:
     model_prob: float
     market_prob: float
-    adjusted_prob: float
     edge: float
     underlying_price: float
-    annualized_vol: float
+    realized_vol: float
+    implied_vol: float
+    blended_vol: float
     time_to_expiry_hours: float
     strike_type: str
     floor_strike: float | None
@@ -66,6 +67,46 @@ def compute_fair_probability(
         return prob_below(cap_strike)
 
 
+def _implied_vol(
+    spot: float,
+    floor_strike: float | None,
+    cap_strike: float | None,
+    strike_type: str,
+    t_years: float,
+    target_prob: float,
+    lo: float = 0.01,
+    hi: float = IMPLIED_VOL_MAX,
+) -> float | None:
+    """Find sigma such that BS price equals target_prob via binary search.
+
+    Returns None if the target is outside the price range achievable
+    with vol in [lo, hi] (meaning the market price is extreme — either
+    near-zero or near-certain — and not informative for vol estimation).
+    """
+    p_lo = compute_fair_probability(spot, floor_strike, cap_strike, strike_type, t_years, lo)
+    p_hi = compute_fair_probability(spot, floor_strike, cap_strike, strike_type, t_years, hi)
+
+    lo_ok = p_lo <= target_prob <= p_hi
+    inv = p_hi <= target_prob <= p_lo
+    if not (lo_ok or inv):
+        return None
+
+    if p_lo > p_hi:
+        lo, hi = hi, lo
+
+    for _ in range(IMPLIED_VOL_ITERS):
+        mid = (lo + hi) / 2
+        p = compute_fair_probability(spot, floor_strike, cap_strike, strike_type, t_years, mid)
+        if abs(p - target_prob) < 1e-8:
+            return mid
+        if p < target_prob:
+            lo = mid
+        else:
+            hi = mid
+
+    return (lo + hi) / 2
+
+
 def compute_edge(
     spot: float,
     floor_strike: float | None,
@@ -75,17 +116,15 @@ def compute_edge(
     sigma: float,
     market_price: float,
 ) -> FairValueResult:
-    # Defensive: any None/invalid input produces a zero-edge result rather
-    # than a crash. The scanner's per-market try/except is the outer safety
-    # net; this is the inner one so noisy log entries don't pile up.
     def _bad(why: str) -> FairValueResult:
         return FairValueResult(
             model_prob=0.0,
             market_prob=market_price or 0.0,
-            adjusted_prob=0.0,
-            edge=-1.0,  # forces edge < min_edge so no signal fires
+            edge=-1.0,
             underlying_price=spot or 0.0,
-            annualized_vol=sigma or 0.0,
+            realized_vol=sigma or 0.0,
+            implied_vol=0.0,
+            blended_vol=sigma or 0.0,
             time_to_expiry_hours=(t_years or 0.0) * 365.25 * 24,
             strike_type=strike_type or "unknown",
             floor_strike=floor_strike,
@@ -103,22 +142,32 @@ def compute_edge(
     if strike_type == "less" and cap_strike is None:
         return _bad("less missing cap")
 
+    # Step 1: Back-solve implied vol from the market price.
+    # This tells us what vol the market is pricing in.
+    implied = _implied_vol(spot, floor_strike, cap_strike, strike_type, t_years, market_price)
+
+    # Step 2: Blend realized and implied vol.
+    # When realized >> implied, the market expects lower vol than recent
+    # history — options are "cheap" and we should buy.
+    blended_vol = sigma
+    if implied is not None and implied > 0:
+        blended_vol = VOL_WEIGHT * sigma + (1 - VOL_WEIGHT) * implied
+
     try:
         model_prob = compute_fair_probability(
-            spot, floor_strike, cap_strike, strike_type, t_years, sigma
+            spot, floor_strike, cap_strike, strike_type, t_years, blended_vol
         )
     except (ValueError, ZeroDivisionError, TypeError):
         return _bad("math error")
 
-    adjusted_prob = (1 - MARKET_WEIGHT) * model_prob + MARKET_WEIGHT * market_price
-
     return FairValueResult(
         model_prob=model_prob,
         market_prob=market_price,
-        adjusted_prob=adjusted_prob,
-        edge=adjusted_prob - market_price,
+        edge=model_prob - market_price,
         underlying_price=spot,
-        annualized_vol=sigma,
+        realized_vol=sigma,
+        implied_vol=implied or 0.0,
+        blended_vol=blended_vol,
         time_to_expiry_hours=t_years * 365.25 * 24,
         strike_type=strike_type,
         floor_strike=floor_strike,
@@ -127,11 +176,6 @@ def compute_edge(
 
 
 def series_to_underlying(series_ticker: str) -> str | None:
-    """Derive the underlying crypto symbol from a Kalshi series ticker.
-
-    Kalshi crypto series follow the convention `KX{SYMBOL}` (e.g. KXBTC → BTC,
-    KXETH → ETH, KXXRP → XRP). Returns None for non-conforming tickers.
-    """
     if not isinstance(series_ticker, str):
         return None
     if not series_ticker.startswith(SERIES_PREFIX):

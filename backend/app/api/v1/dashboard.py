@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.kalshi_config import KalshiConfig
-from app.models.pair_config import PairConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
@@ -21,7 +20,6 @@ from app.schemas.dashboard import (
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices, get_realized_vol
-from app.services.config_resolver import resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, series_to_underlying
 
@@ -189,12 +187,6 @@ async def get_dashboard(
             max_payout_usd=round(float(kalshi_payout), 2),
         )
 
-        kalshi_overrides = {}
-        for pc in (
-            await db.execute(select(PairConfig).where(PairConfig.user_id == user.id, PairConfig.venue == "kalshi"))
-        ).scalars().all():
-            kalshi_overrides[pc.pair] = pc
-
         try:
             kc = KalshiClient.public()
             series_list = [s.strip() for s in kalshi_cfg.series_tickers.split(",") if s.strip()]
@@ -219,9 +211,6 @@ async def get_dashboard(
                     pass
 
             for series in series_list:
-                eff = resolve_kalshi_config(kalshi_cfg, kalshi_overrides.get(series))
-                eff_min_edge = eff["min_edge"]
-
                 try:
                     data = await kc.get_markets(series_ticker=series, limit=200)
                 except Exception:
@@ -305,7 +294,7 @@ async def get_dashboard(
                         volume_24h=vol_24h,
                         hours_to_expiry=round(hours_left, 1),
                         expiry_time=ct,
-                        would_signal=edge_val >= eff_min_edge and edge_val > 0,
+                        would_signal=edge_val >= kalshi_cfg.min_edge and edge_val > 0,
                     ))
 
             kalshi_markets_list.sort(key=lambda x: x.edge, reverse=True)

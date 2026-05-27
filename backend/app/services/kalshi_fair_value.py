@@ -8,10 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.async_util import run_async
 from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
-from app.models.pair_config import PairConfig
 from app.models.signal import Signal
 from app.services.binance_client import get_crypto_prices, get_realized_vol
-from app.services.config_resolver import resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, series_to_underlying
 
@@ -304,12 +302,6 @@ def scan_kalshi_entries(
 
     series = [s.strip() for s in config.series_tickers.split(",") if s.strip()]
 
-    overrides = {}
-    for pc in session.execute(
-        select(PairConfig).where(PairConfig.user_id == user_id, PairConfig.venue == "kalshi")
-    ).scalars().all():
-        overrides[pc.pair] = pc
-
     client = client or KalshiClient.public()
     markets = _discover_markets(
         client, series,
@@ -350,8 +342,6 @@ def scan_kalshi_entries(
 
             if len(open_pos) + len(signals_created) >= config.max_open_positions:
                 break
-
-            eff = resolve_kalshi_config(config, overrides.get(series_ticker))
 
             spot = underlying[series_ticker]["spot"]
             vol = underlying[series_ticker]["vol"]
@@ -394,13 +384,15 @@ def scan_kalshi_entries(
             )
 
             logger.info(
-                "KALSHI %s: model=%.1f%% mkt=%.1f%% adj=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%)",
+                "KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%) "
+                "vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%%",
                 ticker, result.model_prob * 100, result.market_prob * 100,
-                result.adjusted_prob * 100,
-                result.edge * 100, spread_pct, eff["min_edge"] * 100,
+                result.edge * 100, spread_pct, config.min_edge * 100,
+                result.realized_vol * 100, result.implied_vol * 100,
+                result.blended_vol * 100,
             )
 
-            if result.edge < eff["min_edge"]:
+            if result.edge < config.min_edge:
                 continue
 
             # P1: Bid-ask spread filter — only enter when edge covers the
@@ -413,8 +405,8 @@ def scan_kalshi_entries(
                 # Entering at mid then exiting at bid would lose spread/2.
                 # Reject if that instant loss would exceed the stop-loss.
                 loss_if_exit_at_bid = (mid - bid) / mid * 100 if mid > 0 else 0
-                if loss_if_exit_at_bid > eff["stop_loss_pct"]:
-                    logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, eff["stop_loss_pct"])
+                if loss_if_exit_at_bid > config.stop_loss_pct:
+                    logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, config.stop_loss_pct)
                     continue
 
             # P0: Vol regime filter + Kelly position sizing
@@ -427,13 +419,12 @@ def scan_kalshi_entries(
             if bankroll_cents and bankroll_cents > 0:
                 count = _kelly_count(
                     result.edge, market_price, bankroll_cents,
-                    eff["contracts_per_signal"], eff["max_cost_per_signal"],
+                    config.contracts_per_signal, config.max_cost_per_signal,
                 )
             else:
-                # Fallback to flat sizing when no balance cache
-                count = eff["contracts_per_signal"]
-                if market_price > 0 and market_price * count > eff["max_cost_per_signal"]:
-                    count = int(eff["max_cost_per_signal"] / market_price)
+                count = config.contracts_per_signal
+                if market_price > 0 and market_price * count > config.max_cost_per_signal:
+                    count = int(config.max_cost_per_signal / market_price)
 
             count = int(count * vol_scaling)
             if count < 1:
@@ -530,9 +521,11 @@ def scan_kalshi_entries(
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
                 logger.info(
-                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, model=%.0f%% adj=%.0f%% edge=+%.0f%%)",
+                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, "
+                    "model=%.0f%% edge=+%.0f%% vol_r=%.0f%% vol_i=%.0f%%)",
                     ticker, count, mid, mid, market_price,
-                    result.model_prob * 100, result.adjusted_prob * 100, result.edge * 100,
+                    result.model_prob * 100, result.edge * 100,
+                    result.realized_vol * 100, result.implied_vol * 100,
                 )
                 session.add(History(
                     user_id=user_id,
@@ -574,19 +567,12 @@ def check_kalshi_exits(
 
     user_ids = {s.user_id for s in filled}
     configs = {}
-    pair_overrides: dict[str, dict[str, PairConfig]] = {}
     for uid in user_ids:
         cfg = session.execute(
             select(KalshiConfig).where(KalshiConfig.user_id == uid)
         ).scalar_one_or_none()
         if cfg:
             configs[uid] = cfg
-        uid_overrides = {}
-        for pc in session.execute(
-            select(PairConfig).where(PairConfig.user_id == uid, PairConfig.venue == "kalshi")
-        ).scalars().all():
-            uid_overrides[pc.pair] = pc
-        pair_overrides[str(uid)] = uid_overrides
 
     series_set = {s.pair for s in filled if s.pair}
     all_series = list(series_set)
@@ -612,8 +598,6 @@ def check_kalshi_exits(
 
         if not sig.market_ticker or not sig.pair:
             continue
-
-        eff = resolve_kalshi_config(cfg, pair_overrides.get(str(sig.user_id), {}).get(sig.pair))
 
         try:
             market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
@@ -660,7 +644,7 @@ def check_kalshi_exits(
         # triggering immediate exits (entry at ask, exit check uses bid).
         # Approaching expiry remains ungated — a real time constraint.
         # take_profit and edge_lost are also gated by min_hold.
-        if adjusted_pnl_pct <= -eff["stop_loss_pct"] and hold_minutes >= min_hold:
+        if adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
@@ -669,10 +653,10 @@ def check_kalshi_exits(
         elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
             should_exit = True
             exit_reason = "max_hold (24h)"
-        elif eff["take_profit_pct"] > 0 and pnl_pct >= eff["take_profit_pct"] and hold_minutes >= min_hold:
+        elif cfg.take_profit_pct > 0 and pnl_pct >= cfg.take_profit_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"take_profit ({pnl_pct:.1f}%)"
-        elif current_edge <= eff["exit_edge"] and hold_minutes >= min_hold:
+        elif current_edge <= cfg.exit_edge and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"edge_lost ({current_edge:+.1%})"
 

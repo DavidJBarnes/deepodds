@@ -163,53 +163,6 @@ export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
   return data;
 }
 
-export interface PairConfig {
-  venue: string;
-  pair: string;
-  contracts_per_signal: number | null;
-  stop_loss_pct: number | null;
-  min_edge: number | null;
-  exit_edge: number | null;
-}
-
-export interface BacktestResult {
-  signals_count: number;
-  wins: number;
-  losses: number;
-  win_rate: number;
-  avg_pnl_usd: number;
-  total_pnl_usd: number;
-  avg_hold_bars: number;
-  data_points: number;
-}
-
-export async function getPairConfigs() {
-  const { data } = await client.get<PairConfig[]>("/settings/pair-configs");
-  return data;
-}
-
-export async function updatePairConfig(venue: string, pair: string, updates: Partial<PairConfig>) {
-  const { data } = await client.put<PairConfig>(`/settings/pair-configs/${venue}/${pair}`, updates);
-  return data;
-}
-
-export async function deletePairConfig(venue: string, pair: string) {
-  await client.delete(`/settings/pair-configs/${venue}/${pair}`);
-}
-
-export async function runBacktestPreview(params: {
-  venue: string;
-  pair: string;
-  stop_loss_pct: number;
-  contracts_per_signal?: number;
-  min_edge?: number;
-  exit_edge?: number;
-  vol_lookback_hours?: number;
-}) {
-  const { data } = await client.post<BacktestResult>("/settings/backtest-preview", params);
-  return data;
-}
-
 export async function getSignals(params: { statuses?: string; date?: string; tz_offset?: number; limit?: number; offset?: number }) {
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
   return data;
