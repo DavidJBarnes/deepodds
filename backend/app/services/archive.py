@@ -9,10 +9,14 @@ from app.models.archived_signal import ArchivedSignal
 from app.models.signal import Signal
 
 SIGNAL_FIELDS = [
-    "user_id", "pair", "side", "signal_type", "status",
-    "entry_price", "quantity", "cost_usd", "z_score", "vwap",
+    "user_id", "venue", "pair", "side", "signal_type", "status",
+    "market_ticker", "event_ticker", "expiry_time",
+    "entry_price", "quantity", "cost_usd",
     "exchange_order_id", "fill_price", "fill_quantity", "filled_at",
-    "exit_price", "exit_z_score", "pnl_usd", "pnl_pct",
+    "model_prob", "market_prob", "edge",
+    "floor_strike", "cap_strike", "strike_type",
+    "underlying_price", "realized_vol",
+    "exit_price", "pnl_usd", "pnl_pct",
     "error_message", "resolved_at", "created_at", "updated_at",
 ]
 

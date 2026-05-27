@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 _sync_engine = create_engine(settings.DATABASE_URL_SYNC, pool_size=5, max_overflow=5)
 
 
+def _write_scanner_health(status: str, error: str | None = None) -> None:
+    """Write scanner health status for the dashboard to read."""
+    import json as _json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    health = {
+        "last_scan": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+    }
+    if error:
+        health["error"] = error
+    try:
+        Path("/tmp/scanner_health.json").write_text(_json.dumps(health))
+    except Exception:
+        logger.warning("Failed to write scanner health file")
+
+
 def _run_kalshi_scan():
     with Session(_sync_engine) as session:
         configs = session.execute(
@@ -108,7 +126,9 @@ async def start_scheduler():
             try:
                 await asyncio.to_thread(_run_kalshi_scan)
                 await asyncio.to_thread(_run_kalshi_check_exits)
-            except Exception:
+                _write_scanner_health("online")
+            except Exception as exc:
+                _write_scanner_health("error", str(exc)[:200])
                 logger.exception("Kalshi scan/exit loop failed")
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 30 - elapsed))
