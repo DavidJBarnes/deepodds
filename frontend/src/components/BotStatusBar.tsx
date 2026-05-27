@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 interface Props {
-  mode: string;
   enabled: boolean;
   openPositions: number;
   maxOpenPositions: number;

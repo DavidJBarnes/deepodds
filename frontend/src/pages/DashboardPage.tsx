@@ -107,7 +107,6 @@ export default function DashboardPage() {
 
       {kalshi && (
         <BotStatusBar
-          mode={kalshi.mode}
           enabled={kalshi.enabled}
           openPositions={kalshi.open_positions}
           maxOpenPositions={kalshi.max_open_positions}
