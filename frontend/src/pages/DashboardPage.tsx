@@ -42,6 +42,7 @@ export default function DashboardPage() {
     const statusList = signalFilters.statuses ?? [];
     getSignals({
       date: signalFilters.date,
+      tz_offset: new Date().getTimezoneOffset(),
       statuses: statusList.length ? statusList.join(",") : undefined,
       limit: 100,
     })

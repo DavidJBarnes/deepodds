@@ -1,7 +1,8 @@
 from datetime import date as date_type
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import cast, Date, desc, func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -52,6 +53,7 @@ async def list_signals(
     statuses: str | None = Query(None, description="Comma-separated status values"),
     status: str | None = Query(None, deprecated="Use statuses instead"),
     date: date_type | None = Query(None),
+    tz_offset: int | None = Query(None, description="Minutes from UTC (JS getTimezoneOffset convention)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -66,8 +68,12 @@ async def list_signals(
         count_stmt = count_stmt.where(Signal.status.in_(raw_statuses))
 
     if date:
-        stmt = stmt.where(cast(Signal.created_at, Date) == date)
-        count_stmt = count_stmt.where(cast(Signal.created_at, Date) == date)
+        start = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
+        if tz_offset is not None:
+            start += timedelta(minutes=tz_offset)
+        end = start + timedelta(days=1)
+        stmt = stmt.where(Signal.created_at >= start, Signal.created_at < end)
+        count_stmt = count_stmt.where(Signal.created_at >= start, Signal.created_at < end)
 
     total = (await db.execute(count_stmt)).scalar()
     results = (
