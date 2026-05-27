@@ -99,8 +99,29 @@ def _market_ask(market: dict) -> float:
     return float(market.get("yes_ask_dollars", 0) or 0)
 
 
+def _market_bid(market: dict) -> float:
+    """Return the YES bid in dollars — the price we'd receive if we sold."""
+    return float(market.get("yes_bid_dollars", 0) or 0)
+
+
 def _market_ask_size(market: dict) -> float:
     return float(market.get("yes_ask_size_fp", 0) or 0)
+
+
+def _market_mid(market: dict) -> float:
+    bid = float(market.get("yes_bid_dollars", 0) or 0)
+    ask = float(market.get("yes_ask_dollars", 0) or 0)
+    if bid <= 0 or ask <= 0:
+        return ask
+    return (bid + ask) / 2
+
+
+def _market_spread_pct(market: dict) -> float:
+    bid = float(market.get("yes_bid_dollars", 0) or 0)
+    ask = float(market.get("yes_ask_dollars", 0) or 0)
+    if bid <= 0 or ask <= 0:
+        return 0.0
+    return (ask - bid) / ask * 100 if ask > 0 else 0.0
 
 
 def _discover_markets(
@@ -152,6 +173,9 @@ def _discover_markets(
             m["_series_ticker"] = series
             m["_close_dt"] = ct
             m["_ask"] = ask
+            m["_bid"] = _market_bid(m)
+            m["_mid"] = _market_mid(m)
+            m["_spread_pct"] = _market_spread_pct(m)
             eligible.append(m)
 
     eligible.sort(key=lambda m: float(m.get("volume_24h_fp", 0) or 0), reverse=True)
@@ -336,7 +360,11 @@ def scan_kalshi_entries(
             floor_strike = market.get("floor_strike")
             cap_strike = market.get("cap_strike")
             strike_type = market.get("strike_type", "between")
-            market_price = float(market.get("_ask") or _market_ask(market))
+            ask = float(market.get("_ask") or _market_ask(market))
+            bid = float(market.get("_bid") or _market_bid(market))
+            mid = float(market.get("_mid") or _market_mid(market))
+            spread_pct = float(market.get("_spread_pct") or _market_spread_pct(market))
+            market_price = mid if mid > 0 else ask
 
             if market_price <= 0:
                 continue
@@ -364,13 +392,27 @@ def scan_kalshi_entries(
             )
 
             logger.info(
-                "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% (min=%.1f%%)",
+                "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%)",
                 ticker, result.model_prob * 100, result.market_prob * 100,
-                result.edge * 100, eff["min_edge"] * 100,
+                result.edge * 100, spread_pct, eff["min_edge"] * 100,
             )
 
             if result.edge < eff["min_edge"]:
                 continue
+
+            # P1: Bid-ask spread filter — only enter when edge covers the
+            # spread cost, and entering at mid won't instantly stop-loss.
+            if spread_pct > 0:
+                # Edge must exceed half the spread (cost of round-trip friction)
+                if result.edge * 100 < spread_pct / 2:
+                    logger.info("Skipping %s: edge=%.1f%% < spread/2=%.1f%%", ticker, result.edge * 100, spread_pct / 2)
+                    continue
+                # Entering at mid then exiting at bid would lose spread/2.
+                # Reject if that instant loss would exceed the stop-loss.
+                loss_if_exit_at_bid = (mid - bid) / mid * 100 if mid > 0 else 0
+                if loss_if_exit_at_bid > eff["stop_loss_pct"]:
+                    logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, eff["stop_loss_pct"])
+                    continue
 
             # P0: Vol regime filter + Kelly position sizing
             vol_scaling = underlying[series_ticker].get("vol_scaling", 1.0)
@@ -437,10 +479,10 @@ def scan_kalshi_entries(
 
                 try:
                     max_price_cents = int(round(config.max_price * 100))
-                    yes_price_cents = min(
-                        int(round(market_price * 100)) + 1,
-                        max_price_cents,
-                    )
+                    # Place limit at mid-price rounded to nearest cent, capped
+                    # at max_price. This avoids crossing the spread.
+                    limit_price = round(mid * 100) if mid > 0 else round(ask * 100)
+                    yes_price_cents = min(int(limit_price), max_price_cents)
                     order_result = run_async(client.create_order(
                         ticker=ticker, side="yes", count=count,
                         yes_price_cents=yes_price_cents,
@@ -450,8 +492,8 @@ def scan_kalshi_entries(
                     signal.status = "placed"
                     session.commit()
                     logger.info(
-                        "LIVE KALSHI BUY %s: %d @ limit $%.2f (ask was $%.2f)",
-                        ticker, count, yes_price_cents / 100, market_price,
+                        "LIVE KALSHI BUY %s: %d @ limit $%.2f (mid=$%.2f bid=$%.2f ask=$%.2f)",
+                        ticker, count, yes_price_cents / 100, mid, bid, ask,
                     )
                 except Exception as e:
                     signal.status = "cancelled"
