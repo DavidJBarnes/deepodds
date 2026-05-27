@@ -663,7 +663,10 @@ def check_kalshi_exits(
 
         try:
             market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
-            # B1: Use bid price for exit valuation (what we'd actually receive selling)
+            sig.live_market_prob = float(
+                market.get("last_price_dollars") or market.get("yes_bid_dollars") or 0
+            )
+            # Use bid for exit valuation (what we'd actually receive selling)
             price = float(market.get("yes_bid_dollars") or market.get("last_price_dollars", 0))
         except Exception:
             logger.warning("Failed to get price for %s", sig.market_ticker)

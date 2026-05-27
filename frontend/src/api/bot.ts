@@ -38,6 +38,7 @@ export interface Signal {
   cost_usd: number;
   model_prob: number | null;
   market_prob: number | null;
+  live_market_prob: number | null;
   edge: number | null;
   floor_strike: number | null;
   cap_strike: number | null;

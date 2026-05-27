@@ -17,6 +17,13 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 
 
 def _signal_response(s) -> SignalResponse:
+    fill_p = s.fill_price or s.entry_price
+    qty = s.fill_quantity or s.quantity or 0
+    live_prob = getattr(s, "live_market_prob", None)
+    unrealized = None
+    if s.status == "filled" and live_prob is not None and fill_p > 0 and qty > 0:
+        unrealized = round((live_prob - fill_p) * qty, 4)
+
     return SignalResponse(
         id=getattr(s, "original_id", s.id),
         venue=getattr(s, "venue", "kalshi") or "kalshi",
@@ -29,6 +36,7 @@ def _signal_response(s) -> SignalResponse:
         cost_usd=s.cost_usd,
         model_prob=getattr(s, "model_prob", None),
         market_prob=getattr(s, "market_prob", None),
+        live_market_prob=live_prob,
         edge=getattr(s, "edge", None),
         floor_strike=getattr(s, "floor_strike", None),
         cap_strike=getattr(s, "cap_strike", None),
@@ -42,6 +50,7 @@ def _signal_response(s) -> SignalResponse:
         exit_price=s.exit_price,
         pnl_usd=s.pnl_usd,
         pnl_pct=s.pnl_pct,
+        unrealized_pnl_usd=unrealized,
         market_ticker=getattr(s, "market_ticker", None),
         event_ticker=getattr(s, "event_ticker", None),
         expiry_time=getattr(s, "expiry_time", None),

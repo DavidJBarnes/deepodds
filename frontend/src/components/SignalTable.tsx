@@ -39,6 +39,7 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
               <th className="text-left px-4 py-2">Market</th>
               <th className="text-right px-4 py-2">Expiry</th>
               <th className="text-right px-4 py-2">Entry</th>
+              <th className="text-right px-4 py-2">Live</th>
               <th className="text-right px-4 py-2">Qty</th>
               <th className="text-right px-4 py-2">Size</th>
               <th className="text-left px-4 py-2">Status</th>
@@ -50,14 +51,34 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
             {signals.map((s) => (
               <tr key={s.id} className="border-b border-slate-800/50 hover:bg-slate-800/30">
                 <td className="px-4 py-2 text-slate-400">{formatTime(s.created_at)}</td>
-                <td className="px-4 py-2 font-mono text-xs text-white">
-                  {s.market_ticker || s.pair}
+                <td className="px-4 py-2 font-mono text-xs">
+                  {s.event_ticker ? (
+                    <a
+                      href={`https://kalshi.com/events/${s.event_ticker}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-400 hover:text-sky-300 underline"
+                    >
+                      {s.market_ticker || s.pair}
+                    </a>
+                  ) : (
+                    <span className="text-white">{s.market_ticker || s.pair}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right">
                   <CountdownCell target={s.expiry_time} status={s.status} />
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300 tabular-nums">
                   ${(s.fill_price || s.entry_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {s.live_market_prob != null ? (
+                    <span className={s.live_market_prob >= (s.fill_price || s.entry_price) ? "text-emerald-400" : "text-red-400"}>
+                      {s.live_market_prob.toLocaleString(undefined, { style: "percent", minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300 tabular-nums">
                   {s.quantity}

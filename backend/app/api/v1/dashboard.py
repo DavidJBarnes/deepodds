@@ -44,6 +44,13 @@ async def get_dashboard(
 
     recent_signals = []
     for s in recent:
+        fill_p = s.fill_price or s.entry_price
+        qty = s.fill_quantity or s.quantity or 0
+        live_prob = getattr(s, "live_market_prob", None)
+        unrealized = None
+        if s.status == "filled" and live_prob is not None and fill_p > 0 and qty > 0:
+            unrealized = round((live_prob - fill_p) * qty, 4)
+
         recent_signals.append(
             SignalResponse(
                 id=s.id,
@@ -57,6 +64,7 @@ async def get_dashboard(
                 cost_usd=s.cost_usd,
                 model_prob=s.model_prob,
                 market_prob=s.market_prob,
+                live_market_prob=live_prob,
                 edge=s.edge,
                 floor_strike=s.floor_strike,
                 cap_strike=s.cap_strike,
@@ -70,6 +78,7 @@ async def get_dashboard(
                 exit_price=s.exit_price,
                 pnl_usd=s.pnl_usd,
                 pnl_pct=s.pnl_pct,
+                unrealized_pnl_usd=unrealized,
                 market_ticker=s.market_ticker,
                 event_ticker=s.event_ticker,
                 expiry_time=s.expiry_time,
@@ -130,6 +139,24 @@ async def get_dashboard(
         )
     ).scalar()
 
+    filled_signals = (
+        await db.execute(
+            select(Signal)
+            .where(
+                Signal.user_id == user.id,
+                Signal.status == "filled",
+                Signal.live_market_prob.isnot(None),
+                Signal.fill_price.isnot(None),
+            )
+        )
+    ).scalars().all()
+    total_unrealized = 0.0
+    for fs in filled_signals:
+        qty = fs.fill_quantity or fs.quantity or 0
+        lp = fs.live_market_prob or 0
+        fp = fs.fill_price or 0
+        total_unrealized += (lp - fp) * qty
+
     stats = PnLStats(
         total_signals=total_signals,
         settled_count=settled_count,
@@ -141,6 +168,7 @@ async def get_dashboard(
         roi_pct=round(float(total_pnl) / float(total_cost) * 100, 1)
         if total_cost > 0
         else 0,
+        unrealized_pnl_usd=round(total_unrealized, 2),
         open_positions=open_positions_count,
     )
 

@@ -33,6 +33,7 @@ class Signal(Base):
 
     model_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    live_market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     edge: Mapped[float | None] = mapped_column(Float, nullable=True)
     floor_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
     cap_strike: Mapped[float | None] = mapped_column(Float, nullable=True)
