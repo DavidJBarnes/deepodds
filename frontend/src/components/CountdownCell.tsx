@@ -11,7 +11,7 @@ function formatCountdown(ms: number): string {
   return `${s}s`;
 }
 
-export default function CountdownCell({ target }: { target: string | null }) {
+export default function CountdownCell({ target, status }: { target: string | null; status?: string }) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -22,10 +22,12 @@ export default function CountdownCell({ target }: { target: string | null }) {
 
   if (!target) return <span className="text-slate-600">—</span>;
 
+  if (status?.startsWith("settled_")) return null;
+
   const t = new Date(target).getTime();
   const diff = t - now;
 
-  if (diff <= 0) return <span className="text-red-400 text-xs">Expired</span>;
+  if (diff <= 0) return <span className="text-slate-500 text-xs">Expired</span>;
 
   return (
     <span className="tabular-nums text-slate-300">
