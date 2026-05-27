@@ -24,7 +24,7 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: DailyPnLPoint }[] }) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: DailyPnLPoint & { todayPctOfTotal?: number } }[] }) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
@@ -36,6 +36,11 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
       <p className={d.cumulative_pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
         Total: {d.cumulative_pnl_usd >= 0 ? "+" : ""}${d.cumulative_pnl_usd.toFixed(2)}
       </p>
+      {d.todayPctOfTotal != null && (
+        <p className="text-amber-400 mt-1">
+          Today: {d.todayPctOfTotal.toFixed(1)}% of total
+        </p>
+      )}
       <p className="text-slate-400 mt-1">
         {d.signals_count} signals · {d.wins}W / {d.losses}L
       </p>
@@ -44,9 +49,12 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
 }
 
 export default function PnLChart() {
+  const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<PnLChartData | null>(null);
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -69,10 +77,16 @@ export default function PnLChart() {
     );
   }
 
-  const chartData = data.daily.map((d) => ({
+  const lastIdx = data.daily.length - 1;
+  const todayPnl = data.daily[lastIdx].pnl_usd;
+  const todayPctOfTotal = data.total_pnl_usd !== 0 ? (todayPnl / data.total_pnl_usd) * 100 : 0;
+
+  const chartData = data.daily.map((d, i) => ({
     ...d,
     pnlDollars: d.pnl_usd,
     cumulativeDollars: d.cumulative_pnl_usd,
+    todayPnL: i === lastIdx ? d.pnl_usd : undefined,
+    todayPctOfTotal: i === lastIdx ? todayPctOfTotal : undefined,
   }));
 
   return (
@@ -96,7 +110,8 @@ export default function PnLChart() {
         </div>
       </div>
 
-      <div className="h-56">
+      <div className="h-56 min-w-0">
+        {mounted && (
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
             <defs>
@@ -127,6 +142,7 @@ export default function PnLChart() {
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
             <Bar dataKey="pnlDollars" fill="#475569" opacity={0.5} barSize={8} radius={[2, 2, 0, 0]} />
+            <Bar dataKey="todayPnL" fill="#fbbf24" barSize={8} radius={[2, 2, 0, 0]} />
             <Area
               type="monotone"
               dataKey="cumulativeDollars"
@@ -136,9 +152,17 @@ export default function PnLChart() {
             />
           </ComposedChart>
         </ResponsiveContainer>
+        )}
       </div>
 
-      <div className="grid grid-cols-4 gap-3 text-center">
+      <div className="grid grid-cols-5 gap-3 text-center">
+        <div>
+          <p className="text-xs text-slate-500">Today</p>
+          <p className={`text-sm font-medium ${todayPnl >= 0 ? "text-amber-400" : "text-red-400"}`}>
+            {todayPnl >= 0 ? "+" : ""}${todayPnl.toFixed(2)}
+          </p>
+          <p className="text-[10px] text-slate-600">{todayPctOfTotal.toFixed(1)}% of total</p>
+        </div>
         <div>
           <p className="text-xs text-slate-500">Best Day</p>
           <p className={`text-sm font-medium ${data.best_day_usd >= 0 ? "text-emerald-400" : "text-red-400"}`}>

@@ -5,12 +5,16 @@ import BotStatusBar from "@/components/BotStatusBar";
 import CountdownCell from "@/components/CountdownCell";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
-import SignalFiltersBar, { type VenueFilter, type StatusFilter } from "@/components/SignalFiltersBar";
+import SignalFiltersBar from "@/components/SignalFiltersBar";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 
 const REFRESH_INTERVAL = 60;
+
+function getToday() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
@@ -19,9 +23,9 @@ export default function DashboardPage() {
   const [tab, setTab] = useState<"kalshi" | "signals">("kalshi");
   const [showFiltered, setShowFiltered] = useState(false);
   const [signalFilters, setSignalFilters] = useLocalStorage<{
-    venue: VenueFilter;
-    status: StatusFilter;
-  }>("deepodds.signals.filters", { venue: "all", status: "all" });
+    date: string;
+    statuses: string[];
+  }>("deepodds.signals.filters.v2", { date: getToday(), statuses: [] });
   const [filteredSignals, setFilteredSignals] = useState<Signal[] | null>(null);
   const [filteredTotal, setFilteredTotal] = useState<number>(0);
   const [signalsLoading, setSignalsLoading] = useState(false);
@@ -36,8 +40,8 @@ export default function DashboardPage() {
     let cancelled = false;
     setSignalsLoading(true);
     getSignals({
-      venue: signalFilters.venue === "all" ? undefined : signalFilters.venue,
-      status: signalFilters.status === "all" ? undefined : signalFilters.status,
+      date: signalFilters.date,
+      statuses: signalFilters.statuses.length ? signalFilters.statuses.join(",") : undefined,
       limit: 100,
     })
       .then((data) => {
@@ -56,7 +60,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, signalFilters.venue, signalFilters.status, lastRefreshed]);
+  }, [tab, signalFilters.date, signalFilters.statuses, lastRefreshed]);
 
   useEffect(() => {
     refresh();
@@ -235,8 +239,8 @@ export default function DashboardPage() {
       {tab === "signals" && (
         <div className="space-y-3">
           <SignalFiltersBar
-            venue={signalFilters.venue}
-            status={signalFilters.status}
+            date={signalFilters.date}
+            statuses={signalFilters.statuses}
             onChange={setSignalFilters}
             totalShown={filteredSignals?.length ?? 0}
             totalMatching={filteredTotal}
