@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class SignalResponse(BaseModel):
     id: UUID
-    venue: str = "crypto"
+    venue: str = "kalshi"
     pair: str
     side: str
     signal_type: str
@@ -14,8 +14,6 @@ class SignalResponse(BaseModel):
     entry_price: float
     quantity: float
     cost_usd: float
-    z_score: float | None = None
-    vwap: float | None = None
     model_prob: float | None = None
     market_prob: float | None = None
     edge: float | None = None
@@ -29,7 +27,6 @@ class SignalResponse(BaseModel):
     fill_quantity: float | None = None
     filled_at: datetime | None = None
     exit_price: float | None = None
-    exit_z_score: float | None = None
     pnl_usd: float | None = None
     pnl_pct: float | None = None
     unrealized_pnl_usd: float | None = None

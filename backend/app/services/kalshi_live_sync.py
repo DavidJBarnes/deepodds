@@ -188,7 +188,9 @@ def _apply_fill_from_order(sig: Signal, order: dict, counts: dict) -> None:
 
 def _apply_settlement(sig: Signal, settlement: dict, counts: dict) -> None:
     result = (settlement.get("market_result") or "").lower()
-    # `revenue` is in cents (integer). `fee_cost` and *_dollars are strings.
+    # `revenue` is in cents (integer) — confirmed via live Kalshi API testing.
+    # e.g. revenue=3900 means $39.00. Divide by 100 for dollars.
+    # `fee_cost` and *_dollars fields are string-encoded decimals.
     revenue_dollars = _to_float(settlement.get("revenue")) / 100
     yes_count = _to_float(settlement.get("yes_count_fp"))
     no_count = _to_float(settlement.get("no_count_fp"))

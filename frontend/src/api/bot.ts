@@ -1,18 +1,5 @@
 import client from "./client";
 
-export interface BotStatus {
-  mode: string;
-  enabled: boolean;
-  has_exchange_keys: boolean;
-  exchange_keys_valid: boolean;
-  pairs: string;
-  open_positions: number;
-  max_open_positions: number;
-  entry_z_score: number;
-  exit_z_score: number;
-  stop_loss_pct: number;
-}
-
 export interface KalshiStatus {
   mode: string;
   enabled: boolean;
@@ -49,8 +36,6 @@ export interface Signal {
   entry_price: number;
   quantity: number;
   cost_usd: number;
-  z_score: number | null;
-  vwap: number | null;
   model_prob: number | null;
   market_prob: number | null;
   edge: number | null;
@@ -64,7 +49,6 @@ export interface Signal {
   fill_quantity: number | null;
   filled_at: string | null;
   exit_price: number | null;
-  exit_z_score: number | null;
   pnl_usd: number | null;
   pnl_pct: number | null;
   unrealized_pnl_usd: number | null;
@@ -73,18 +57,6 @@ export interface Signal {
   expiry_time: string | null;
   created_at: string;
   resolved_at: string | null;
-}
-
-export interface MarketSnapshot {
-  pair: string;
-  price: number;
-  vwap: number;
-  z_score: number;
-  std_dev: number;
-  would_signal: boolean;
-  min_z_24h: number;
-  z_distance: number;
-  effective_entry_z: number;
 }
 
 export interface KalshiMarketSnapshot {
@@ -115,10 +87,8 @@ export interface KalshiFilteredMarket {
 }
 
 export interface DashboardData {
-  bot_status: BotStatus;
   kalshi_status: KalshiStatus | null;
   recent_signals: Signal[];
-  markets: MarketSnapshot[];
   kalshi_markets: KalshiMarketSnapshot[];
   kalshi_filtered: KalshiFilteredMarket[];
   stats: PnLStats;
@@ -129,21 +99,6 @@ export interface ScannerHealth {
   last_scan: string;
   status: string;
   error?: string;
-}
-
-export interface BotConfig {
-  mode: string;
-  enabled: boolean;
-  pairs: string;
-  lookback_periods: number;
-  entry_z_score: number;
-  exit_z_score: number;
-  position_size_usd: number;
-  max_open_positions: number;
-  stop_loss_pct: number;
-  daily_loss_limit_usd: number;
-  max_signals_per_hour: number;
-  min_hold_minutes: number;
 }
 
 export interface KalshiConfig {
@@ -163,6 +118,7 @@ export interface KalshiConfig {
   max_open_positions: number;
   max_positions_per_event: number;
   stop_loss_pct: number;
+  take_profit_pct: number;
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;
   min_hold_minutes: number;
@@ -196,16 +152,6 @@ export async function getDashboard() {
   return data;
 }
 
-export async function getBotConfig() {
-  const { data } = await client.get<BotConfig>("/settings/bot-config");
-  return data;
-}
-
-export async function updateBotConfig(updates: Partial<BotConfig>) {
-  const { data } = await client.put<BotConfig>("/settings/bot-config", updates);
-  return data;
-}
-
 export async function getKalshiConfig() {
   const { data } = await client.get<KalshiConfig>("/settings/kalshi-config");
   return data;
@@ -219,9 +165,6 @@ export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
 export interface PairConfig {
   venue: string;
   pair: string;
-  entry_z_score: number | null;
-  exit_z_score: number | null;
-  position_size_usd: number | null;
   contracts_per_signal: number | null;
   stop_loss_pct: number | null;
   min_edge: number | null;
@@ -256,12 +199,8 @@ export async function deletePairConfig(venue: string, pair: string) {
 export async function runBacktestPreview(params: {
   venue: string;
   pair: string;
-  entry_z_score?: number;
-  exit_z_score?: number;
   stop_loss_pct: number;
-  position_size_usd?: number;
   contracts_per_signal?: number;
-  lookback_periods?: number;
   min_edge?: number;
   exit_edge?: number;
   vol_lookback_hours?: number;

@@ -312,6 +312,11 @@ def scan_kalshi_entries(
                 count = int(max_cost / market_price)
             if count < 1:
                 continue
+
+            # B2: Verify ask depth can support the position size
+            if _market_ask_size(market) < count:
+                continue
+
             cost = market_price * count
 
             signal = Signal(
@@ -466,7 +471,8 @@ def check_kalshi_exits(
 
         try:
             market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
-            price = float(market.get("last_price_dollars", 0))
+            # B1: Use bid price for exit valuation (what we'd actually receive selling)
+            price = float(market.get("yes_bid_dollars") or market.get("last_price_dollars", 0))
         except Exception:
             logger.warning("Failed to get price for %s", sig.market_ticker)
             continue
@@ -499,10 +505,15 @@ def check_kalshi_exits(
         should_exit = False
         exit_reason = ""
 
+        # B4: Fee-aware stop-loss — adjust P&L by estimated 0.5% round-trip fees
+        # so the stop triggers slightly earlier, preventing fee-eroded exits.
+        fee_estimate_pct = 0.5
+        adjusted_pnl_pct = pnl_pct - fee_estimate_pct
+
         # Stop loss and approaching expiry are real risk events — never gated.
-        # edge_lost is gated by min_hold to prevent panic-selling on
-        # short-term spot/vol noise (the +-95% in 6min scenario).
-        if pnl_pct <= -eff["stop_loss_pct"]:
+        # take_profit and edge_lost are gated by min_hold to prevent panic
+        # selling on short-term spot/vol noise (the +-95% in 6min scenario).
+        if adjusted_pnl_pct <= -eff["stop_loss_pct"]:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
@@ -511,6 +522,9 @@ def check_kalshi_exits(
         elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
             should_exit = True
             exit_reason = "max_hold (24h)"
+        elif eff["take_profit_pct"] > 0 and pnl_pct >= eff["take_profit_pct"] and hold_minutes >= min_hold:
+            should_exit = True
+            exit_reason = f"take_profit ({pnl_pct:.1f}%)"
         elif current_edge <= eff["exit_edge"] and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"edge_lost ({current_edge:+.1%})"

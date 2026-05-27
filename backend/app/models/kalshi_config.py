@@ -32,6 +32,7 @@ class KalshiConfig(Base):
     max_open_positions: Mapped[int] = mapped_column(Integer, default=5)
     max_positions_per_event: Mapped[int] = mapped_column(Integer, default=1)
     stop_loss_pct: Mapped[float] = mapped_column(Float, default=15.0)
+    take_profit_pct: Mapped[float] = mapped_column(Float, default=0.0)
     daily_loss_limit_usd: Mapped[float] = mapped_column(Float, default=25.0)
     max_signals_per_hour: Mapped[int] = mapped_column(Integer, default=3)
     min_hold_minutes: Mapped[int] = mapped_column(Integer, default=15)

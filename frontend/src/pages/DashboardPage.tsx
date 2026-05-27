@@ -5,7 +5,6 @@ import BotStatusBar from "@/components/BotStatusBar";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
 import SignalFiltersBar, { type VenueFilter, type StatusFilter } from "@/components/SignalFiltersBar";
-import MarketView from "@/components/OpportunityList";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -16,7 +15,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"markets" | "kalshi" | "signals">("markets");
+  const [tab, setTab] = useState<"kalshi" | "signals">("kalshi");
   const [showFiltered, setShowFiltered] = useState(false);
   const [signalFilters, setSignalFilters] = useLocalStorage<{
     venue: VenueFilter;
@@ -87,7 +86,6 @@ export default function DashboardPage() {
     );
   }
 
-  const status = dashboard.bot_status;
   const kalshi = dashboard.kalshi_status;
 
   return (
@@ -99,35 +97,6 @@ export default function DashboardPage() {
         onRefresh={refresh}
         scannerHealth={dashboard.scanner_health}
       />
-
-      <BotStatusBar
-        mode={status.mode}
-        venueLabel="CRYPTO"
-        venueColor="emerald"
-        enabled={status.enabled}
-        openPositions={status.open_positions}
-        maxOpenPositions={status.max_open_positions}
-        hasKeysWarning={
-          !status.has_exchange_keys
-            ? "No API keys"
-            : !status.exchange_keys_valid
-              ? "Keys invalid"
-              : undefined
-        }
-      >
-        <div>
-          <span className="text-slate-500">Entry: </span>
-          <span className="text-white font-medium">&le;{status.entry_z_score}z</span>
-        </div>
-        <div>
-          <span className="text-slate-500">Exit: </span>
-          <span className="text-white font-medium">&ge;{status.exit_z_score}z</span>
-        </div>
-        <div>
-          <span className="text-slate-500">Stop: </span>
-          <span className="text-red-400 font-medium">-{status.stop_loss_pct}%</span>
-        </div>
-      </BotStatusBar>
 
       {kalshi && (
         <BotStatusBar
@@ -165,32 +134,20 @@ export default function DashboardPage() {
 
       <div className="flex gap-1 border-b border-slate-800">
         <button
-          onClick={() => setTab("markets")}
+          onClick={() => setTab("kalshi")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "markets"
-              ? "text-emerald-400 border-b-2 border-emerald-400"
+            tab === "kalshi"
+              ? "text-sky-400 border-b-2 border-sky-400"
               : "text-slate-400 hover:text-white"
           }`}
         >
-          Crypto ({dashboard.markets.length})
+          Kalshi ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
         </button>
-        {(dashboard.kalshi_status || dashboard.kalshi_markets.length > 0 || (dashboard.kalshi_filtered && dashboard.kalshi_filtered.length > 0)) && (
-          <button
-            onClick={() => setTab("kalshi")}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              tab === "kalshi"
-                ? "text-sky-400 border-b-2 border-sky-400"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Kalshi ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
-          </button>
-        )}
         <button
           onClick={() => setTab("signals")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             tab === "signals"
-              ? "text-emerald-400 border-b-2 border-emerald-400"
+              ? "text-sky-400 border-b-2 border-sky-400"
               : "text-slate-400 hover:text-white"
           }`}
         >
@@ -198,7 +155,6 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {tab === "markets" && <MarketView markets={dashboard.markets} entryZ={status.entry_z_score} exitZ={status.exit_z_score} />}
       {tab === "kalshi" && (
         <div className="space-y-3">
           {dashboard.kalshi_markets.map((m) => (

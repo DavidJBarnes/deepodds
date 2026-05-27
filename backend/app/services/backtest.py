@@ -1,10 +1,11 @@
 import logging
+from datetime import datetime, timezone
 
-from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
+from app.services.binance_client import get_crypto_prices, get_realized_vol
+from app.services.kalshi_client import KalshiClient
+from app.services.probability_model import compute_edge, series_to_underlying
 
 logger = logging.getLogger(__name__)
-
-MAX_HOLD_BARS = 96
 
 
 async def run_backtest_preview(
@@ -20,12 +21,7 @@ async def run_backtest_preview(
     exit_edge: float | None = None,
     vol_lookback_hours: int | None = None,
 ) -> dict:
-    if venue == "crypto":
-        return await _backtest_crypto(
-            pair, entry_z_score or -2.0, exit_z_score or -0.5, stop_loss_pct,
-            position_size_usd, lookback_periods,
-        )
-    elif venue == "kalshi":
+    if venue == "kalshi":
         return await _backtest_kalshi(
             pair,
             min_edge=min_edge or 0.05,
@@ -37,22 +33,6 @@ async def run_backtest_preview(
     return _empty_result()
 
 
-async def _backtest_crypto(
-    pair: str,
-    entry_z: float,
-    exit_z: float,
-    stop_loss_pct: float,
-    position_size: float,
-    lookback: int,
-) -> dict:
-    candles = await _public_candles(pair, 300)
-    if not candles or len(candles) < lookback + 10:
-        return _empty_result()
-
-    candles = list(reversed(candles))
-    return _simulate(candles, lookback, entry_z, exit_z, stop_loss_pct, position_size)
-
-
 async def _backtest_kalshi(
     series_ticker: str,
     min_edge: float = 0.05,
@@ -61,11 +41,6 @@ async def _backtest_kalshi(
     contracts: int = 50,
     vol_lookback_hours: int = 24,
 ) -> dict:
-    from datetime import datetime, timezone
-    from app.services.binance_client import get_crypto_prices, get_realized_vol
-    from app.services.kalshi_client import KalshiClient
-    from app.services.probability_model import compute_edge, series_to_underlying
-
     symbol = series_to_underlying(series_ticker)
     if not symbol:
         return _empty_result()
@@ -146,78 +121,6 @@ async def _backtest_kalshi(
         "total_pnl_usd": round(total_pnl, 2),
         "avg_hold_bars": round(avg_hold, 1),
         "data_points": len(data.get("markets", [])),
-    }
-
-
-def _simulate(
-    candles: list[dict],
-    lookback: int,
-    entry_z: float,
-    exit_z: float,
-    stop_loss_pct: float,
-    position_size: float,
-) -> dict:
-    signals = []
-    in_position = False
-    entry_price = 0.0
-    entry_idx = 0
-
-    for i in range(lookback, len(candles)):
-        window = candles[i - lookback:i]
-        vwap, std = _compute_vwap_and_std(window, lookback)
-        if vwap <= 0 or std <= 0:
-            continue
-
-        price = float(candles[i].get("close", 0))
-        if price <= 0:
-            continue
-
-        z = compute_z_score(price, vwap, std)
-
-        if not in_position:
-            if z <= entry_z:
-                in_position = True
-                entry_price = price
-                entry_idx = i
-        else:
-            pnl_pct = (price - entry_price) / entry_price * 100 if entry_price > 0 else 0
-            bars_held = i - entry_idx
-
-            should_exit = False
-            if z >= exit_z and z != 0 and price >= entry_price:
-                should_exit = True
-            elif pnl_pct <= -stop_loss_pct:
-                should_exit = True
-            elif bars_held >= MAX_HOLD_BARS:
-                should_exit = True
-
-            if should_exit:
-                pnl_usd = (price - entry_price) / entry_price * position_size
-                signals.append({
-                    "entry": entry_price,
-                    "exit": price,
-                    "pnl_pct": round(pnl_pct, 2),
-                    "pnl_usd": round(pnl_usd, 4),
-                    "bars_held": bars_held,
-                })
-                in_position = False
-
-    wins = sum(1 for s in signals if s["pnl_usd"] >= 0)
-    losses = len(signals) - wins
-    total_pnl = sum(s["pnl_usd"] for s in signals)
-    avg_pnl = total_pnl / len(signals) if signals else 0
-    avg_hold = sum(s["bars_held"] for s in signals) / len(signals) if signals else 0
-    data_bars = len(candles) - lookback
-
-    return {
-        "signals_count": len(signals),
-        "wins": wins,
-        "losses": losses,
-        "win_rate": round(wins / len(signals) * 100, 1) if signals else 0,
-        "avg_pnl_usd": round(avg_pnl, 4),
-        "total_pnl_usd": round(total_pnl, 2),
-        "avg_hold_bars": round(avg_hold, 1),
-        "data_points": data_bars,
     }
 
 

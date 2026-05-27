@@ -14,7 +14,7 @@ class ArchivedSignal(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     original_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
-    venue: Mapped[str] = mapped_column(String(16), default="crypto", server_default="crypto")
+    venue: Mapped[str] = mapped_column(String(16), default="kalshi", server_default="kalshi")
     pair: Mapped[str] = mapped_column(String(16), index=True)
     side: Mapped[str] = mapped_column(String(8))
     signal_type: Mapped[str] = mapped_column(String(8))
@@ -26,12 +26,7 @@ class ArchivedSignal(Base):
     entry_price: Mapped[float] = mapped_column(Float)
     quantity: Mapped[float] = mapped_column(Float)
     cost_usd: Mapped[float] = mapped_column(Float)
-    z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    vwap: Mapped[float | None] = mapped_column(Float, nullable=True)
-
-    exchange_order_id: Mapped[str | None] = mapped_column(
-        "coinbase_order_id", String(256), nullable=True
-    )
+    exchange_order_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     fill_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -46,7 +41,6 @@ class ArchivedSignal(Base):
     realized_vol: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
-    exit_z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

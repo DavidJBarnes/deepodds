@@ -17,7 +17,7 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 def _signal_response(s) -> SignalResponse:
     return SignalResponse(
         id=getattr(s, "original_id", s.id),
-        venue=getattr(s, "venue", "crypto") or "crypto",
+        venue=getattr(s, "venue", "kalshi") or "kalshi",
         pair=s.pair,
         side=s.side,
         signal_type=s.signal_type,
@@ -25,8 +25,6 @@ def _signal_response(s) -> SignalResponse:
         entry_price=s.entry_price,
         quantity=s.quantity,
         cost_usd=s.cost_usd,
-        z_score=s.z_score,
-        vwap=s.vwap,
         model_prob=getattr(s, "model_prob", None),
         market_prob=getattr(s, "market_prob", None),
         edge=getattr(s, "edge", None),
@@ -40,7 +38,6 @@ def _signal_response(s) -> SignalResponse:
         fill_quantity=s.fill_quantity,
         filled_at=s.filled_at,
         exit_price=s.exit_price,
-        exit_z_score=s.exit_z_score,
         pnl_usd=s.pnl_usd,
         pnl_pct=s.pnl_pct,
         market_ticker=getattr(s, "market_ticker", None),

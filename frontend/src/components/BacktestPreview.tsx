@@ -4,18 +4,14 @@ import { runBacktestPreview, type BacktestResult } from "@/api/bot";
 interface Props {
   venue: string;
   pair: string;
-  entryZ?: number;
-  exitZ?: number;
   stopLoss: number;
-  positionSize?: number;
   contracts?: number;
-  lookback?: number;
   minEdge?: number;
   exitEdge?: number;
   volLookbackHours?: number;
 }
 
-export default function BacktestPreview({ venue, pair, entryZ, exitZ, stopLoss, positionSize, contracts, lookback, minEdge, exitEdge, volLookbackHours }: Props) {
+export default function BacktestPreview({ venue, pair, stopLoss, contracts, minEdge, exitEdge, volLookbackHours }: Props) {
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -30,12 +26,8 @@ export default function BacktestPreview({ venue, pair, entryZ, exitZ, stopLoss, 
         const data = await runBacktestPreview({
           venue,
           pair,
-          entry_z_score: entryZ,
-          exit_z_score: exitZ,
           stop_loss_pct: stopLoss,
-          position_size_usd: positionSize,
           contracts_per_signal: contracts,
-          lookback_periods: lookback,
           min_edge: minEdge,
           exit_edge: exitEdge,
           vol_lookback_hours: volLookbackHours,
@@ -48,7 +40,7 @@ export default function BacktestPreview({ venue, pair, entryZ, exitZ, stopLoss, 
       }
     }, 1000);
     return () => clearTimeout(timer.current);
-  }, [venue, pair, entryZ, exitZ, stopLoss, positionSize, contracts, lookback, minEdge, exitEdge, volLookbackHours]);
+  }, [venue, pair, stopLoss, contracts, minEdge, exitEdge, volLookbackHours]);
 
   if (loading) {
     return (

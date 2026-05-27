@@ -3,19 +3,6 @@ from pydantic import BaseModel
 from app.schemas.signal import SignalResponse
 
 
-class BotStatusResponse(BaseModel):
-    mode: str
-    enabled: bool
-    has_exchange_keys: bool
-    exchange_keys_valid: bool = False
-    pairs: str
-    open_positions: int
-    max_open_positions: int
-    entry_z_score: float
-    exit_z_score: float
-    stop_loss_pct: float
-
-
 class PnLStats(BaseModel):
     total_signals: int
     settled_count: int
@@ -27,18 +14,6 @@ class PnLStats(BaseModel):
     roi_pct: float
     unrealized_pnl_usd: float = 0.0
     open_positions: int = 0
-
-
-class MarketSnapshot(BaseModel):
-    pair: str
-    price: float
-    vwap: float
-    z_score: float
-    std_dev: float
-    would_signal: bool
-    min_z_24h: float = 0.0
-    z_distance: float = 0.0
-    effective_entry_z: float = -2.0
 
 
 class DailyPnLPoint(BaseModel):
@@ -100,10 +75,8 @@ class KalshiStatusResponse(BaseModel):
 
 
 class DashboardResponse(BaseModel):
-    bot_status: BotStatusResponse
     kalshi_status: KalshiStatusResponse | None = None
     recent_signals: list[SignalResponse]
-    markets: list[MarketSnapshot]
     kalshi_markets: list[KalshiMarketSnapshot] = []
     kalshi_filtered: list[KalshiFilteredMarket] = []
     stats: PnLStats

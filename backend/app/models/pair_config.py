@@ -19,9 +19,6 @@ class PairConfig(Base):
     venue: Mapped[str] = mapped_column(String(16))
     pair: Mapped[str] = mapped_column(String(64))
 
-    entry_z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    exit_z_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    position_size_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     contracts_per_signal: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stop_loss_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     min_edge: Mapped[float | None] = mapped_column(Float, nullable=True)

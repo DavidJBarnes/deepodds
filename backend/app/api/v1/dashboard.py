@@ -6,27 +6,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models.bot_config import BotConfig
 from app.models.kalshi_config import KalshiConfig
 from app.models.pair_config import PairConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
-    BotStatusResponse,
     DailyPnLPoint,
     DashboardResponse,
     KalshiFilteredMarket,
     KalshiMarketSnapshot,
     KalshiStatusResponse,
-    MarketSnapshot,
     PnLChartResponse,
     PnLStats,
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices, get_realized_vol
-from app.services.config_resolver import resolve_crypto_config, resolve_kalshi_config
+from app.services.config_resolver import resolve_kalshi_config
 from app.services.kalshi_client import KalshiClient
-from app.services.mean_reversion import _compute_vwap_and_std, _public_candles, compute_z_score
 from app.services.probability_model import compute_edge, series_to_underlying
 
 router = APIRouter(tags=["dashboard"])
@@ -39,47 +35,6 @@ async def get_dashboard(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    config = (
-        await db.execute(select(BotConfig).where(BotConfig.user_id == user.id))
-    ).scalar_one_or_none()
-
-    if not config:
-        config = BotConfig(user_id=user.id)
-        db.add(config)
-        await db.commit()
-        await db.refresh(config)
-
-    open_count = (
-        await db.execute(
-            select(func.count())
-            .select_from(Signal)
-            .where(Signal.user_id == user.id, Signal.status.in_(OPEN_STATUSES))
-        )
-    ).scalar()
-
-    keys_valid = False
-    if user.robinhood_api_key:
-        try:
-            from app.services.robinhood_client import RobinhoodClient
-
-            RobinhoodClient(user.robinhood_api_key, user.robinhood_private_key)
-            keys_valid = True
-        except Exception:
-            pass
-
-    bot_status = BotStatusResponse(
-        mode=config.mode,
-        enabled=config.enabled,
-        has_exchange_keys=bool(user.robinhood_api_key),
-        exchange_keys_valid=keys_valid,
-        pairs=config.pairs,
-        open_positions=open_count,
-        max_open_positions=config.max_open_positions,
-        entry_z_score=config.entry_z_score,
-        exit_z_score=config.exit_z_score,
-        stop_loss_pct=config.stop_loss_pct,
-    )
-
     recent = (
         await db.execute(
             select(Signal)
@@ -89,38 +44,12 @@ async def get_dashboard(
         )
     ).scalars().all()
 
-    # Unrealized P&L applies to crypto positions where we hold the underlying
-    # and its current price drives our position value. Kalshi binary contracts
-    # price in [$0, $1] — applying the same formula gives nonsense (a $0.07
-    # contract vs ETH spot of $2,070 would yield ~$41k unrealized "profit").
-    # Kalshi unrealized requires querying current Kalshi market prices per
-    # ticker; do that as a follow-up. For now we omit it for Kalshi signals.
-    needed_symbols: set[str] = set()
-    for s in recent:
-        if s.status == "filled" and s.fill_price and s.venue == "crypto":
-            needed_symbols.add(s.pair.replace("-USD", ""))
-
-    unrealized_prices: dict[str, float] = {}
-    if needed_symbols:
-        try:
-            unrealized_prices = await get_crypto_prices(sorted(needed_symbols))
-        except Exception:
-            unrealized_prices = {}
-
     recent_signals = []
     for s in recent:
-        unrealized = None
-        if s.status == "filled" and s.fill_price and s.venue == "crypto":
-            symbol = s.pair.replace("-USD", "")
-            current = unrealized_prices.get(symbol, 0)
-            if current > 0:
-                qty = s.fill_quantity or s.quantity
-                unrealized = round((current - s.fill_price) * qty, 4)
-
         recent_signals.append(
             SignalResponse(
                 id=s.id,
-                venue=s.venue or "crypto",
+                venue=s.venue or "kalshi",
                 pair=s.pair,
                 side=s.side,
                 signal_type=s.signal_type,
@@ -128,8 +57,6 @@ async def get_dashboard(
                 entry_price=s.entry_price,
                 quantity=s.quantity,
                 cost_usd=s.cost_usd,
-                z_score=s.z_score,
-                vwap=s.vwap,
                 model_prob=s.model_prob,
                 market_prob=s.market_prob,
                 edge=s.edge,
@@ -143,10 +70,8 @@ async def get_dashboard(
                 fill_quantity=s.fill_quantity,
                 filled_at=s.filled_at,
                 exit_price=s.exit_price,
-                exit_z_score=s.exit_z_score,
                 pnl_usd=s.pnl_usd,
                 pnl_pct=s.pnl_pct,
-                unrealized_pnl_usd=unrealized,
                 market_ticker=s.market_ticker,
                 event_ticker=s.event_ticker,
                 expiry_time=s.expiry_time,
@@ -207,8 +132,6 @@ async def get_dashboard(
         )
     ).scalar()
 
-    total_unrealized = sum(s.unrealized_pnl_usd or 0 for s in recent_signals)
-
     stats = PnLStats(
         total_signals=total_signals,
         settled_count=settled_count,
@@ -220,70 +143,8 @@ async def get_dashboard(
         roi_pct=round(float(total_pnl) / float(total_cost) * 100, 1)
         if total_cost > 0
         else 0,
-        unrealized_pnl_usd=round(total_unrealized, 2),
         open_positions=open_positions_count,
     )
-
-    # Market snapshots — current z-scores for each configured pair
-    crypto_overrides = {}
-    for pc in (
-        await db.execute(select(PairConfig).where(PairConfig.user_id == user.id, PairConfig.venue == "crypto"))
-    ).scalars().all():
-        crypto_overrides[pc.pair] = pc
-
-    markets = []
-    pairs = [p.strip() for p in config.pairs.split(",") if p.strip()]
-    crypto_symbols = [p.replace("-USD", "") for p in pairs]
-    try:
-        prices = await get_crypto_prices(crypto_symbols) if crypto_symbols else {}
-        for pair in pairs:
-            symbol = pair.replace("-USD", "")
-            price = prices.get(symbol, 0)
-            if price <= 0:
-                continue
-
-            eff = resolve_crypto_config(config, crypto_overrides.get(pair))
-            eff_entry_z = eff["entry_z_score"]
-
-            try:
-                candles = await _public_candles(pair, 96)
-                vwap, std = _compute_vwap_and_std(candles, config.lookback_periods)
-                z = compute_z_score(price, vwap, std) if vwap > 0 and std > 0 else 0
-            except Exception:
-                vwap, std, z = price, 0, 0
-
-            min_z_24h = z
-            if candles and len(candles) >= config.lookback_periods and std > 0:
-                try:
-                    window = config.lookback_periods
-                    for i in range(1, min(len(candles) - window + 1, 96 - window + 1)):
-                        w_candles = candles[i:i + window]
-                        w_vwap, w_std = _compute_vwap_and_std(w_candles, window)
-                        if w_vwap > 0 and w_std > 0:
-                            w_close = float(w_candles[0].get("close", 0))
-                            if w_close > 0:
-                                w_z = compute_z_score(w_close, w_vwap, w_std)
-                                min_z_24h = min(min_z_24h, w_z)
-                except Exception:
-                    pass
-
-            z_distance = z - eff_entry_z
-
-            markets.append(
-                MarketSnapshot(
-                    pair=pair,
-                    price=round(price, 2),
-                    vwap=round(vwap, 2),
-                    z_score=round(z, 2),
-                    std_dev=round(std, 2),
-                    would_signal=z <= eff_entry_z and z != 0,
-                    min_z_24h=round(min_z_24h, 2),
-                    z_distance=round(z_distance, 2),
-                    effective_entry_z=eff_entry_z,
-                )
-            )
-    except Exception:
-        pass
 
     scanner_health = None
     try:
@@ -451,10 +312,8 @@ async def get_dashboard(
             pass
 
     return DashboardResponse(
-        bot_status=bot_status,
         kalshi_status=kalshi_status,
         recent_signals=recent_signals,
-        markets=markets,
         kalshi_markets=kalshi_markets_list,
         kalshi_filtered=kalshi_filtered_list,
         stats=stats,

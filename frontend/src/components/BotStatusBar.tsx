@@ -1,11 +1,9 @@
 import type { ReactNode } from "react";
 
-type VenueColor = "emerald" | "sky";
-
 interface Props {
   mode: string;
   venueLabel: string;
-  venueColor: VenueColor;
+  venueColor: "emerald" | "sky";
   enabled: boolean;
   openPositions: number;
   maxOpenPositions: number;
@@ -13,7 +11,7 @@ interface Props {
   children?: ReactNode;
 }
 
-const VENUE_CLASSES: Record<VenueColor, { pill: string; dot: string; bar: string }> = {
+const VENUE_CLASSES: Record<string, { pill: string; dot: string; bar: string }> = {
   emerald: {
     pill: "bg-emerald-500/20 text-emerald-400",
     dot: "bg-emerald-500",

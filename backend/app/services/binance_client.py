@@ -122,6 +122,12 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = 
 
     Uses close-to-close log returns over the specified window.
     Returns annualized vol as a decimal (e.g. 0.65 = 65%).
+
+    NOTE: This uses Binance spot data, which may diverge from CME CF
+    (Crypto Facilities) volatility due to differences in the underlying
+    instrument (Binance spot vs CME futures) and sampling methodology.
+    For prediction markets referencing CME CF rates, the Binance-derived
+    vol is a proxy — monitor divergence in live trading.
     """
     pair = f"{symbol}USDT"
     bar_minutes = _INTERVAL_MINUTES.get(interval, 1)

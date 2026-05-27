@@ -63,7 +63,7 @@ function ConfigField({
           step={step}
           min={min}
           max={max}
-          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
         />
         {suffix && <span className="text-slate-500 text-sm whitespace-nowrap">{suffix}</span>}
       </div>
@@ -73,17 +73,6 @@ function ConfigField({
 }
 
 export default function SettingsPage() {
-  const [keysStatus, setKeysStatus] = useState<settingsApi.ExchangeKeysStatus | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [privateKey, setPrivateKey] = useState("");
-  const [savingKeys, setSavingKeys] = useState(false);
-  const [keysMessage, setKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  const [config, setConfig] = useState<botApi.BotConfig | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [configMessage, setConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [modeModal, setModeModal] = useState<"paper" | "live" | null>(null);
-
   const [kalshiKeysStatus, setKalshiKeysStatus] = useState<settingsApi.KalshiKeysStatus | null>(null);
   const [kalshiKeyId, setKalshiKeyId] = useState("");
   const [kalshiPem, setKalshiPem] = useState("");
@@ -99,36 +88,10 @@ export default function SettingsPage() {
   const [showOverrides, setShowOverrides] = useState(false);
 
   useEffect(() => {
-    settingsApi.getExchangeKeysStatus().then(setKeysStatus);
-    botApi.getBotConfig().then(setConfig);
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getKalshiConfig().then(setKalshiConfig);
     botApi.getPairConfigs().then(setPairConfigs);
   }, []);
-
-  async function handleSaveKeys(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingKeys(true);
-    setKeysMessage(null);
-    try {
-      const result = await settingsApi.updateExchangeKeys(apiKey, privateKey);
-      setKeysStatus(result);
-      setApiKey("");
-      setPrivateKey("");
-      setKeysMessage({ type: "success", text: "Robinhood keys saved." });
-    } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Failed to save keys";
-      setKeysMessage({ type: "error", text: detail });
-    } finally {
-      setSavingKeys(false);
-    }
-  }
-
-  async function handleDeleteKeys() {
-    const result = await settingsApi.deleteExchangeKeys();
-    setKeysStatus(result);
-    setKeysMessage({ type: "success", text: "Robinhood keys removed." });
-  }
 
   async function handleSaveKalshiKeys(e: React.FormEvent) {
     e.preventDefault();
@@ -169,279 +132,9 @@ export default function SettingsPage() {
     }
   }
 
-  async function saveConfig(updates: Partial<botApi.BotConfig>) {
-    setSaving(true);
-    setConfigMessage(null);
-    try {
-      const result = await botApi.updateBotConfig(updates);
-      setConfig(result);
-      setConfigMessage({ type: "success", text: "Saved." });
-      setTimeout(() => setConfigMessage(null), 2000);
-    } catch {
-      setConfigMessage({ type: "error", text: "Failed to save." });
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div className="space-y-8">
       <h2 className="text-2xl font-bold text-white">Settings</h2>
-
-      {/* Strategy Settings */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Mean Reversion Bot</h3>
-          {saving && <span className="text-xs text-amber-400">Saving...</span>}
-          {configMessage && (
-            <span className={`text-xs ${configMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
-              {configMessage.text}
-            </span>
-          )}
-        </div>
-
-        {config && (
-          <>
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Mode:</label>
-                <button
-                  onClick={() => setModeModal(config.mode === "paper" ? "live" : "paper")}
-                  className={`text-xs font-bold px-3 py-1 rounded transition-colors ${
-                    config.mode === "live"
-                      ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
-                      : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
-                  }`}
-                >
-                  {config.mode.toUpperCase()}
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Enabled:</label>
-                <button
-                  onClick={() => saveConfig({ enabled: !config.enabled })}
-                  className={`relative w-10 h-5 rounded-full transition-colors ${
-                    config.enabled ? "bg-amber-600" : "bg-slate-700"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      config.enabled ? "translate-x-5" : ""
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            <ConfirmModal
-              open={modeModal === "live"}
-              title="Switch to Live Mode"
-              confirmLabel="Switch to Live"
-              confirmClass="bg-red-600 hover:bg-red-500"
-              onConfirm={() => {
-                saveConfig({ mode: "live" });
-                setModeModal(null);
-              }}
-              onCancel={() => setModeModal(null)}
-            >
-              <p>You are about to enable <strong className="text-red-400">live trading</strong>. This means:</p>
-              <ul className="list-disc list-inside space-y-1 text-slate-400">
-                <li>Real orders will be placed on Robinhood using your API keys</li>
-                <li>Real money will be at risk on every signal</li>
-                <li>Losses are real and irreversible</li>
-              </ul>
-              {!keysStatus?.has_keys && (
-                <p className="text-amber-400 font-medium mt-2">
-                  You have not configured Robinhood API keys yet. Live orders will fail until keys are added.
-                </p>
-              )}
-              <p className="mt-2 text-slate-500">You can switch back to paper mode at any time.</p>
-            </ConfirmModal>
-
-            <ConfirmModal
-              open={modeModal === "paper"}
-              title="Switch to Paper Mode"
-              confirmLabel="Switch to Paper"
-              onConfirm={() => {
-                saveConfig({ mode: "paper" });
-                setModeModal(null);
-              }}
-              onCancel={() => setModeModal(null)}
-            >
-              <p>Switching to <strong className="text-amber-400">paper mode</strong> means:</p>
-              <ul className="list-disc list-inside space-y-1 text-slate-400">
-                <li>No real orders will be placed</li>
-                <li>Fills are simulated against real market prices</li>
-              </ul>
-              <p className="mt-2 text-slate-500">Use this to test parameter changes without risking capital.</p>
-            </ConfirmModal>
-
-            {/* Mean Reversion Parameters */}
-            <div className="border-t border-slate-800 pt-4">
-              <h4 className="text-sm font-semibold text-emerald-400 mb-1">Strategy Parameters</h4>
-              <p className="text-xs text-slate-500 mb-3">
-                Buy when price drops below VWAP by the entry z-score threshold. Sell when it reverts back. Changes save on blur.
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-slate-400 mb-1 block">Trading Pairs</label>
-                  <input
-                    type="text"
-                    value={config.pairs}
-                    onChange={(e) => setConfig({ ...config, pairs: e.target.value })}
-                    onBlur={() => saveConfig({ pairs: config.pairs })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-                    placeholder="SOL-USD,BTC-USD,ETH-USD"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Comma-separated crypto pairs (e.g. SOL-USD, BTC-USD)</p>
-                </div>
-                <ConfigField
-                  label="Lookback Periods"
-                  description="Number of 15-minute candles for VWAP calculation. 48 = 12 hours, 96 = 24 hours."
-                  suffix="bars"
-                  value={config.lookback_periods}
-                  onChange={(v) => setConfig({ ...config, lookback_periods: v })}
-                  onBlur={() => saveConfig({ lookback_periods: config.lookback_periods })}
-                  step={4} min={4} max={96}
-                />
-                <ConfigField
-                  label="Entry Z-Score"
-                  description="Buy when z-score drops below this. -3.0 = price is 3 std devs below VWAP (deeply oversold). More negative = pickier entries."
-                  suffix="z"
-                  value={config.entry_z_score}
-                  onChange={(v) => setConfig({ ...config, entry_z_score: v })}
-                  onBlur={() => saveConfig({ entry_z_score: config.entry_z_score })}
-                  step={0.1} min={-5} max={-0.5}
-                />
-                <ConfigField
-                  label="Exit Z-Score"
-                  description="Sell when z-score rises above this. -0.5 = sell on partial reversion. 0.0 = wait for full reversion to VWAP."
-                  suffix="z"
-                  value={config.exit_z_score}
-                  onChange={(v) => setConfig({ ...config, exit_z_score: v })}
-                  onBlur={() => saveConfig({ exit_z_score: config.exit_z_score })}
-                  step={0.1} min={-1} max={3}
-                />
-              </div>
-            </div>
-
-            {/* Risk Management */}
-            <div className="border-t border-slate-800 pt-4">
-              <h4 className="text-sm font-semibold text-slate-300 mb-1">Risk Management</h4>
-              <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
-              <div className="grid grid-cols-2 gap-4">
-                <ConfigField
-                  label="Position Size"
-                  description="Dollar amount per trade. The bot buys this much of each pair when the entry signal triggers."
-                  prefix="$"
-                  value={config.position_size_usd}
-                  onChange={(v) => setConfig({ ...config, position_size_usd: v })}
-                  onBlur={() => saveConfig({ position_size_usd: config.position_size_usd })}
-                  step={5} min={5} max={1000}
-                />
-                <ConfigField
-                  label="Max Open Positions"
-                  description="Maximum concurrent positions across all pairs."
-                  value={config.max_open_positions}
-                  onChange={(v) => setConfig({ ...config, max_open_positions: v })}
-                  onBlur={() => saveConfig({ max_open_positions: config.max_open_positions })}
-                  step={1} min={1} max={10}
-                />
-                <ConfigField
-                  label="Stop Loss"
-                  description="Close position if unrealized loss exceeds this percentage."
-                  suffix="%"
-                  value={config.stop_loss_pct}
-                  onChange={(v) => setConfig({ ...config, stop_loss_pct: v })}
-                  onBlur={() => saveConfig({ stop_loss_pct: config.stop_loss_pct })}
-                  step={0.5} min={0.5} max={20}
-                />
-                <ConfigField
-                  label="Daily Loss Limit"
-                  description="Pauses the bot for the day if realized losses exceed this. 0 = disabled."
-                  prefix="$"
-                  value={config.daily_loss_limit_usd}
-                  onChange={(v) => setConfig({ ...config, daily_loss_limit_usd: v })}
-                  onBlur={() => saveConfig({ daily_loss_limit_usd: config.daily_loss_limit_usd })}
-                  step={5} min={0} max={10000}
-                />
-                <ConfigField
-                  label="Max Signals/Hour"
-                  description="Rate limit on new signals. 0 = unlimited."
-                  value={config.max_signals_per_hour}
-                  onChange={(v) => setConfig({ ...config, max_signals_per_hour: v })}
-                  onBlur={() => saveConfig({ max_signals_per_hour: config.max_signals_per_hour })}
-                  step={1} min={0} max={20}
-                />
-                <ConfigField
-                  label="Min Hold Time"
-                  description="Minimum minutes to hold before allowing mean-reversion exit."
-                  value={config.min_hold_minutes}
-                  onChange={(v) => setConfig({ ...config, min_hold_minutes: v })}
-                  onBlur={() => saveConfig({ min_hold_minutes: config.min_hold_minutes })}
-                  suffix="min"
-                  step={5} min={0} max={480}
-                />
-              </div>
-            </div>
-          </>
-        )}
-      </section>
-
-      {/* Robinhood API Keys */}
-      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 max-w-lg">
-        <h3 className="text-lg font-semibold text-white">Robinhood API Keys</h3>
-        <div className="flex items-center gap-3">
-          <span className={`w-2.5 h-2.5 rounded-full ${keysStatus?.valid ? "bg-emerald-500" : keysStatus?.has_keys ? "bg-amber-500" : "bg-red-500"}`} />
-          <span className="text-sm text-slate-300">
-            {keysStatus?.valid ? `Keys valid (${keysStatus.key_preview})` : keysStatus?.has_keys ? `Keys invalid (${keysStatus.key_preview})` : "No keys configured"}
-          </span>
-          {keysStatus?.has_keys && (
-            <button onClick={handleDeleteKeys} className="ml-auto text-sm text-red-400 hover:text-red-300">
-              Remove
-            </button>
-          )}
-        </div>
-
-        {keysMessage && (
-          <p className={`text-sm rounded-lg p-3 ${keysMessage.type === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
-            {keysMessage.text}
-          </p>
-        )}
-
-        <form onSubmit={handleSaveKeys} className="space-y-4">
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">API Key</label>
-            <input
-              type="text"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="rh-api-xxxxxxxx-xxxx-xxxx-xxxx"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-400 mb-1">Private Key (Base64)</label>
-            <textarea
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              placeholder="ED25519 private key (base64 encoded)"
-              rows={3}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono resize-none"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={savingKeys || !apiKey || !privateKey}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
-          >
-            {savingKeys ? "Saving..." : "Save API Keys"}
-          </button>
-        </form>
-        <p className="text-xs text-slate-500">
-          Create API credentials at <span className="text-slate-400">robinhood.com &rarr; Crypto &rarr; Account Settings &rarr; API</span>. You'll get an API key and an ED25519 private key. Required for live mode.
-        </p>
-      </section>
 
       {/* Kalshi Strategy Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
@@ -724,7 +417,7 @@ export default function SettingsPage() {
           className="flex items-center gap-2 w-full text-left"
         >
           <span className={`text-slate-500 transition-transform ${showOverrides ? "rotate-90" : ""}`}>&#9654;</span>
-          <h3 className="text-lg font-semibold text-white">Per-Pair Overrides</h3>
+          <h3 className="text-lg font-semibold text-white">Per-Series Overrides</h3>
           <span className="text-xs text-slate-500 ml-2">
             {pairConfigs.length > 0 ? `${pairConfigs.length} active` : "None set"}
           </span>
@@ -733,47 +426,12 @@ export default function SettingsPage() {
         {showOverrides && (
           <div className="space-y-4 pt-2">
             <p className="text-xs text-slate-500">
-              Override global parameters for individual pairs. Leave fields empty to use the global default. Changes auto-save on blur.
+              Override global parameters for individual Kalshi series. Leave fields empty to use the global default. Changes auto-save on blur.
             </p>
-
-            {config && (
-              <>
-                <h4 className="text-sm font-semibold text-emerald-400">Crypto Pairs</h4>
-                {config.pairs.split(",").map((p) => p.trim()).filter(Boolean).map((pair) => {
-                  const pc = pairConfigs.find((c) => c.venue === "crypto" && c.pair === pair);
-                  return (
-                    <PairOverrideCard
-                      key={`crypto-${pair}`}
-                      venue="crypto"
-                      pair={pair}
-                      override={pc || null}
-                      globalEntryZ={config.entry_z_score}
-                      globalExitZ={config.exit_z_score}
-                      globalStopLoss={config.stop_loss_pct}
-                      globalPositionSize={config.position_size_usd}
-                      lookbackPeriods={config.lookback_periods}
-                      onSave={async (updates) => {
-                        const result = await botApi.updatePairConfig("crypto", pair, updates);
-                        setPairConfigs((prev) => {
-                          const filtered = prev.filter((c) => !(c.venue === "crypto" && c.pair === pair));
-                          return [...filtered, result];
-                        });
-                      }}
-                      onClear={async () => {
-                        try {
-                          await botApi.deletePairConfig("crypto", pair);
-                          setPairConfigs((prev) => prev.filter((c) => !(c.venue === "crypto" && c.pair === pair)));
-                        } catch { /* not found is fine */ }
-                      }}
-                    />
-                  );
-                })}
-              </>
-            )}
 
             {kalshiConfig && (
               <>
-                <h4 className="text-sm font-semibold text-sky-400 mt-4">Kalshi Series</h4>
+                <h4 className="text-sm font-semibold text-sky-400">Kalshi Series</h4>
                 {kalshiConfig.series_tickers.split(",").map((s) => s.trim()).filter(Boolean).map((series) => {
                   const pc = pairConfigs.find((c) => c.venue === "kalshi" && c.pair === series);
                   return (
@@ -871,14 +529,10 @@ function PairOverrideCard({
   venue,
   pair,
   override,
-  globalEntryZ,
-  globalExitZ,
   globalStopLoss,
-  globalPositionSize,
   globalContracts,
   globalMinEdge,
   globalExitEdge,
-  lookbackPeriods,
   volLookbackHours,
   onSave,
   onClear,
@@ -886,22 +540,15 @@ function PairOverrideCard({
   venue: string;
   pair: string;
   override: botApi.PairConfig | null;
-  globalEntryZ?: number;
-  globalExitZ?: number;
   globalStopLoss: number;
-  globalPositionSize?: number;
   globalContracts?: number;
   globalMinEdge?: number;
   globalExitEdge?: number;
-  lookbackPeriods?: number;
   volLookbackHours?: number;
   onSave: (updates: Partial<botApi.PairConfig>) => Promise<void>;
   onClear: () => Promise<void>;
 }) {
-  const [entryZ, setEntryZ] = useState<string>(override?.entry_z_score?.toString() ?? "");
-  const [exitZ, setExitZ] = useState<string>(override?.exit_z_score?.toString() ?? "");
   const [stopLoss, setStopLoss] = useState<string>(override?.stop_loss_pct?.toString() ?? "");
-  const [posSize, setPosSize] = useState<string>(override?.position_size_usd?.toString() ?? "");
   const [contracts, setContracts] = useState<string>(override?.contracts_per_signal?.toString() ?? "");
   const [minEdge, setMinEdge] = useState<string>(override?.min_edge != null ? (override.min_edge * 100).toString() : "");
   const [exitEdge, setExitEdge] = useState<string>(override?.exit_edge != null ? (override.exit_edge * 100).toString() : "");
@@ -912,22 +559,13 @@ function PairOverrideCard({
   const effMinEdge = minEdge ? parseFloat(minEdge) / 100 : (globalMinEdge ?? 0.05);
   const effExitEdge = exitEdge ? parseFloat(exitEdge) / 100 : (globalExitEdge ?? -0.02);
 
-  const hasOverride = venue === "kalshi"
-    ? (minEdge || exitEdge || stopLoss || contracts)
-    : (entryZ || exitZ || stopLoss || posSize || contracts);
-  const accentColor = venue === "kalshi" ? "sky" : "emerald";
+  const hasOverride = minEdge || exitEdge || stopLoss || contracts;
 
   async function handleBlur() {
     const updates: Partial<botApi.PairConfig> = {};
-    if (venue === "crypto") {
-      if (entryZ) updates.entry_z_score = parseFloat(entryZ);
-      if (exitZ) updates.exit_z_score = parseFloat(exitZ);
-      if (posSize) updates.position_size_usd = parseFloat(posSize);
-    } else {
-      if (minEdge) updates.min_edge = parseFloat(minEdge) / 100;
-      if (exitEdge) updates.exit_edge = parseFloat(exitEdge) / 100;
-      if (contracts) updates.contracts_per_signal = parseInt(contracts);
-    }
+    if (minEdge) updates.min_edge = parseFloat(minEdge) / 100;
+    if (exitEdge) updates.exit_edge = parseFloat(exitEdge) / 100;
+    if (contracts) updates.contracts_per_signal = parseInt(contracts);
     if (stopLoss) updates.stop_loss_pct = parseFloat(stopLoss);
 
     if (Object.keys(updates).length === 0) return;
@@ -938,9 +576,10 @@ function PairOverrideCard({
   }
 
   async function handleClear() {
-    setEntryZ(""); setExitZ(""); setStopLoss("");
-    setPosSize(""); setContracts("");
-    setMinEdge(""); setExitEdge("");
+    setStopLoss("");
+    setContracts("");
+    setMinEdge("");
+    setExitEdge("");
     await onClear();
   }
 
@@ -950,7 +589,7 @@ function PairOverrideCard({
         <div className="flex items-center gap-2">
           <span className={`font-mono text-sm font-semibold text-white`}>{pair}</span>
           {hasOverride && (
-            <span className={`text-[10px] font-bold uppercase tracking-wider bg-${accentColor}-500/20 text-${accentColor}-400 px-1.5 py-0.5 rounded`}>
+            <span className={`text-[10px] font-bold uppercase tracking-wider bg-sky-500/20 text-sky-400 px-1.5 py-0.5 rounded`}>
               Custom
             </span>
           )}
@@ -964,69 +603,39 @@ function PairOverrideCard({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {venue === "crypto" && (
-          <>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Entry Z ({globalEntryZ})</label>
-              <input type="number" value={entryZ} onChange={(e) => setEntryZ(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalEntryZ ?? -2).toString()} step={0.1} min={-5} max={-0.5}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Exit Z ({globalExitZ})</label>
-              <input type="number" value={exitZ} onChange={(e) => setExitZ(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalExitZ ?? -0.5).toString()} step={0.1} min={-1} max={3}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Position $ ({globalPositionSize})</label>
-              <input type="number" value={posSize} onChange={(e) => setPosSize(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalPositionSize ?? 25).toString()} step={5} min={5} max={1000}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
-            </div>
-          </>
-        )}
-        {venue === "kalshi" && (
-          <>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Min Edge % ({globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5"})</label>
-              <input type="number" value={minEdge} onChange={(e) => setMinEdge(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5")} step={1} min={1} max={50}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Exit Edge % ({globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2"})</label>
-              <input type="number" value={exitEdge} onChange={(e) => setExitEdge(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2")} step={1} min={-50} max={0}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 block mb-0.5">Contracts ({globalContracts})</label>
-              <input type="number" value={contracts} onChange={(e) => setContracts(e.target.value)} onBlur={handleBlur}
-                placeholder={(globalContracts ?? 50).toString()} step={5} min={1} max={10000}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
-            </div>
-          </>
-        )}
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Min Edge % ({globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5"})</label>
+          <input type="number" value={minEdge} onChange={(e) => setMinEdge(e.target.value)} onBlur={handleBlur}
+            placeholder={(globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5")} step={1} min={1} max={50}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Exit Edge % ({globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2"})</label>
+          <input type="number" value={exitEdge} onChange={(e) => setExitEdge(e.target.value)} onBlur={handleBlur}
+            placeholder={(globalExitEdge != null ? (globalExitEdge * 100).toFixed(0) : "-2")} step={1} min={-50} max={0}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Contracts ({globalContracts})</label>
+          <input type="number" value={contracts} onChange={(e) => setContracts(e.target.value)} onBlur={handleBlur}
+            placeholder={(globalContracts ?? 50).toString()} step={5} min={1} max={10000}
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
+        </div>
         <div>
           <label className="text-xs text-slate-500 block mb-0.5">Stop Loss % ({globalStopLoss})</label>
           <input type="number" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} onBlur={handleBlur}
             placeholder={globalStopLoss.toString()} step={0.5} min={0.5} max={50}
-            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 tabular-nums" />
+            className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
         </div>
       </div>
 
       <BacktestPreview
         venue={venue}
         pair={pair}
-        entryZ={venue === "crypto" ? (entryZ ? parseFloat(entryZ) : (globalEntryZ ?? -2)) : undefined}
-        exitZ={venue === "crypto" ? (exitZ ? parseFloat(exitZ) : (globalExitZ ?? -0.5)) : undefined}
         stopLoss={effStopLoss}
-        positionSize={venue === "crypto" ? (posSize ? parseFloat(posSize) : (globalPositionSize ?? 25)) : undefined}
-        contracts={venue === "kalshi" ? effContracts : undefined}
-        lookback={lookbackPeriods}
-        minEdge={venue === "kalshi" ? effMinEdge : undefined}
-        exitEdge={venue === "kalshi" ? effExitEdge : undefined}
+        contracts={effContracts}
+        minEdge={effMinEdge}
+        exitEdge={effExitEdge}
         volLookbackHours={volLookbackHours}
       />
     </div>
