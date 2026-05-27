@@ -7,6 +7,7 @@ import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
 import SignalFiltersBar from "@/components/SignalFiltersBar";
 import PnLChart from "@/components/PnLChart";
+import CalibrationChart from "@/components/CalibrationChart";
 import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { getTodayISO } from "@/utils/date";
@@ -138,6 +139,7 @@ export default function DashboardPage() {
 
       <StatsCard stats={dashboard.stats} />
       <PnLChart />
+      <CalibrationChart />
 
       <div className="flex gap-1 border-b border-slate-800">
         <button
