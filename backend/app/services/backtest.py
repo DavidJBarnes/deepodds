@@ -24,7 +24,7 @@ async def run_backtest_preview(
     if venue == "kalshi":
         return await _backtest_kalshi(
             pair,
-            min_edge=min_edge or 0.05,
+            min_edge=min_edge or 0.08,
             exit_edge=exit_edge or -0.02,
             stop_loss_pct=stop_loss_pct,
             contracts=contracts_per_signal,
@@ -35,7 +35,7 @@ async def run_backtest_preview(
 
 async def _backtest_kalshi(
     series_ticker: str,
-    min_edge: float = 0.05,
+    min_edge: float = 0.08,
     exit_edge: float = -0.02,
     stop_loss_pct: float = 15.0,
     contracts: int = 50,

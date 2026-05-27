@@ -9,7 +9,7 @@ class KalshiConfigResponse(BaseModel):
     min_price: float = 0.01
     max_price: float = 0.80
     min_hours_to_expiry: int = 1
-    min_edge: float = 0.05
+    min_edge: float = 0.08
     vol_lookback_hours: int = 24
     vol_interval: str = "15m"
     exit_edge: float = -0.02
