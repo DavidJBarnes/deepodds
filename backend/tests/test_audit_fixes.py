@@ -60,7 +60,7 @@ class TestKalshiConfigDefaults:
     def test_min_volume_24h_default(self):
         from app.models.kalshi_config import KalshiConfig
         col = KalshiConfig.__table__.columns["min_volume_24h"]
-        assert col.default.arg == 200
+        assert col.default.arg == 50
 
     def test_max_cost_per_signal_default(self):
         from app.models.kalshi_config import KalshiConfig

@@ -181,6 +181,28 @@ export async function getHistory(params: { limit?: number; offset?: number }) {
   return data;
 }
 
+export interface CalibrationBin {
+  bin_label: string;
+  bin_low: number;
+  bin_high: number;
+  count: number;
+  wins: number;
+  avg_model_prob: number;
+  actual_win_rate: number;
+}
+
+export interface CalibrationData {
+  bins: CalibrationBin[];
+  total_samples: number;
+  brier_score: number;
+  reliability_ready: boolean;
+}
+
+export async function getCalibration() {
+  const { data } = await client.get<CalibrationData>("/calibration");
+  return data;
+}
+
 export async function createHistory(text: string) {
   const { data } = await client.post<HistoryEntry>("/history", { text });
   return data;

@@ -1,0 +1,76 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.models.signal import Signal
+from app.models.user import User
+from app.schemas.calibration import CalibrationBin, CalibrationResponse
+
+router = APIRouter(tags=["calibration"])
+
+SETTLED_STATUSES = ("settled_win", "settled_loss", "settled_breakeven")
+
+BIN_COUNT = 10
+
+
+def _compute_calibration(settled_signals: list[tuple[float, int]]) -> CalibrationResponse:
+    bins: list[CalibrationBin] = []
+    total = len(settled_signals)
+
+    for i in range(BIN_COUNT):
+        lo = i / BIN_COUNT
+        hi = (i + 1) / BIN_COUNT
+        label = f"{int(lo * 100)}-{int(hi * 100)}%"
+
+        probs = [p for p, w in settled_signals if lo < p <= hi]
+        counts = len(probs)
+        wins = sum(w for p, w in settled_signals if lo < p <= hi)
+        avg_prob = sum(probs) / counts if counts else 0.0
+        actual_rate = wins / counts if counts else 0.0
+
+        bins.append(CalibrationBin(
+            bin_label=label,
+            bin_low=round(lo, 2),
+            bin_high=round(hi, 2),
+            count=counts,
+            wins=wins,
+            avg_model_prob=round(avg_prob, 4),
+            actual_win_rate=round(actual_rate, 4),
+        ))
+
+    brier = 0.0
+    for p, w in settled_signals:
+        brier += (p - w) ** 2
+    brier /= total if total else 1
+
+    reliability_ready = total >= 10
+
+    return CalibrationResponse(
+        bins=bins,
+        total_samples=total,
+        brier_score=round(brier, 4),
+        reliability_ready=reliability_ready,
+    )
+
+
+@router.get("/calibration", response_model=CalibrationResponse)
+async def get_calibration(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = await db.execute(
+        select(Signal.model_prob, Signal.status)
+        .where(
+            Signal.user_id == user.id,
+            Signal.venue == "kalshi",
+            Signal.status.in_(SETTLED_STATUSES),
+            Signal.model_prob.isnot(None),
+        )
+    )
+    settled = [
+        (row[0], 1 if row[1] == "settled_win" else 0)
+        for row in rows.all()
+    ]
+    return _compute_calibration(settled)

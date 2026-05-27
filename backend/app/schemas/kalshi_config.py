@@ -5,7 +5,7 @@ class KalshiConfigResponse(BaseModel):
     mode: str
     enabled: bool
     series_tickers: str = "KXBTC,KXETH"
-    min_volume_24h: int = 200
+    min_volume_24h: int = 50
     min_price: float = 0.05
     max_price: float = 0.80
     min_hours_to_expiry: int = 2
