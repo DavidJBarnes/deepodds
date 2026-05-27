@@ -107,7 +107,10 @@ class TestComputeEdge:
             strike_type="between", t_years=1 * HOURS_TO_YEARS,
             sigma=0.40, market_price=0.50,
         )
-        assert abs(result.edge - (result.model_prob - result.market_prob)) < 1e-10
+        # Edge is now blended: edge = (1-MARKET_WEIGHT) * (model_prob - market_prob)
+        # With MARKET_WEIGHT=0.5, edge = 0.5 * (model_prob - market_prob)
+        expected = 0.5 * (result.model_prob - result.market_prob)
+        assert abs(result.edge - expected) < 1e-10
 
     def test_result_fields_populated(self):
         result = compute_edge(

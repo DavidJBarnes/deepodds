@@ -394,8 +394,9 @@ def scan_kalshi_entries(
             )
 
             logger.info(
-                "KALSHI %s: model=%.1f%% market=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%)",
+                "KALSHI %s: model=%.1f%% mkt=%.1f%% adj=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%)",
                 ticker, result.model_prob * 100, result.market_prob * 100,
+                result.adjusted_prob * 100,
                 result.edge * 100, spread_pct, eff["min_edge"] * 100,
             )
 
@@ -529,9 +530,9 @@ def scan_kalshi_entries(
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
                 logger.info(
-                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, model=%.0f%% edge=+%.0f%%)",
+                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, model=%.0f%% adj=%.0f%% edge=+%.0f%%)",
                     ticker, count, mid, mid, market_price,
-                    result.model_prob * 100, result.edge * 100,
+                    result.model_prob * 100, result.adjusted_prob * 100, result.edge * 100,
                 )
                 session.add(History(
                     user_id=user_id,

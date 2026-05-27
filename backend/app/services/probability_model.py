@@ -11,10 +11,18 @@ def _norm_cdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
+# Weight on market price when blending model and market probabilities.
+# The Black-Scholes model is systematically overconfident (model_prob ~7%
+# higher than actual outcomes). Blending pulls it toward the more accurate
+# market-implied probability. MARKET_WEIGHT=0.5 means equal weight.
+MARKET_WEIGHT = 0.5
+
+
 @dataclass
 class FairValueResult:
     model_prob: float
     market_prob: float
+    adjusted_prob: float
     edge: float
     underlying_price: float
     annualized_vol: float
@@ -74,6 +82,7 @@ def compute_edge(
         return FairValueResult(
             model_prob=0.0,
             market_prob=market_price or 0.0,
+            adjusted_prob=0.0,
             edge=-1.0,  # forces edge < min_edge so no signal fires
             underlying_price=spot or 0.0,
             annualized_vol=sigma or 0.0,
@@ -101,10 +110,13 @@ def compute_edge(
     except (ValueError, ZeroDivisionError, TypeError):
         return _bad("math error")
 
+    adjusted_prob = (1 - MARKET_WEIGHT) * model_prob + MARKET_WEIGHT * market_price
+
     return FairValueResult(
         model_prob=model_prob,
         market_prob=market_price,
-        edge=model_prob - market_price,
+        adjusted_prob=adjusted_prob,
+        edge=adjusted_prob - market_price,
         underlying_price=spot,
         annualized_vol=sigma,
         time_to_expiry_hours=t_years * 365.25 * 24,

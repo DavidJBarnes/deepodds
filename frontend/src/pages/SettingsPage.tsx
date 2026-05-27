@@ -604,7 +604,7 @@ function PairOverrideCard({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-xs text-slate-500 block mb-0.5">Min Edge % ({globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5"})</label>
+          <label className="text-xs text-slate-500 block mb-0.5">Min Edge % ({globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "8"})</label>
           <input type="number" value={minEdge} onChange={(e) => setMinEdge(e.target.value)} onBlur={handleBlur}
             placeholder={(globalMinEdge != null ? (globalMinEdge * 100).toFixed(0) : "5")} step={1} min={1} max={50}
             className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 tabular-nums" />
