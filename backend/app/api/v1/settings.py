@@ -281,7 +281,7 @@ async def reset_data(
 ):
     from sqlalchemy import text
 
-    tables = ["signals", "archived_signals"]
+    tables = ["signals"]
     for t in tables:
         await db.execute(text(f"DELETE FROM {t}"))
     await db.commit()

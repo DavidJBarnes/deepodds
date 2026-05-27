@@ -154,14 +154,11 @@ deepodds/
 │   ├── app/
 │   │   ├── main.py             # FastAPI entrypoint + scheduler startup
 │   │   ├── core/               # Config, database, auth, async_util, scheduler
-│   │   ├── models/             # User, BotConfig, Signal, ArchivedSignal
+│   │   ├── models/             # User, Signal, KalshiConfig, PairConfig
 │   │   ├── schemas/            # Pydantic request/response models
 │   │   ├── api/v1/             # REST endpoints (auth, dashboard, signals, settings)
 │   │   └── services/
-│   │       ├── robinhood_client.py # Robinhood Crypto API client (ED25519 auth)
-│   │       ├── mean_reversion.py   # VWAP z-score strategy (entry, exit, sync)
 │   │       ├── binance_client.py   # Public price feeds
-│   │       └── archive.py          # Signal archival
 │   └── alembic/                # Database migrations
 └── frontend/
     └── src/
