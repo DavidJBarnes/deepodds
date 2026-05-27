@@ -184,54 +184,6 @@ class KalshiBalanceResponse(BaseModel):
     error: str | None = None
 
 
-def _read_cached_balance(user_id: str) -> dict | None:
-    import json as _json
-    from datetime import datetime, timezone
-    from pathlib import Path
-
-    try:
-        path = Path(f"/tmp/kalshi_balance_{user_id}.json")
-        if not path.exists():
-            return None
-        data = _json.loads(path.read_text())
-        cached_at = datetime.fromisoformat(data["cached_at"])
-        age = (datetime.now(timezone.utc) - cached_at).total_seconds()
-        if age > 120:
-            return None
-        return data
-    except Exception:
-        return None
-
-
-@router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
-async def get_kalshi_balance(user: User = Depends(get_current_user)):
-    cached = _read_cached_balance(str(user.id))
-    if cached:
-        return KalshiBalanceResponse(
-            cash_cents=cached["cash_cents"],
-            portfolio_cents=cached["portfolio_cents"],
-        )
-
-    if not user.kalshi_api_key_id or not user.kalshi_private_key:
-        return KalshiBalanceResponse(error="no_keys")
-
-    try:
-        client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
-    except Exception as e:
-        logger.exception("Failed to initialize KalshiClient")
-        return KalshiBalanceResponse(error=f"key_parse_error: {str(e)[:80]}")
-
-    try:
-        data = await client.get_balance()
-        return KalshiBalanceResponse(
-            cash_cents=int(data.get("balance", 0)),
-            portfolio_cents=int(data.get("portfolio_value", 0)),
-        )
-    except Exception as e:
-        logger.exception("Failed to fetch Kalshi balance")
-        return KalshiBalanceResponse(error=f"balance_error: {str(e)[:80]}")
-
-
 class BacktestRequest(BaseModel):
     venue: str
     pair: str
@@ -268,8 +220,15 @@ async def reset_data(
 ):
     from sqlalchemy import text
 
+    result = await db.execute(text("SELECT COUNT(*) FROM signals"))
+    count = result.scalar() or 0
+
     tables = ["signals"]
     for t in tables:
         await db.execute(text(f"DELETE FROM {t}"))
     await db.commit()
-    return {"status": "ok", "cleared": tables}
+
+    db.add(History(user_id=user.id, text=f"Cleared all {count} signal records"))
+    await db.commit()
+
+    return {"status": "ok", "cleared": tables, "count": count}

@@ -83,6 +83,10 @@ export default function SettingsPage() {
   const [kalshiConfigMessage, setKalshiConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [kalshiModeModal, setKalshiModeModal] = useState<"paper" | "live" | null>(null);
 
+  const [dangerModal, setDangerModal] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [dangerMessage, setDangerMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getKalshiConfig().then(setKalshiConfig);
@@ -124,6 +128,20 @@ export default function SettingsPage() {
       setKalshiConfigMessage({ type: "error", text: "Failed to save." });
     } finally {
       setSavingKalshi(false);
+    }
+  }
+
+  async function handleResetData() {
+    setResetting(true);
+    setDangerMessage(null);
+    try {
+      const result = await settingsApi.resetData();
+      setDangerMessage({ type: "success", text: `Cleared ${result.cleared.join(", ")}.` });
+      setDangerModal(false);
+    } catch {
+      setDangerMessage({ type: "error", text: "Failed to clear data." });
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -458,6 +476,44 @@ export default function SettingsPage() {
         <p className="text-xs text-slate-500">
           Create API credentials at <span className="text-slate-400">kalshi.com &rarr; Settings &rarr; API Keys</span>. You'll get an API key ID and an RSA private key (PEM format). Required for live mode.
         </p>
+      </section>
+
+      {/* Danger Zone */}
+      <section className="bg-slate-900 border border-red-900/50 rounded-xl p-6 space-y-4 max-w-lg">
+        <h3 className="text-lg font-semibold text-red-400">Danger Zone</h3>
+        <p className="text-sm text-slate-400">
+          Permanently delete all signal records from the database. This cannot be undone.
+        </p>
+
+        {dangerMessage && (
+          <p className={`text-sm rounded-lg p-3 ${dangerMessage.type === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+            {dangerMessage.text}
+          </p>
+        )}
+
+        <button
+          onClick={() => setDangerModal(true)}
+          disabled={resetting}
+          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
+        >
+          {resetting ? "Clearing..." : "Clear All Signals"}
+        </button>
+
+        <ConfirmModal
+          open={dangerModal}
+          title="Clear All Signals"
+          confirmLabel="Clear All Signals"
+          confirmClass="bg-red-600 hover:bg-red-500"
+          onConfirm={handleResetData}
+          onCancel={() => setDangerModal(false)}
+        >
+          <p>This will permanently delete <strong className="text-red-400">all signal records</strong> from the database.</p>
+          <ul className="list-disc list-inside space-y-1 text-slate-400">
+            <li>All P&L history will be lost</li>
+            <li>Dashboard charts will reset to zero</li>
+            <li>This cannot be undone</li>
+          </ul>
+        </ConfirmModal>
       </section>
     </div>
   );
