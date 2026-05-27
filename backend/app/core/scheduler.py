@@ -93,6 +93,12 @@ def _run_kalshi_scan():
                     _write_balance_cache(str(cfg.user_id), bal)
                 except Exception:
                     logger.exception("Failed to cache Kalshi balance for user %s", cfg.user_id)
+            elif cfg.mode == "paper":
+                # Paper mode has no real Kalshi balance. Write a simulated
+                # bankroll so Kelly sizing works identically to live mode.
+                # Default $1000 paper bankroll — change contracts_per_signal
+                # if you want a different fixed size regardless of Kelly.
+                _write_balance_cache(str(cfg.user_id), {"balance": 0, "portfolio_value": 100000})
 
 
 def _run_kalshi_check_exits():

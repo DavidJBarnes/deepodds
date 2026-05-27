@@ -563,11 +563,18 @@ def scan_kalshi_entries(
                         session.rollback()
                     logger.exception("Failed to place Kalshi order for %s", ticker)
             else:
+                # Paper entry: fill at the ask price — what we'd actually pay
+                # to enter immediately. Live places a limit at mid, so mid is
+                # the optimistic case; ask is the conservative/worst case.
+                # Neither is perfect simulation, but ask avoids inflating
+                # paper returns with unreachable fills.
+                ask = float(market.get("yes_ask_dollars") or 0)
                 bid = float(market.get("yes_bid_dollars") or 0)
-                mid = round((market_price + bid) / 2, 4) if bid > 0 else market_price
+                paper_fill = ask if ask > 0 else market_price
                 signal.status = "filled"
-                signal.fill_price = mid
+                signal.fill_price = paper_fill
                 signal.fill_quantity = float(count)
+                signal.cost_usd = round(paper_fill * count, 4)
                 signal.filled_at = datetime.now(timezone.utc)
                 session.add(signal)
                 session.commit()
@@ -575,16 +582,16 @@ def scan_kalshi_entries(
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
                 logger.info(
-                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, "
+                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, bid $%.2f "
                     "model=%.0f%% edge=+%.0f%% vol_r=%.0f%% vol_i=%.0f%% drift=%+.0f%%)",
-                    ticker, count, mid, mid, market_price,
+                    ticker, count, paper_fill, mid, ask, bid,
                     result.model_prob * 100, result.edge * 100,
                     result.realized_vol * 100, result.implied_vol * 100,
                     result.realized_drift * 100,
                 )
                 session.add(History(
                     user_id=user_id,
-                    text=f"Signal triggered paper purchase of {ticker}: {count} contracts @ ${mid:.2f}",
+                    text=f"Signal triggered paper purchase of {ticker}: {count} contracts @ ${paper_fill:.2f}",
                 ))
                 try:
                     session.commit()
@@ -744,8 +751,12 @@ def check_kalshi_exits(
             continue  # P&L recorded later by sync_kalshi_live
 
         sig.exit_price = price
-        sig.pnl_usd = round(pnl_usd, 4)
-        sig.pnl_pct = round(pnl_pct, 2)
+        # Deduct estimated Kalshi round-trip taker fee (~0.07% per side).
+        # Live mode gets exact fees from sync_kalshi_live settlement data;
+        # paper approximates to keep P&L comparable.
+        paper_fee = round((sig.fill_price + price) * qty * 0.0007, 4)
+        sig.pnl_usd = round(pnl_usd - paper_fee, 4)
+        sig.pnl_pct = round((sig.pnl_usd / (sig.fill_price * qty)) * 100, 2) if sig.fill_price > 0 and qty > 0 else 0.0
         sig.resolved_at = now
         if pnl_usd > 0:
             sig.status = "settled_win"
