@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from app.schemas.signal import SignalResponse
@@ -48,6 +50,7 @@ class KalshiMarketSnapshot(BaseModel):
     realized_vol: float = 0.0
     volume_24h: float
     hours_to_expiry: float
+    expiry_time: datetime | None = None
     would_signal: bool
 
 

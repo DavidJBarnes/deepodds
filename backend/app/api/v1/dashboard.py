@@ -304,6 +304,7 @@ async def get_dashboard(
                         realized_vol=round(vol_val, 4),
                         volume_24h=vol_24h,
                         hours_to_expiry=round(hours_left, 1),
+                        expiry_time=ct,
                         would_signal=edge_val >= eff_min_edge and edge_val > 0,
                     ))
 

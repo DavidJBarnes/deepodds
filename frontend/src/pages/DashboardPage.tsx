@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useBotStore } from "@/stores/botStore";
 import { getSignals, type KalshiFilteredMarket, type Signal } from "@/api/bot";
 import BotStatusBar from "@/components/BotStatusBar";
+import CountdownCell from "@/components/CountdownCell";
 import StatsCard from "@/components/StatsCard";
 import SignalTable from "@/components/SignalTable";
 import SignalFiltersBar, { type VenueFilter, type StatusFilter } from "@/components/SignalFiltersBar";
@@ -98,11 +99,15 @@ export default function DashboardPage() {
         scannerHealth={dashboard.scanner_health}
       />
 
+      {kalshi && kalshi.mode === "paper" && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded px-4 py-1.5 text-center">
+          <span className="text-xs font-medium text-amber-400">Paper mode — no real orders will be placed</span>
+        </div>
+      )}
+
       {kalshi && (
         <BotStatusBar
           mode={kalshi.mode}
-          venueLabel="KALSHI"
-          venueColor="sky"
           enabled={kalshi.enabled}
           openPositions={kalshi.open_positions}
           maxOpenPositions={kalshi.max_open_positions}
@@ -141,7 +146,7 @@ export default function DashboardPage() {
               : "text-slate-400 hover:text-white"
           }`}
         >
-          Kalshi ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
+          Opportunities ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
         </button>
         <button
           onClick={() => setTab("signals")}
@@ -179,7 +184,7 @@ export default function DashboardPage() {
                   <span className="text-slate-500">Model <span className="text-slate-400 tabular-nums">{(m.model_prob * 100).toFixed(1)}%</span></span>
                   <span className="text-slate-500">Market <span className="text-slate-400 tabular-nums">{(m.price * 100).toFixed(1)}%</span></span>
                   <span className="text-slate-500">Vol 24h <span className="text-slate-400 tabular-nums">{m.volume_24h.toLocaleString()}</span></span>
-                  <span className="text-slate-500">Expires <span className="text-slate-400 tabular-nums">{m.hours_to_expiry.toFixed(1)}h</span></span>
+                  <span className="text-slate-500">Expires <CountdownCell target={m.expiry_time} /></span>
                   {m.floor_strike != null && m.cap_strike != null && (
                     <span className="text-slate-500">Strike <span className="text-slate-400 tabular-nums">${m.floor_strike.toLocaleString()}-${m.cap_strike.toLocaleString()}</span></span>
                   )}

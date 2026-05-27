@@ -73,6 +73,7 @@ export interface KalshiMarketSnapshot {
   realized_vol: number;
   volume_24h: number;
   hours_to_expiry: number;
+  expiry_time: string | null;
   would_signal: boolean;
 }
 
