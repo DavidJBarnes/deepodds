@@ -9,12 +9,9 @@ import SignalFiltersBar from "@/components/SignalFiltersBar";
 import PnLChart from "@/components/PnLChart";
 import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { getTodayISO } from "@/utils/date";
 
 const REFRESH_INTERVAL = 60;
-
-function getToday() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
@@ -25,7 +22,7 @@ export default function DashboardPage() {
   const [signalFilters, setSignalFilters] = useLocalStorage<{
     date: string;
     statuses: string[];
-  }>("deepodds.signals.filters.v2", { date: getToday(), statuses: [] });
+  }>("deepodds.signals.filters.v2", { date: getTodayISO(), statuses: [] });
   const [filteredSignals, setFilteredSignals] = useState<Signal[] | null>(null);
   const [filteredTotal, setFilteredTotal] = useState<number>(0);
   const [signalsLoading, setSignalsLoading] = useState(false);
@@ -62,7 +59,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, signalFilters.date, JSON.stringify(signalFilters.statuses), lastRefreshed]);
+  }, [tab, signalFilters.date, signalFilters.statuses?.join(",") ?? "", lastRefreshed]);
 
   useEffect(() => {
     refresh();

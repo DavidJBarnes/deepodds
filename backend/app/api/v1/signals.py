@@ -1,7 +1,7 @@
 from datetime import date as date_type
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,8 @@ from app.core.deps import get_current_user
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.signal import SignalListResponse, SignalResponse
+
+VALID_STATUSES = {"signaled", "placed", "filled", "settled_win", "settled_loss", "settled_breakeven", "cancelled"}
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -64,6 +66,9 @@ async def list_signals(
 
     raw_statuses = statuses.split(",") if statuses else ([status] if status else None)
     if raw_statuses:
+        invalid = set(raw_statuses) - VALID_STATUSES
+        if invalid:
+            raise HTTPException(400, f"Invalid status values: {', '.join(sorted(invalid))}")
         stmt = stmt.where(Signal.status.in_(raw_statuses))
         count_stmt = count_stmt.where(Signal.status.in_(raw_statuses))
 

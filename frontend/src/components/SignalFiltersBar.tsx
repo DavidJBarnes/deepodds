@@ -1,3 +1,5 @@
+import { getTodayISO } from "@/utils/date";
+
 const STATUS_OPTIONS = [
   { value: "signaled", label: "Signaled" },
   { value: "placed", label: "Placed" },
@@ -34,7 +36,7 @@ export default function SignalFiltersBar({
   totalMatching,
 }: Props) {
   const safeStatuses = statuses ?? [];
-  const hasActiveFilters = date !== getToday() || safeStatuses.length > 0;
+  const hasActiveFilters = date !== getTodayISO() || safeStatuses.length > 0;
 
   function toggleStatus(value: string) {
     const next = safeStatuses.includes(value)
@@ -77,7 +79,7 @@ export default function SignalFiltersBar({
 
       {hasActiveFilters && (
         <button
-          onClick={() => onChange({ date: getToday(), statuses: [] })}
+          onClick={() => onChange({ date: getTodayISO(), statuses: [] })}
           className="text-xs text-slate-500 hover:text-white"
         >
           Clear
@@ -91,9 +93,4 @@ export default function SignalFiltersBar({
       </div>
     </div>
   );
-}
-
-function getToday() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
 }
