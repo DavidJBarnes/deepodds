@@ -39,6 +39,7 @@ class Signal(Base):
     strike_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     underlying_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     realized_vol: Mapped[float | None] = mapped_column(Float, nullable=True)
+    realized_drift: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     pnl_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

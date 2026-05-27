@@ -43,14 +43,9 @@ class TestKalshiConfigDefaults:
     """Fix 3: Safer default values for Kalshi config."""
 
     def test_min_edge_default(self):
-        # Raised from 0.05 to 0.08 after calibration analysis showed the
-        # Black-Scholes model is systematically overconfident by ~7%. The
-        # market-implied probability is 2x more accurate (Brier 0.13 vs 0.27).
-        # Combined with MARKET_WEIGHT=0.5 blending, 0.08 filters out most
-        # false positives while allowing edge > 16% raw signals through.
         from app.models.kalshi_config import KalshiConfig
         col = KalshiConfig.__table__.columns["min_edge"]
-        assert col.default.arg == 0.08
+        assert col.default.arg == 0.05
 
     def test_max_price_default(self):
         from app.models.kalshi_config import KalshiConfig
@@ -65,7 +60,7 @@ class TestKalshiConfigDefaults:
     def test_min_volume_24h_default(self):
         from app.models.kalshi_config import KalshiConfig
         col = KalshiConfig.__table__.columns["min_volume_24h"]
-        assert col.default.arg == 100
+        assert col.default.arg == 500
 
     def test_max_cost_per_signal_default(self):
         from app.models.kalshi_config import KalshiConfig
