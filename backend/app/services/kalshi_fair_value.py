@@ -9,9 +9,16 @@ from app.core.async_util import run_async
 from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
 from app.models.signal import Signal
-from app.services.binance_client import get_crypto_prices, get_realized_vol
+from app.services.binance_client import get_crypto_prices, get_daily_closes, get_realized_vol
 from app.services.kalshi_client import KalshiClient
-from app.services.probability_model import compute_edge, series_to_underlying
+from app.services.probability_model import (
+    FREQ_EDGE_WEIGHT,
+    SPOT_RANGE_WEIGHT,
+    _historical_freq_edge,
+    _spot_in_range_edge,
+    compute_edge,
+    series_to_underlying,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +318,17 @@ def scan_kalshi_entries(
     )
 
     underlying = _fetch_underlying_data(series, config.vol_lookback_hours, config.vol_interval)
+
+    # Approach A: Fetch historical daily closes for empirical frequency calibration.
+    hist_closes: dict[str, list[float]] = {}
+    for sym in {s for s in [series_to_underlying(t) for t in series] if s}:
+        try:
+            closes = run_async(get_daily_closes(sym))
+            if closes:
+                hist_closes[sym] = closes
+        except Exception:
+            logger.warning("Failed to fetch daily closes for %s", sym)
+
     now = datetime.now(timezone.utc)
     signals_created = []
 
@@ -378,16 +396,47 @@ def scan_kalshi_entries(
                 logger.warning("skipping %s: 'less' market missing cap_strike", ticker)
                 continue
 
+            # Fix #4: Check ask_size against contracts_per_signal BEFORE
+            # compute_edge — don't waste CPU on markets too thin to fill.
+            ask_sz = _market_ask_size(market)
+            if ask_sz < config.contracts_per_signal:
+                logger.info(
+                    "Skipping %s: ask_size=%.0f < contracts_per_signal=%d",
+                    ticker, ask_sz, config.contracts_per_signal,
+                )
+                continue
+
             result = compute_edge(
                 spot, floor_strike, cap_strike, strike_type,
                 t_years, vol, market_price,
             )
 
+            # Approach A: Empirical frequency edge from historical closes.
+            freq_edge = 0.0
+            spot_boost = 0.0
+            if strike_type == "between":
+                symbol_for_freq = series_to_underlying(series_ticker) if series_ticker else None
+                if symbol_for_freq and symbol_for_freq in hist_closes:
+                    freq_edge = _historical_freq_edge(
+                        hist_closes[symbol_for_freq], floor_strike, cap_strike, market_price,
+                    )
+                spot_boost = _spot_in_range_edge(
+                    spot, floor_strike, cap_strike, strike_type, t_years, vol, market_price,
+                )
+
+            combined_edge = result.edge + FREQ_EDGE_WEIGHT * freq_edge + SPOT_RANGE_WEIGHT * spot_boost
+            result.frequency_edge = freq_edge
+            result.spot_range_edge = spot_boost
+            result.edge = combined_edge
+
             logger.info(
-                "KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% spread=%.1f%% (min=%.1f%%) "
-                "vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%%",
+                "KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% (vol=%.1f%% freq=%.1f%% spot=%.1f%%) "
+                "spread=%.1f%% (min=%.1f%%) vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%%",
                 ticker, result.model_prob * 100, result.market_prob * 100,
-                result.edge * 100, spread_pct, config.min_edge * 100,
+                combined_edge * 100,
+                (result.model_prob - result.market_prob) * 100,
+                freq_edge * 100, spot_boost * 100,
+                spread_pct, config.min_edge * 100,
                 result.realized_vol * 100, result.implied_vol * 100,
                 result.blended_vol * 100,
             )
@@ -428,9 +477,6 @@ def scan_kalshi_entries(
 
             count = int(count * vol_scaling)
             if count < 1:
-                continue
-
-            if _market_ask_size(market) < count:
                 continue
 
             cost = market_price * count
@@ -635,9 +681,10 @@ def check_kalshi_exits(
         should_exit = False
         exit_reason = ""
 
-        # B4: Fee-aware stop-loss — adjust P&L by estimated 0.5% round-trip fees
+        # B4: Fee-aware stop-loss — adjust P&L by estimated round-trip fees
         # so the stop triggers slightly earlier, preventing fee-eroded exits.
-        fee_estimate_pct = 0.5
+        # Actual Kalshi taker fee is ~0.07% per side (~0.14% round-trip).
+        fee_estimate_pct = 0.07
         adjusted_pnl_pct = pnl_pct - fee_estimate_pct
 
         # Stop loss is gated by min_hold to prevent bid-ask spread from
@@ -671,10 +718,20 @@ def check_kalshi_exits(
                     count=int(qty), yes_price_cents=yes_price_cents,
                     action="sell",
                 ))
+                sig.exit_price = price
+                sig.status = "closing"
+                session.commit()
                 logger.info("LIVE KALSHI SELL %s: %s", sig.market_ticker, exit_reason)
+                session.add(History(
+                    user_id=sig.user_id,
+                    text=f"Signal closing {sig.market_ticker}: {exit_reason}, exit @ ${price:.2f}",
+                ))
+                session.commit()
+                exited += 1
             except Exception:
                 logger.exception("Failed to sell Kalshi position %s", sig.market_ticker)
                 continue
+            continue  # P&L recorded later by sync_kalshi_live
 
         sig.exit_price = price
         sig.pnl_usd = round(pnl_usd, 4)
@@ -700,3 +757,119 @@ def check_kalshi_exits(
 
     session.commit()
     return exited
+
+
+def settle_expired_paper(session: Session) -> int:
+    """Resolve paper 'filled' signals that have passed their expiry time.
+
+    For each expired paper signal, checks the current spot price against
+    the strike range and records the binary outcome (YES=$1, NO=$0).
+    Prevents zombie positions that inflate open-P&L indefinitely.
+    """
+    now = datetime.now(timezone.utc)
+    expired = session.execute(
+        select(Signal).where(
+            Signal.venue == "kalshi",
+            Signal.signal_type == "paper",
+            Signal.status == "filled",
+            Signal.expiry_time.isnot(None),
+            Signal.expiry_time < now,
+            Signal.fill_price.isnot(None),
+            Signal.underlying_price.isnot(None),
+        )
+    ).scalars().all()
+
+    if not expired:
+        return 0
+
+    # Fetch current spot prices for all unique symbols needed
+    symbols = set()
+    for sig in expired:
+        sym = series_to_underlying(sig.pair) if sig.pair else None
+        if sym:
+            symbols.add(sym)
+
+    prices = run_async(get_crypto_prices(list(symbols))) if symbols else {}
+
+    settled = 0
+    for sig in expired:
+        try:
+            sym = series_to_underlying(sig.pair) if sig.pair else ""
+            spot = prices.get(sym) or sig.underlying_price
+
+            floor = sig.floor_strike
+            cap = sig.cap_strike
+            typ = sig.strike_type or "between"
+
+            if typ == "between":
+                won = (floor is not None and cap is not None and floor <= spot <= cap)
+            elif typ == "greater":
+                won = (floor is not None and spot > floor)
+            elif typ == "less":
+                won = (cap is not None and spot < cap)
+            else:
+                won = False
+
+            exit_price = 1.0 if won else 0.0
+            qty = sig.fill_quantity or sig.quantity or 0
+            fill_price = sig.fill_price or 0
+            pnl_usd = (exit_price - fill_price) * qty
+
+            sig.exit_price = exit_price
+            sig.pnl_usd = round(pnl_usd, 4)
+            sig.pnl_pct = round((exit_price - fill_price) / fill_price * 100, 2) if fill_price > 0 else 0.0
+            sig.resolved_at = now
+            sig.status = "settled_win" if pnl_usd > 0 else "settled_loss" if pnl_usd < 0 else "settled_breakeven"
+
+            settled += 1
+            logger.info(
+                "PAPER SETTLE %s: spot=%.2f won=%s exit=$%.2f entry=$%.2f P&L=$%.2f",
+                sig.market_ticker, spot, won, exit_price, fill_price, pnl_usd,
+            )
+            session.add(History(
+                user_id=sig.user_id,
+                text=f"Paper settlement for {sig.market_ticker}: {'won' if won else 'lost'} "
+                     f"(spot=${spot:.2f}, P&L=${pnl_usd:.2f})",
+            ))
+        except Exception:
+            logger.exception("Failed to settle paper signal %s", sig.market_ticker)
+            continue
+
+    session.commit()
+    return settled
+
+
+def cancel_stale_placed_orders(session: Session, max_age_minutes: int = 5) -> int:
+    """Cancel live 'placed' orders that haven't filled within max_age_minutes.
+
+    Prevents tickers being burned by limit orders that never execute.
+    It is better to cancel and move on than to wait for a fill that
+    may never come while the ticker sits locked in the position table.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+    stale = session.execute(
+        select(Signal).where(
+            Signal.venue == "kalshi",
+            Signal.signal_type == "live",
+            Signal.status == "placed",
+            Signal.created_at < cutoff,
+        )
+    ).scalars().all()
+
+    if not stale:
+        return 0
+
+    cancelled = 0
+    for sig in stale:
+        sig.status = "cancelled"
+        sig.error_message = f"order_timed_out_{max_age_minutes}m"
+        sig.resolved_at = datetime.now(timezone.utc)
+        session.add(History(
+            user_id=sig.user_id,
+            text=f"Order cancelled for {sig.market_ticker}: timed out after {max_age_minutes}m without fill",
+        ))
+        cancelled += 1
+        logger.info("Cancelled stale order %s (placed %s)", sig.market_ticker, sig.created_at)
+
+    session.commit()
+    return cancelled

@@ -167,3 +167,44 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = 
     bars_per_year = 365.25 * 24 * 60 / bar_minutes
     annualized = vol_per_bar * math.sqrt(bars_per_year)
     return annualized
+
+
+_closes_cache: dict[str, tuple[float, list[float]]] = {}
+_CLOSES_TTL = 3600  # 1 hour
+
+
+async def get_daily_closes(symbol: str = "BTC", limit: int = 365) -> list[float]:
+    """Return daily close prices for the given symbol from Binance klines.
+
+    Results are cached in-memory for 1 hour to avoid hammering the API
+    during repeated scans.
+    """
+    now_ts = __import__("time").time()
+    cached = _closes_cache.get(symbol.upper())
+    if cached and (now_ts - cached[0]) < _CLOSES_TTL:
+        return cached[1]
+
+    pair = f"{symbol.upper()}USDT"
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            resp = await client.get(
+                "https://api.binance.us/api/v3/klines",
+                params={"symbol": pair, "interval": "1d", "limit": min(limit, 1000)},
+            )
+            resp.raise_for_status()
+            klines = resp.json()
+        except Exception:
+            try:
+                resp = await client.get(
+                    "https://api.binance.com/api/v3/klines",
+                    params={"symbol": pair, "interval": "1d", "limit": min(limit, 1000)},
+                )
+                resp.raise_for_status()
+                klines = resp.json()
+            except Exception:
+                logger.warning("Failed to fetch daily closes for %s", symbol)
+                return []
+
+    closes = [float(k[4]) for k in klines if len(k) > 4]
+    _closes_cache[symbol.upper()] = (now_ts, closes)
+    return closes

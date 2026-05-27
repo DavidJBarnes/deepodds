@@ -29,7 +29,7 @@ from app.services.kalshi_client import KalshiClient
 
 logger = logging.getLogger(__name__)
 
-_PENDING_STATUSES = ("placed", "filled")
+_PENDING_STATUSES = ("placed", "filled", "closing")
 _TERMINAL_ORDER_STATUSES = ("canceled", "cancelled", "expired", "rejected")
 
 
@@ -110,6 +110,25 @@ def _sync_signal(
         return
 
     settlement = settlements.get(ticker)
+
+    # "closing" signals: we sold and are waiting for confirmation.
+    if sig.status == "closing":
+        if settlement:
+            yes_count = _to_float(settlement.get("yes_count_fp"))
+            no_count = _to_float(settlement.get("no_count_fp"))
+            yes_cost = _to_float(settlement.get("yes_total_cost_dollars"))
+            no_cost = _to_float(settlement.get("no_total_cost_dollars"))
+            if yes_count == 0 and no_count == 0 and yes_cost == 0 and no_cost == 0:
+                # Our sell order cleared before settlement — finalize via exit_price.
+                _finalize_closing(sig, counts)
+            else:
+                # We still held at settlement — apply standard settlement logic.
+                _apply_settlement(sig, settlement, counts)
+        else:
+            # No settlement yet — check if the sell order removed the position.
+            _check_closing(sig, positions, counts)
+        return
+
     if settlement:
         _apply_settlement(sig, settlement, counts)
         return
@@ -137,6 +156,33 @@ def _sync_signal(
             sig.status = "cancelled"
             sig.error_message = f"order_status: {order_status}"
             counts["cancelled"] += 1
+
+
+def _check_closing(sig: Signal, positions: dict, counts: dict) -> None:
+    """Check if a closing signal's position has been removed on Kalshi."""
+    position = positions.get(sig.market_ticker)
+    pos_qty = _to_float(position.get("position_fp")) if position else 0
+    if pos_qty <= 0:
+        _finalize_closing(sig, counts)
+
+
+def _finalize_closing(sig: Signal, counts: dict) -> None:
+    """Record P&L for a closing signal whose sell order filled."""
+    from datetime import datetime, timezone
+    exit_p = sig.exit_price
+    fill_p = sig.fill_price
+    qty = sig.fill_quantity or sig.quantity or 0.0
+    if exit_p and fill_p and qty > 0:
+        pnl = (exit_p - fill_p) * qty
+        sig.pnl_usd = round(pnl, 4)
+        sig.pnl_pct = round((exit_p - fill_p) / fill_p * 100, 2) if fill_p > 0 else 0.0
+        sig.resolved_at = datetime.now(timezone.utc)
+        sig.status = "settled_win" if pnl >= 0 else "settled_loss"
+        counts["settled"] += 1
+        logger.info(
+            "Kalshi sync closing->settled %s: exit=$%.2f fill=$%.2f qty=%.0f P&L=$%.4f",
+            sig.market_ticker, exit_p, fill_p, qty, pnl,
+        )
 
 
 def _apply_fill_from_position(sig: Signal, position: dict, counts: dict) -> None:

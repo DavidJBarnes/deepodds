@@ -96,20 +96,39 @@ async def _backtest_kalshi(
         result = compute_edge(spot, floor_strike, cap_strike, strike_type, t_years, vol, last_price)
 
         if result.edge >= min_edge:
-            pnl = (result.model_prob - last_price) * contracts
+            # Expected value (EV) P&L, not realized — binary outcomes
+            # settle at $1 or $0, not at model_prob.
+            ev_pnl = (result.edge) * contracts
+            # Binary outcome approximations:
+            #   If underlying spot is already in the winning region, treat as
+            #   a likely win (exit~$1). Otherwise a likely loss (exit~$0).
+            spot = prices.get(symbol, 0)
+            if result.strike_type == "between" and result.floor_strike is not None and result.cap_strike is not None:
+                likely_win = result.floor_strike <= spot <= result.cap_strike
+            elif result.strike_type == "greater" and result.floor_strike is not None:
+                likely_win = spot > result.floor_strike
+            elif result.strike_type == "less" and result.cap_strike is not None:
+                likely_win = spot < result.cap_strike
+            else:
+                likely_win = False
+            binary_exit = 1.0 if likely_win else 0.0
+            binary_pnl = (binary_exit - last_price) * contracts
+
             signals.append({
                 "entry": last_price,
-                "exit": result.model_prob,
-                "pnl_pct": round(result.edge * 100, 2),
-                "pnl_usd": round(pnl, 4),
-                "bars_held": round(hours_left, 1),
+                "fair_value": round(result.model_prob, 4),
                 "edge": round(result.edge, 4),
+                "edge_pct": round(result.edge * 100, 2),
+                "ev_pnl_usd": round(ev_pnl, 4),
+                "binary_pnl_usd": round(binary_pnl, 4),
+                "bars_held": round(hours_left, 1),
             })
 
-    wins = sum(1 for s in signals if s["pnl_usd"] >= 0)
+    wins = sum(1 for s in signals if s["ev_pnl_usd"] >= 0)
     losses = len(signals) - wins
-    total_pnl = sum(s["pnl_usd"] for s in signals)
-    avg_pnl = total_pnl / len(signals) if signals else 0
+    total_ev_pnl = sum(s["ev_pnl_usd"] for s in signals)
+    total_binary_pnl = sum(s["binary_pnl_usd"] for s in signals)
+    avg_pnl = total_ev_pnl / len(signals) if signals else 0
     avg_hold = sum(s["bars_held"] for s in signals) / len(signals) if signals else 0
 
     return {
@@ -117,10 +136,12 @@ async def _backtest_kalshi(
         "wins": wins,
         "losses": losses,
         "win_rate": round(wins / len(signals) * 100, 1) if signals else 0,
-        "avg_pnl_usd": round(avg_pnl, 4),
-        "total_pnl_usd": round(total_pnl, 2),
+        "avg_ev_pnl_usd": round(avg_pnl, 4),
+        "total_ev_pnl_usd": round(total_ev_pnl, 2),
+        "total_binary_pnl_usd": round(total_binary_pnl, 2),
         "avg_hold_bars": round(avg_hold, 1),
         "data_points": len(data.get("markets", [])),
+        "note": "P&L is expected value from model probability, not realized binary outcome",
     }
 
 
@@ -130,8 +151,10 @@ def _empty_result() -> dict:
         "wins": 0,
         "losses": 0,
         "win_rate": 0,
-        "avg_pnl_usd": 0,
-        "total_pnl_usd": 0,
+        "avg_ev_pnl_usd": 0,
+        "total_ev_pnl_usd": 0,
+        "total_binary_pnl_usd": 0,
         "avg_hold_bars": 0,
         "data_points": 0,
+        "note": "P&L is expected value from model probability, not realized binary outcome",
     }
