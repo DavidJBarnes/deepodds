@@ -39,9 +39,10 @@ export default function DashboardPage() {
     if (tab !== "signals") return;
     let cancelled = false;
     setSignalsLoading(true);
+    const statusList = signalFilters.statuses ?? [];
     getSignals({
       date: signalFilters.date,
-      statuses: signalFilters.statuses.length ? signalFilters.statuses.join(",") : undefined,
+      statuses: statusList.length ? statusList.join(",") : undefined,
       limit: 100,
     })
       .then((data) => {
@@ -60,7 +61,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, signalFilters.date, signalFilters.statuses, lastRefreshed]);
+  }, [tab, signalFilters.date, JSON.stringify(signalFilters.statuses), lastRefreshed]);
 
   useEffect(() => {
     refresh();
