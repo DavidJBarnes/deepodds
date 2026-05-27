@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from datetime import date as date_type
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +10,8 @@ from app.core.deps import get_current_user
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.signal import SignalListResponse, SignalResponse
+
+VALID_STATUSES = {"signaled", "placed", "filled", "settled_win", "settled_loss", "settled_breakeven", "cancelled"}
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -47,8 +52,10 @@ def _signal_response(s) -> SignalResponse:
 
 @router.get("", response_model=SignalListResponse)
 async def list_signals(
-    status: str | None = Query(None),
-    venue: str | None = Query(None),
+    statuses: str | None = Query(None, description="Comma-separated status values"),
+    status: str | None = Query(None, deprecated="Use statuses instead"),
+    date: date_type | None = Query(None),
+    tz_offset: int | None = Query(None, description="Minutes from UTC (JS getTimezoneOffset convention)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -57,13 +64,21 @@ async def list_signals(
     stmt = select(Signal).where(Signal.user_id == user.id)
     count_stmt = select(func.count()).select_from(Signal).where(Signal.user_id == user.id)
 
-    if status:
-        stmt = stmt.where(Signal.status == status)
-        count_stmt = count_stmt.where(Signal.status == status)
+    raw_statuses = statuses.split(",") if statuses else ([status] if status else None)
+    if raw_statuses:
+        invalid = set(raw_statuses) - VALID_STATUSES
+        if invalid:
+            raise HTTPException(400, f"Invalid status values: {', '.join(sorted(invalid))}")
+        stmt = stmt.where(Signal.status.in_(raw_statuses))
+        count_stmt = count_stmt.where(Signal.status.in_(raw_statuses))
 
-    if venue:
-        stmt = stmt.where(Signal.venue == venue)
-        count_stmt = count_stmt.where(Signal.venue == venue)
+    if date:
+        start = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
+        if tz_offset is not None:
+            start += timedelta(minutes=tz_offset)
+        end = start + timedelta(days=1)
+        stmt = stmt.where(Signal.created_at >= start, Signal.created_at < end)
+        count_stmt = count_stmt.where(Signal.created_at >= start, Signal.created_at < end)
 
     total = (await db.execute(count_stmt)).scalar()
     results = (
