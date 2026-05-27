@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [tab, setTab] = useState<"kalshi" | "signals">("kalshi");
+  const [tab, setTab] = useState<"signals" | "kalshi">("signals");
   const [showFiltered, setShowFiltered] = useState(false);
   const [signalFilters, setSignalFilters] = useLocalStorage<{
     date: string;
@@ -141,16 +141,6 @@ export default function DashboardPage() {
 
       <div className="flex gap-1 border-b border-slate-800">
         <button
-          onClick={() => setTab("kalshi")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "kalshi"
-              ? "text-sky-400 border-b-2 border-sky-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-        >
-          Opportunities ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
-        </button>
-        <button
           onClick={() => setTab("signals")}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             tab === "signals"
@@ -159,6 +149,16 @@ export default function DashboardPage() {
           }`}
         >
           Signals ({tab === "signals" ? filteredTotal : dashboard.recent_signals.length})
+        </button>
+        <button
+          onClick={() => setTab("kalshi")}
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "kalshi"
+              ? "text-sky-400 border-b-2 border-sky-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          Opportunities ({dashboard.kalshi_markets.length}{dashboard.kalshi_filtered?.length ? ` + ${dashboard.kalshi_filtered.length} filtered` : ""})
         </button>
       </div>
 

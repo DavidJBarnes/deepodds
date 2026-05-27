@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
+from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
 from app.models.pair_config import PairConfig
 from app.models.signal import Signal
@@ -496,9 +497,20 @@ def scan_kalshi_entries(
                         "LIVE KALSHI BUY %s: %d @ limit $%.2f (mid=$%.2f bid=$%.2f ask=$%.2f)",
                         ticker, count, yes_price_cents / 100, mid, bid, ask,
                     )
+                    session.add(History(
+                        user_id=user_id,
+                        text=f"Signal triggered live purchase of {ticker}: {count} contracts @ ${yes_price_cents / 100:.2f}",
+                    ))
+                    session.commit()
                 except Exception as e:
                     signal.status = "cancelled"
                     signal.error_message = str(e)[:200]
+                    try:
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                    history_text = f"Signal cancelled for {ticker}: {str(e)[:120]}"
+                    session.add(History(user_id=user_id, text=history_text))
                     try:
                         session.commit()
                     except Exception:
@@ -521,6 +533,14 @@ def scan_kalshi_entries(
                     ticker, count, mid, mid, market_price,
                     result.model_prob * 100, result.edge * 100,
                 )
+                session.add(History(
+                    user_id=user_id,
+                    text=f"Signal triggered paper purchase of {ticker}: {count} contracts @ ${mid:.2f}",
+                ))
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
 
         except Exception:
             logger.exception(
@@ -688,6 +708,10 @@ def check_kalshi_exits(
             sig.status.upper(), sig.market_ticker, price, sig.fill_price,
             exit_reason, pnl_usd, pnl_pct,
         )
+        session.add(History(
+            user_id=sig.user_id,
+            text=f"Signal exited {sig.market_ticker}: {exit_reason}, P&L ${pnl_usd:.2f} ({pnl_pct:.1f}%)",
+        ))
 
     session.commit()
     return exited

@@ -214,3 +214,20 @@ export async function getSignals(params: { statuses?: string; date?: string; tz_
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
   return data;
 }
+
+export interface HistoryEntry {
+  id: string;
+  user_id: string;
+  text: string;
+  created_at: string;
+}
+
+export async function getHistory(params: { limit?: number; offset?: number }) {
+  const { data } = await client.get<{ items: HistoryEntry[]; total: number }>("/history", { params });
+  return data;
+}
+
+export async function createHistory(text: string) {
+  const { data } = await client.post<HistoryEntry>("/history", { text });
+  return data;
+}
