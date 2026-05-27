@@ -9,7 +9,6 @@ interface Props {
 }
 
 export default function BotStatusBar({
-  mode,
   enabled,
   openPositions,
   maxOpenPositions,
