@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,12 +21,12 @@ HOURS_TO_YEARS = 1 / (365.25 * 24)
 
 
 def _today_pnl_kalshi(session: Session, user_id) -> float:
-    today_utc = datetime.now(timezone.utc).date()
+    today_ny = datetime.now(ZoneInfo("America/New_York")).date()
     result = session.execute(
         select(func.coalesce(func.sum(Signal.pnl_usd), 0.0)).where(
             Signal.user_id == user_id,
             Signal.venue == "kalshi",
-            func.date(Signal.resolved_at) == today_utc,
+            func.date(func.timezone("America/New_York", Signal.resolved_at)) == today_ny,
             Signal.pnl_usd.isnot(None),
         )
     )
@@ -462,8 +463,10 @@ def scan_kalshi_entries(
                         session.rollback()
                     logger.exception("Failed to place Kalshi order for %s", ticker)
             else:
+                bid = float(market.get("yes_bid_dollars") or 0)
+                mid = round((market_price + bid) / 2, 4) if bid > 0 else market_price
                 signal.status = "filled"
-                signal.fill_price = market_price
+                signal.fill_price = mid
                 signal.fill_quantity = float(count)
                 signal.filled_at = datetime.now(timezone.utc)
                 session.add(signal)
@@ -472,8 +475,8 @@ def scan_kalshi_entries(
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
                 logger.info(
-                    "PAPER KALSHI BUY %s: %d @ $%.2f (model=%.0f%% edge=+%.0f%%)",
-                    ticker, count, market_price,
+                    "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, model=%.0f%% edge=+%.0f%%)",
+                    ticker, count, mid, mid, market_price,
                     result.model_prob * 100, result.edge * 100,
                 )
 
@@ -590,10 +593,11 @@ def check_kalshi_exits(
         fee_estimate_pct = 0.5
         adjusted_pnl_pct = pnl_pct - fee_estimate_pct
 
-        # Stop loss and approaching expiry are real risk events — never gated.
-        # take_profit and edge_lost are gated by min_hold to prevent panic
-        # selling on short-term spot/vol noise (the +-95% in 6min scenario).
-        if adjusted_pnl_pct <= -eff["stop_loss_pct"]:
+        # Stop loss is gated by min_hold to prevent bid-ask spread from
+        # triggering immediate exits (entry at ask, exit check uses bid).
+        # Approaching expiry remains ungated — a real time constraint.
+        # take_profit and edge_lost are also gated by min_hold.
+        if adjusted_pnl_pct <= -eff["stop_loss_pct"] and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
