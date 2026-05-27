@@ -127,7 +127,7 @@ async def update_kalshi_config(
     await db.commit()
     await db.refresh(config)
 
-    _log_config_changes(db, user.id, old_values, updates)
+    await _log_config_changes(db, user.id, old_values, updates)
 
     return _kalshi_config_response(config)
 
