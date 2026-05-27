@@ -1,4 +1,5 @@
 import type { Signal } from "@/api/bot";
+import CountdownCell from "./CountdownCell";
 
 const STATUS_COLORS: Record<string, string> = {
   signaled: "bg-blue-500/20 text-blue-400",
@@ -36,6 +37,7 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
             <tr className="text-xs text-slate-500 uppercase tracking-wide border-b border-slate-800">
               <th className="text-left px-4 py-2">Time</th>
               <th className="text-left px-4 py-2">Market</th>
+              <th className="text-right px-4 py-2">Expiry</th>
               <th className="text-right px-4 py-2">Entry</th>
               <th className="text-right px-4 py-2">Qty</th>
               <th className="text-right px-4 py-2">Size</th>
@@ -50,6 +52,9 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                 <td className="px-4 py-2 text-slate-400">{formatTime(s.created_at)}</td>
                 <td className="px-4 py-2 font-mono text-xs text-white">
                   {s.market_ticker || s.pair}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <CountdownCell target={s.expiry_time} />
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300 tabular-nums">
                   ${(s.fill_price || s.entry_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

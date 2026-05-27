@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 
 interface Props {
   mode: string;
-  venueLabel: string;
-  venueColor: "emerald" | "sky";
   enabled: boolean;
   openPositions: number;
   maxOpenPositions: number;
@@ -11,23 +9,8 @@ interface Props {
   children?: ReactNode;
 }
 
-const VENUE_CLASSES: Record<string, { pill: string; dot: string; bar: string }> = {
-  emerald: {
-    pill: "bg-emerald-500/20 text-emerald-400",
-    dot: "bg-emerald-500",
-    bar: "bg-emerald-500",
-  },
-  sky: {
-    pill: "bg-sky-500/20 text-sky-400",
-    dot: "bg-sky-500",
-    bar: "bg-sky-500",
-  },
-};
-
 export default function BotStatusBar({
   mode,
-  venueLabel,
-  venueColor,
   enabled,
   openPositions,
   maxOpenPositions,
@@ -37,12 +20,8 @@ export default function BotStatusBar({
   const posPct = maxOpenPositions > 0
     ? Math.min(100, (openPositions / maxOpenPositions) * 100)
     : 0;
-  const v = VENUE_CLASSES[venueColor];
-  const modePill = mode === "live"
-    ? "bg-red-500/20 text-red-400"
-    : "bg-amber-500/20 text-amber-400";
 
-  let barColor = v.bar;
+  let barColor = "bg-sky-500";
   if (posPct > 90) barColor = "bg-red-500";
   else if (posPct > 60) barColor = "bg-amber-500";
 
@@ -50,15 +29,9 @@ export default function BotStatusBar({
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className={`text-xs font-bold px-2.5 py-1 rounded ${modePill}`}>
-            {mode.toUpperCase()}
-          </span>
-          <span className={`text-xs font-bold px-2.5 py-1 rounded ${v.pill}`}>
-            {venueLabel}
-          </span>
           <span
             className={`w-2.5 h-2.5 rounded-full ${
-              enabled ? `${v.dot} animate-pulse` : "bg-slate-600"
+              enabled ? "bg-sky-500 animate-pulse" : "bg-slate-600"
             }`}
           />
           <span className="text-sm text-slate-400">
