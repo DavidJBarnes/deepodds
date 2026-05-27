@@ -361,3 +361,46 @@ class TestComputeEdgeNewFields:
     def test_edge_weights_are_reasonable(self):
         assert 0 < FREQ_EDGE_WEIGHT <= 1
         assert 0 < SPOT_RANGE_WEIGHT <= 1
+
+
+class TestRealizedDrift:
+    """Realized drift gives the model directional awareness.
+
+    Drift = annualized mean log return from recent klines. Positive drift
+    means recent price action is upward — momentum favors upside outcomes.
+    Negative drift favors downside.  This turns a directionless vol model
+    into a directional model.
+    """
+
+    def test_positive_drift_increases_greater_probability(self):
+        r0 = compute_edge(SPOT, 2150.0, None, "greater", T_24H, 0.40, 0.25)
+        r_pos = compute_edge(SPOT, 2150.0, None, "greater", T_24H, 0.40, 0.25, drift=5.0)
+        assert r_pos.model_prob > r0.model_prob
+
+    def test_negative_drift_increases_less_probability(self):
+        r0 = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.25)
+        r_neg = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.25, drift=-5.0)
+        assert r_neg.model_prob > r0.model_prob
+
+    def test_opposing_drift_crushes_greater_edge(self):
+        r_bad = compute_edge(SPOT, 2150.0, None, "greater", T_24H, 0.40, 0.25, drift=-20.0)
+        assert r_bad.model_prob < 0.25
+        assert r_bad.edge < 0
+
+    def test_drift_defaults_to_zero(self):
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, FAIR_P_AT_40)
+        assert result.realized_drift == 0.0
+
+    def test_drift_preserved_in_result(self):
+        result = compute_edge(SPOT, None, CAP, STRIKE_TYPE, T_24H, 0.40, 0.25, drift=-3.5)
+        assert result.realized_drift == -3.5
+
+    def test_spot_near_floor_upward_drift_helps_between(self):
+        r0 = compute_edge(2105.0, 2100.0, 2160.0, "between", T_24H, 0.40, 0.40)
+        r_up = compute_edge(2105.0, 2100.0, 2160.0, "between", T_24H, 0.40, 0.40, drift=5.0)
+        assert r_up.model_prob > r0.model_prob
+
+    def test_spot_near_cap_downward_drift_helps_between(self):
+        r0 = compute_edge(2155.0, 2100.0, 2160.0, "between", T_24H, 0.40, 0.40)
+        r_down = compute_edge(2155.0, 2100.0, 2160.0, "between", T_24H, 0.40, 0.40, drift=-5.0)
+        assert r_down.model_prob > r0.model_prob

@@ -117,21 +117,14 @@ async def get_fear_greed() -> dict:
 _INTERVAL_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 
 
-async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = "1m") -> float | None:
-    """Compute annualized realized volatility from Binance klines.
+async def _fetch_klines(symbol: str, hours: int, interval: str) -> tuple[list[float], float] | None:
+    """Fetch close prices and bar-minutes from Binance klines.
 
-    Uses close-to-close log returns over the specified window.
-    Returns annualized vol as a decimal (e.g. 0.65 = 65%).
-
-    NOTE: This uses Binance spot data, which may diverge from CME CF
-    (Crypto Facilities) volatility due to differences in the underlying
-    instrument (Binance spot vs CME futures) and sampling methodology.
-    For prediction markets referencing CME CF rates, the Binance-derived
-    vol is a proxy — monitor divergence in live trading.
+    Returns (closes, bar_minutes) or None on failure.
     """
     pair = f"{symbol}USDT"
-    bar_minutes = _INTERVAL_MINUTES.get(interval, 1)
-    limit = min((hours * 60) // bar_minutes, 1000)
+    bar_minutes = float(_INTERVAL_MINUTES.get(interval, 1))
+    limit = min((hours * 60) // int(bar_minutes), 1000)
     async with httpx.AsyncClient(timeout=15) as client:
         try:
             resp = await client.get(
@@ -149,15 +142,23 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = 
                 resp.raise_for_status()
                 klines = resp.json()
             except Exception:
-                logger.warning("Failed to fetch klines for realized vol (%s, %s)", symbol, interval)
+                logger.warning("Failed to fetch klines (%s, %s)", symbol, interval)
                 return None
 
     if len(klines) < 30:
         return None
 
     closes = [float(k[4]) for k in klines]
-    log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+    return closes, bar_minutes
 
+
+def _compute_vol_and_drift(log_returns: list[float], bar_minutes: float) -> tuple[float, float] | None:
+    """Annualized realized volatility and drift from log returns.
+
+    Returns (vol, drift) as decimals or None if insufficient data.
+    vol is the standard deviation of returns annualized.
+    drift is the mean log return annualized — the momentum component.
+    """
     if len(log_returns) < 20:
         return None
 
@@ -165,8 +166,49 @@ async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = 
     variance = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
     vol_per_bar = math.sqrt(variance)
     bars_per_year = 365.25 * 24 * 60 / bar_minutes
-    annualized = vol_per_bar * math.sqrt(bars_per_year)
-    return annualized
+    annualized_vol = vol_per_bar * math.sqrt(bars_per_year)
+    annualized_drift = mean_r * bars_per_year
+    return annualized_vol, annualized_drift
+
+
+async def get_realized_vol(symbol: str = "BTC", hours: int = 4, interval: str = "1m") -> float | None:
+    """Compute annualized realized volatility from Binance klines.
+
+    Uses close-to-close log returns over the specified window.
+    Returns annualized vol as a decimal (e.g. 0.65 = 65%).
+
+    NOTE: This uses Binance spot data, which may diverge from CME CF
+    (Crypto Facilities) volatility due to differences in the underlying
+    instrument (Binance spot vs CME futures) and sampling methodology.
+    For prediction markets referencing CME CF rates, the Binance-derived
+    vol is a proxy — monitor divergence in live trading.
+    """
+    result = await _fetch_klines(symbol, hours, interval)
+    if result is None:
+        return None
+    closes, bar_minutes = result
+    log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+    stats = _compute_vol_and_drift(log_returns, bar_minutes)
+    if stats is None:
+        return None
+    return stats[0]
+
+
+async def get_market_stats(symbol: str = "BTC", hours: int = 4, interval: str = "1m") -> dict | None:
+    """Compute annualized realized volatility AND drift from Binance klines.
+
+    Returns {'vol': float, 'drift': float} or None on failure.
+    Uses a single kline fetch — drift is free given we already compute vol.
+    """
+    result = await _fetch_klines(symbol, hours, interval)
+    if result is None:
+        return None
+    closes, bar_minutes = result
+    log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0]
+    stats = _compute_vol_and_drift(log_returns, bar_minutes)
+    if stats is None:
+        return None
+    return {"vol": stats[0], "drift": stats[1]}
 
 
 _closes_cache: dict[str, tuple[float, list[float]]] = {}

@@ -17,12 +17,12 @@ class KalshiConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
 
     series_tickers: Mapped[str] = mapped_column(String(256), default="KXBTC,KXETH")
-    min_volume_24h: Mapped[int] = mapped_column(Integer, default=100)
+    min_volume_24h: Mapped[int] = mapped_column(Integer, default=500)
     min_price: Mapped[float] = mapped_column(Float, default=0.01)
     max_price: Mapped[float] = mapped_column(Float, default=0.80)
     min_hours_to_expiry: Mapped[int] = mapped_column(Integer, default=1)
 
-    min_edge: Mapped[float] = mapped_column(Float, default=0.08)
+    min_edge: Mapped[float] = mapped_column(Float, default=0.05)
     vol_lookback_hours: Mapped[int] = mapped_column(Integer, default=24)
     vol_interval: Mapped[str] = mapped_column(String(4), default="15m")
     exit_edge: Mapped[float] = mapped_column(Float, default=-0.02)
@@ -32,7 +32,7 @@ class KalshiConfig(Base):
     max_open_positions: Mapped[int] = mapped_column(Integer, default=5)
     max_positions_per_event: Mapped[int] = mapped_column(Integer, default=1)
     stop_loss_pct: Mapped[float] = mapped_column(Float, default=15.0)
-    take_profit_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    take_profit_pct: Mapped[float] = mapped_column(Float, default=0.20)
     daily_loss_limit_usd: Mapped[float] = mapped_column(Float, default=25.0)
     max_signals_per_hour: Mapped[int] = mapped_column(Integer, default=3)
     min_hold_minutes: Mapped[int] = mapped_column(Integer, default=15)

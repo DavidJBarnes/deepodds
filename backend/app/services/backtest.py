@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 
-from app.services.binance_client import get_crypto_prices, get_realized_vol
+from app.services.binance_client import get_crypto_prices, get_market_stats, get_realized_vol
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, series_to_underlying
 
@@ -50,9 +50,11 @@ async def _backtest_kalshi(
         spot = prices.get(symbol, 0)
         if spot <= 0:
             return _empty_result()
-        vol = await get_realized_vol(symbol, hours=vol_lookback_hours, interval="15m")
-        if not vol or vol <= 0:
+        stats = await get_market_stats(symbol, hours=vol_lookback_hours, interval="15m")
+        if not stats or stats["vol"] <= 0:
             return _empty_result()
+        vol = stats["vol"]
+        drift = stats["drift"]
     except Exception:
         return _empty_result()
 
@@ -93,7 +95,7 @@ async def _backtest_kalshi(
             continue
 
         t_years = hours_left * hours_to_years
-        result = compute_edge(spot, floor_strike, cap_strike, strike_type, t_years, vol, last_price)
+        result = compute_edge(spot, floor_strike, cap_strike, strike_type, t_years, vol, last_price, drift=drift)
 
         if result.edge >= min_edge:
             # Expected value (EV) P&L, not realized — binary outcomes

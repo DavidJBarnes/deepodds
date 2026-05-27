@@ -39,6 +39,7 @@ class FairValueResult:
     spot_range_edge: float
     underlying_price: float
     realized_vol: float
+    realized_drift: float
     implied_vol: float
     blended_vol: float
     time_to_expiry_hours: float
@@ -207,6 +208,7 @@ def compute_edge(
     t_years: float,
     sigma: float,
     market_price: float,
+    drift: float = 0.0,
 ) -> FairValueResult:
     def _bad(why: str) -> FairValueResult:
         return FairValueResult(
@@ -217,6 +219,7 @@ def compute_edge(
             spot_range_edge=0.0,
             underlying_price=spot or 0.0,
             realized_vol=sigma or 0.0,
+            realized_drift=drift or 0.0,
             implied_vol=0.0,
             blended_vol=sigma or 0.0,
             time_to_expiry_hours=(t_years or 0.0) * 365.25 * 24,
@@ -249,7 +252,7 @@ def compute_edge(
 
     try:
         model_prob = compute_fair_probability(
-            spot, floor_strike, cap_strike, strike_type, t_years, blended_vol
+            spot, floor_strike, cap_strike, strike_type, t_years, blended_vol, r=drift
         )
     except (ValueError, ZeroDivisionError, TypeError):
         return _bad("math error")
@@ -262,6 +265,7 @@ def compute_edge(
         spot_range_edge=0.0,
         underlying_price=spot,
         realized_vol=sigma,
+        realized_drift=drift,
         implied_vol=implied or 0.0,
         blended_vol=blended_vol,
         time_to_expiry_hours=t_years * 365.25 * 24,

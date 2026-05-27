@@ -9,7 +9,7 @@ from app.core.async_util import run_async
 from app.models.history import History
 from app.models.kalshi_config import KalshiConfig
 from app.models.signal import Signal
-from app.services.binance_client import get_crypto_prices, get_daily_closes, get_realized_vol
+from app.services.binance_client import get_crypto_prices, get_daily_closes, get_market_stats, get_realized_vol
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import (
     FREQ_EDGE_WEIGHT,
@@ -272,13 +272,18 @@ def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interv
         if symbol not in prices:
             logger.warning("No spot price available for %s (series %s)", symbol, series_list)
             continue
-        vol = run_async(get_realized_vol(symbol, hours=vol_hours, interval=vol_interval))
-        if vol is None or vol <= 0:
+        stats = run_async(get_market_stats(symbol, hours=vol_hours, interval=vol_interval))
+        if stats is None or stats["vol"] <= 0:
             logger.warning("No realized vol for %s (series %s)", symbol, series_list)
             continue
-        vol_scaling = _compute_vol_scaling(symbol, vol)
+        vol_scaling = _compute_vol_scaling(symbol, stats["vol"])
         for series in series_list:
-            result[series] = {"spot": prices[symbol], "vol": vol, "vol_scaling": vol_scaling}
+            result[series] = {
+                "spot": prices[symbol],
+                "vol": stats["vol"],
+                "drift": stats["drift"],
+                "vol_scaling": vol_scaling,
+            }
     return result
 
 
@@ -363,6 +368,7 @@ def scan_kalshi_entries(
 
             spot = underlying[series_ticker]["spot"]
             vol = underlying[series_ticker]["vol"]
+            drift = underlying[series_ticker]["drift"]
             close_dt = market["_close_dt"]
             t_hours = (close_dt - now).total_seconds() / 3600
             t_years = t_hours * HOURS_TO_YEARS
@@ -408,7 +414,7 @@ def scan_kalshi_entries(
 
             result = compute_edge(
                 spot, floor_strike, cap_strike, strike_type,
-                t_years, vol, market_price,
+                t_years, vol, market_price, drift=drift,
             )
 
             # Approach A: Empirical frequency edge from historical closes.
@@ -431,7 +437,7 @@ def scan_kalshi_entries(
 
             logger.info(
                 "KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% (vol=%.1f%% freq=%.1f%% spot=%.1f%%) "
-                "spread=%.1f%% (min=%.1f%%) vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%%",
+                "spread=%.1f%% (min=%.1f%%) vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%% drift=%+.0f%%",
                 ticker, result.model_prob * 100, result.market_prob * 100,
                 combined_edge * 100,
                 (result.model_prob - result.market_prob) * 100,
@@ -439,6 +445,7 @@ def scan_kalshi_entries(
                 spread_pct, config.min_edge * 100,
                 result.realized_vol * 100, result.implied_vol * 100,
                 result.blended_vol * 100,
+                result.realized_drift * 100,
             )
 
             if result.edge < config.min_edge:
@@ -499,6 +506,7 @@ def scan_kalshi_entries(
                 strike_type=strike_type,
                 underlying_price=spot,
                 realized_vol=vol,
+                realized_drift=drift,
                 market_ticker=ticker,
                 event_ticker=market.get("event_ticker"),
                 expiry_time=close_dt,
@@ -568,10 +576,11 @@ def scan_kalshi_entries(
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
                 logger.info(
                     "PAPER KALSHI BUY %s: %d @ $%.2f (mid $%.2f, ask $%.2f, "
-                    "model=%.0f%% edge=+%.0f%% vol_r=%.0f%% vol_i=%.0f%%)",
+                    "model=%.0f%% edge=+%.0f%% vol_r=%.0f%% vol_i=%.0f%% drift=%+.0f%%)",
                     ticker, count, mid, mid, market_price,
                     result.model_prob * 100, result.edge * 100,
                     result.realized_vol * 100, result.implied_vol * 100,
+                    result.realized_drift * 100,
                 )
                 session.add(History(
                     user_id=user_id,
@@ -664,6 +673,7 @@ def check_kalshi_exits(
         if sig.pair in underlying and sig.floor_strike is not None:
             spot = underlying[sig.pair]["spot"]
             vol = underlying[sig.pair]["vol"]
+            exit_drift = underlying[sig.pair]["drift"]
             close_dt = sig.expiry_time
             if close_dt:
                 t_hours = max(0, (close_dt - now).total_seconds() / 3600)
@@ -671,7 +681,7 @@ def check_kalshi_exits(
                 result = compute_edge(
                     spot, sig.floor_strike, sig.cap_strike,
                     sig.strike_type or "between",
-                    t_years, vol, price,
+                    t_years, vol, price, drift=exit_drift,
                 )
                 current_edge = result.edge
 
