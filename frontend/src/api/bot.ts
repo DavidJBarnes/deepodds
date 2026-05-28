@@ -38,6 +38,7 @@ export interface Signal {
   cost_usd: number;
   model_prob: number | null;
   market_prob: number | null;
+  live_market_prob: number | null;
   edge: number | null;
   floor_strike: number | null;
   cap_strike: number | null;
@@ -202,7 +203,6 @@ export interface RetrainResult {
   message: string;
   model_file_size_kb: number;
 }
-
 export async function getCalibration() {
   const { data } = await client.get<CalibrationData>("/calibration");
   return data;
@@ -212,7 +212,6 @@ export async function triggerRetrain() {
   const { data } = await client.post<RetrainResult>("/calibration/retrain");
   return data;
 }
-
 export async function createHistory(text: string) {
   const { data } = await client.post<HistoryEntry>("/history", { text });
   return data;

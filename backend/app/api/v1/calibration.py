@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 import os
+=======
+>>>>>>> origin/main
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,13 +10,21 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.signal import Signal
 from app.models.user import User
+<<<<<<< HEAD
 from app.schemas.calibration import CalibrationBin, CalibrationResponse, RetrainResponse
 from app.services.probability_model import MODEL_FILE, reload_booster
 from app.services.train_model import train_and_save_model
+=======
+from app.schemas.calibration import CalibrationBin, CalibrationResponse
+>>>>>>> origin/main
 
 router = APIRouter(tags=["calibration"])
 
 SETTLED_STATUSES = ("settled_win", "settled_loss", "settled_breakeven")
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main
 BIN_COUNT = 10
 
 
@@ -76,8 +87,6 @@ async def get_calibration(
         for row in rows.all()
     ]
     return _compute_calibration(settled)
-
-
 @router.post("/calibration/retrain", response_model=RetrainResponse)
 async def trigger_retrain(
     _user: User = Depends(get_current_user),

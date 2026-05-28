@@ -182,6 +182,49 @@ class KalshiBalanceResponse(BaseModel):
 
 # Backtest endpoint removed as classical backtesting is deprecated.
 
+def _read_cached_balance(user_id: str) -> dict | None:
+    import json as _json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    try:
+        path = Path(f"/tmp/kalshi_balance_{user_id}.json")
+        if not path.exists():
+            return None
+        data = _json.loads(path.read_text())
+        cached_at = datetime.fromisoformat(data["cached_at"])
+        age = (datetime.now(timezone.utc) - cached_at).total_seconds()
+        if age > 120:
+            return None
+        return data
+    except Exception:
+        return None
+
+
+@router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
+async def get_kalshi_balance(user: User = Depends(get_current_user)):
+    if user.kalshi_api_key_id and user.kalshi_private_key:
+        try:
+            client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+            data = await client.get_balance()
+            return KalshiBalanceResponse(
+                cash_cents=int(data.get("balance", 0)),
+                portfolio_cents=int(data.get("portfolio_value", 0)),
+            )
+        except Exception:
+            logger.exception("Kalshi balance fetch failed, falling back to cache")
+
+    cached = _read_cached_balance(str(user.id))
+    if cached:
+        return KalshiBalanceResponse(
+            cash_cents=cached["cash_cents"],
+            portfolio_cents=cached["portfolio_cents"],
+        )
+
+    if not user.kalshi_api_key_id:
+        return KalshiBalanceResponse(error="no_keys")
+    return KalshiBalanceResponse(error="balance_unavailable")
+
 
 @router.post("/reset-data")
 async def reset_data(

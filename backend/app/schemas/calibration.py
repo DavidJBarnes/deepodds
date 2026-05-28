@@ -16,8 +16,6 @@ class CalibrationResponse(BaseModel):
     total_samples: int
     brier_score: float
     reliability_ready: bool
-
-
 class RetrainResponse(BaseModel):
     success: bool
     message: str

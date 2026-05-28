@@ -16,6 +16,7 @@ class SignalResponse(BaseModel):
     cost_usd: float
     model_prob: float | None = None
     market_prob: float | None = None
+    live_market_prob: float | None = None
     edge: float | None = None
     floor_strike: float | None = None
     cap_strike: float | None = None

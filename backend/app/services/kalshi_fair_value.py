@@ -636,7 +636,10 @@ def check_kalshi_exits(
 
         try:
             market = run_async((client or KalshiClient.public()).get_market(sig.market_ticker))
-            # B1: Use bid price for exit valuation (what we'd actually receive selling)
+            sig.live_market_prob = float(
+                market.get("last_price_dollars") or market.get("yes_bid_dollars") or 0
+            )
+            # Use bid for exit valuation (what we'd actually receive selling)
             price = float(market.get("yes_bid_dollars") or market.get("last_price_dollars", 0))
         except Exception:
             logger.warning("Failed to get price for %s", sig.market_ticker)
@@ -677,11 +680,20 @@ def check_kalshi_exits(
         fee_estimate_pct = 0.07
         adjusted_pnl_pct = pnl_pct - fee_estimate_pct
 
-        # Stop loss is gated by min_hold to prevent bid-ask spread from
-        # triggering immediate exits (entry at ask, exit check uses bid).
+        # Catastrophic stop — loss exceeds 2x the stop-loss threshold.
+        # Bypasses min_hold: a true adverse move needs immediate exit,
+        # regardless of how recently the position was entered.
+        catastrophic_threshold = -cfg.stop_loss_pct * 2
+        is_catastrophic = adjusted_pnl_pct <= catastrophic_threshold
+
+        # Normal stop loss is gated by min_hold to prevent bid-ask spread
+        # from triggering immediate exits (entry at ask, exit check uses bid).
         # Approaching expiry remains ungated — a real time constraint.
         # take_profit and edge_lost are also gated by min_hold.
-        if adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
+        if is_catastrophic:
+            should_exit = True
+            exit_reason = f"catastrophic_stop ({pnl_pct:.1f}%)"
+        elif adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
