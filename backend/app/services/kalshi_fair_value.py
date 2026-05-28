@@ -412,7 +412,7 @@ def scan_kalshi_entries(
             symbol = series_to_underlying(series_ticker) if series_ticker else "BTC"
             result = compute_edge(
                 spot, floor_strike, cap_strike, strike_type,
-                t_years, vol, market_price, drift=drift, symbol=symbol
+                t_years, vol, market_price, drift=drift, symbol=symbol, spread_pct=spread_pct
             )
 
             logger.info(

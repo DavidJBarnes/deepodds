@@ -19,14 +19,6 @@ SUPPORTED_SYMBOLS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "BNB"]
 
 async def fetch_historical_data_for_training(symbol: str, hours: int = 1000) -> list[float] | None:
     """Fetch close prices from Binance klines for training."""
-    # We fetch hourly and 5m bars to get a dense dataset.
-    # 5m klines limit is 1000 bars. To get longer history, we fetch daily/hourly,
-    # but for synthetic range generation, 1000 bars of 1h or 15m is a great dataset.
-    # Let's get 1000 bars of 15m (which is 250 hours / 10 days).
-    # To get 1 year of data, we would need to fetch multiple times or use public archived data,
-    # but we can get an extremely robust dataset of the last 1000 15m bars (10 days) of high-frequency
-    # data to train a highly reactive regime-aware micro-booster, or fetch 1h bars.
-    # Let's use 1h bars to get 1000 hours (~41 days) of hourly data for a wider regime window.
     result = await _fetch_klines(symbol, hours=hours, interval="1h")
     if result is None:
         return None
@@ -37,8 +29,8 @@ async def fetch_historical_data_for_training(symbol: str, hours: int = 1000) -> 
 def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
     """Generates synthetic Kalshi range-bound contracts on historical closes.
 
-    For each timestamp, simulates various times to expiry and strike ranges,
-    determining if the future price lands in-range (Y=1) or out-of-range (Y=0).
+    Simplifies features and includes transaction spreads to combat overfitting
+    and model real-world friction.
     """
     df_list = []
     n = len(closes)
@@ -47,7 +39,6 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
 
     # Calculate rolling volatilities to scale synthetic ranges realistically
     log_returns = [math.log(closes[i] / closes[i - 1]) for i in range(1, n)]
-    # Rolling standard deviation over 24h (24 bars)
     vol_24h = []
     for i in range(n):
         if i < 24:
@@ -62,7 +53,6 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
         spot = closes[i]
         vol = vol_24h[i]
 
-        # For each historical spot price, generate multiple synthetic contracts
         for t_hours in [2, 4, 8, 12, 18, 24]:
             if i + t_hours >= n:
                 continue
@@ -70,14 +60,13 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
             future_spot = closes[i + t_hours]
             t_years = t_hours / (365.25 * 24)
 
-            # Generate multiple strike widths (scaled by volatility)
             for width_multiplier in [0.2, 0.5, 0.8, 1.2]:
                 width = spot * vol * math.sqrt(t_years) * width_multiplier
                 if width <= 0:
                     continue
 
-                # Center the range around spot, optionally with a random drift shift
-                drift_shift = spot * np.random.normal(0, vol * math.sqrt(t_years) * 0.3)
+                # Simulate a small random drift shift
+                drift_shift = spot * np.random.normal(0, vol * math.sqrt(t_years) * 0.2)
                 center = spot + drift_shift
 
                 floor = center - width / 2
@@ -86,20 +75,17 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
                 # Label: Y=1 if future price ended inside the range
                 won = 1 if floor <= future_spot <= cap else 0
 
-                # Compute features at time i
+                # Compute simplified, highly robust features
                 dist_floor = (spot - floor) / spot
                 dist_cap = (cap - spot) / spot
                 range_width_pct = (cap - floor) / spot
                 rel_spot = (spot - floor) / (cap - floor) if cap > floor else 0.5
 
-                # Multi-scale realized volatility
-                window_4h = log_returns[max(0, i - 4):i]
-                vol_4h = math.sqrt(sum(r**2 for r in window_4h) / len(window_4h)) * math.sqrt(365.25 * 24) if window_4h else vol
-
-                # Multi-scale drift (momentum)
-                drift_1h = log_returns[i - 1] * 365.25 * 24 if i > 0 else 0.0
-                drift_4h = sum(log_returns[max(0, i - 4):i]) / min(4, i) * 365.25 * 24 if i > 4 else 0.0
-                drift_24h = sum(log_returns[max(0, i - 24):i]) / min(24, i) * 365.25 * 24 if i > 24 else 0.0
+                # Simulate realistic bid-ask spread percentages
+                # Typical spreads are 1% to 15% of contract value. We correlate wider spreads
+                # with lower probability (OTM contracts) to let XGBoost penalize illiquid friction.
+                is_otm = abs(rel_spot - 0.5) > 0.3
+                spread_pct = np.random.uniform(8.0, 25.0) if is_otm else np.random.uniform(1.0, 8.0)
 
                 df_list.append({
                     "symbol": symbol,
@@ -109,12 +95,8 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
                     "rel_spot": rel_spot,
                     "hours_to_expiry": float(t_hours),
                     "log_hours_to_expiry": math.log(float(t_hours)),
-                    "vol_4h": vol_4h,
                     "vol_24h": vol,
-                    "vol_ratio": vol_4h / vol if vol > 0 else 1.0,
-                    "drift_1h": drift_1h,
-                    "drift_4h": drift_4h,
-                    "drift_24h": drift_24h,
+                    "spread_pct": spread_pct,
                     "outcome": won
                 })
 
@@ -149,8 +131,7 @@ async def train_and_save_model() -> bool:
 
     feature_cols = [
         "dist_floor", "dist_cap", "range_width_pct", "rel_spot",
-        "hours_to_expiry", "log_hours_to_expiry", "vol_4h", "vol_24h", "vol_ratio",
-        "drift_1h", "drift_4h", "drift_24h"
+        "hours_to_expiry", "log_hours_to_expiry", "vol_24h", "spread_pct"
     ] + [f"is_{sym.lower()}" for sym in SUPPORTED_SYMBOLS]
 
     X = df[feature_cols]
@@ -168,19 +149,20 @@ async def train_and_save_model() -> bool:
     dtrain = xgb.DMatrix(X_train, label=y_train)
     dtest = xgb.DMatrix(X_test, label=y_test)
 
-    # Train model
+    # Train model with tighter regularization to prevent overfitting
     params = {
         "objective": "binary:logistic",
         "eval_metric": "logloss",
-        "max_depth": 5,
-        "eta": 0.1,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
+        "max_depth": 4,          # Slashed from 5 to 4 to reduce overfitting
+        "eta": 0.05,             # Lower learning rate for smoother boundaries
+        "subsample": 0.7,        # Subsampling rows for regularization
+        "colsample_bytree": 0.7,  # Subsampling columns
+        "gamma": 1.0,            # Minimum loss reduction to make a split (tighter splits)
         "seed": 42
     }
 
     evallist = [(dtest, "eval"), (dtrain, "train")]
-    num_round = 80
+    num_round = 100
 
     bst = xgb.train(params, dtrain, num_round, evals=evallist, verbose_eval=False)
 

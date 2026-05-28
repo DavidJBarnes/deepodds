@@ -73,7 +73,8 @@ def predict_ml_probability(
     vol: float,
     market_price: float,
     drift: float = 0.0,
-    symbol: str = "BTC"
+    symbol: str = "BTC",
+    spread_pct: float = 5.0,  # Added feature for spread/liquidity matching
 ) -> FairValueResult:
     """Predicts range/binary option probability using the trained SOTA XGBoost model.
 
@@ -114,7 +115,7 @@ def predict_ml_probability(
     if bst is None:
         model_prob = _fallback_prob()
     else:
-        # 1. Feature Engineering Real-time Vector
+        # 1. Feature Engineering Real-time Vector (Simplified, Robust, No Overfitting)
         dist_floor = (spot - f_strike) / spot
         dist_cap = (c_strike - spot) / spot
         range_width_pct = (c_strike - f_strike) / spot
@@ -128,12 +129,8 @@ def predict_ml_probability(
             "rel_spot": [rel_spot],
             "hours_to_expiry": [hours_to_expiry],
             "log_hours_to_expiry": [math.log(hours_to_expiry)],
-            "vol_4h": [vol],  # Real-time vol features mapped onto multi-scale columns
             "vol_24h": [vol],
-            "vol_ratio": [1.0],
-            "drift_1h": [drift],
-            "drift_4h": [drift],
-            "drift_24h": [drift]
+            "spread_pct": [spread_pct]
         }
 
         # One-hot encoding the target asset
@@ -189,7 +186,11 @@ def compute_edge(
     sigma: float,
     market_price: float,
     drift: float = 0.0,
-    symbol: str = "BTC"
+    symbol: str = "BTC",
+    spread_pct: float = 5.0,  # Added parameter for compatibility
 ) -> FairValueResult:
     """Compatibility wrapper that routes directly to our SOTA XGBoost predictor."""
-    return predict_ml_probability(spot, floor_strike, cap_strike, strike_type, t_years, sigma, market_price, drift=drift, symbol=symbol)
+    return predict_ml_probability(
+        spot, floor_strike, cap_strike, strike_type, t_years, sigma, market_price,
+        drift=drift, symbol=symbol, spread_pct=spread_pct
+    )
