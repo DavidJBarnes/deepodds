@@ -88,13 +88,51 @@ export interface KalshiFilteredMarket {
   filter_reason: string;
 }
 
+export interface ClimateStatus {
+  mode: string;
+  enabled: boolean;
+  has_keys: boolean;
+  series_tickers: string;
+  open_positions: number;
+  max_open_positions: number;
+  min_edge: number;
+  exit_edge: number;
+  current_exposure_usd: number;
+  max_payout_usd: number;
+}
+
+export interface ClimateConfig {
+  mode: string;
+  enabled: boolean;
+  series_tickers: string;
+  min_volume_24h: number;
+  min_price: number;
+  max_price: number;
+  min_hours_to_expiry: number;
+  min_edge: number;
+  exit_edge: number;
+  contracts_per_signal: number;
+  max_cost_per_signal: number;
+  max_open_positions: number;
+  max_positions_per_event: number;
+  stop_loss_pct: number;
+  take_profit_pct: number;
+  daily_loss_limit_usd: number;
+  max_signals_per_hour: number;
+  min_hold_minutes: number;
+}
+
 export interface DashboardData {
   kalshi_status: KalshiStatus | null;
+  climate_status: ClimateStatus | null;
   recent_signals: Signal[];
   kalshi_markets: KalshiMarketSnapshot[];
   kalshi_filtered: KalshiFilteredMarket[];
+  climate_markets: KalshiMarketSnapshot[];
+  climate_filtered: KalshiFilteredMarket[];
   stats: PnLStats;
   scanner_health: ScannerHealth | null;
+  climate_scanner_health: ScannerHealth | null;
 }
 
 export interface ScannerHealth {
@@ -144,13 +182,13 @@ export interface PnLChartData {
   losing_days: number;
 }
 
-export async function getPnLChart(days = 30) {
-  const { data } = await client.get<PnLChartData>("/dashboard/pnl-chart", { params: { days, _t: Date.now() } });
+export async function getPnLChart(days = 30, venue = "all") {
+  const { data } = await client.get<PnLChartData>("/dashboard/pnl-chart", { params: { days, venue, _t: Date.now() } });
   return data;
 }
 
-export async function getDashboard() {
-  const { data } = await client.get<DashboardData>("/dashboard", { params: { _t: Date.now() } });
+export async function getDashboard(venue = "all") {
+  const { data } = await client.get<DashboardData>("/dashboard", { params: { venue, _t: Date.now() } });
   return data;
 }
 
@@ -164,8 +202,18 @@ export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
   return data;
 }
 
-export async function getSignals(params: { statuses?: string; date?: string; tz_offset?: number; limit?: number; offset?: number }) {
+export async function getSignals(params: { statuses?: string; venue?: string; date?: string; tz_offset?: number; limit?: number; offset?: number }) {
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
+  return data;
+}
+
+export async function getClimateConfig() {
+  const { data } = await client.get<ClimateConfig>("/settings/climate-config");
+  return data;
+}
+
+export async function updateClimateConfig(updates: Partial<ClimateConfig>) {
+  const { data } = await client.put<ClimateConfig>("/settings/climate-config", updates);
   return data;
 }
 

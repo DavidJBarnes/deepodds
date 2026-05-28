@@ -5,6 +5,8 @@ import { getKalshiBalance, type KalshiBalance } from "@/api/settings";
 
 const navItems = [
   { to: "/", label: "Dashboard" },
+  { to: "/crypto", label: "Crypto" },
+  { to: "/climate", label: "Climate" },
   { to: "/history", label: "History" },
   { to: "/resources", label: "Resources" },
   { to: "/settings", label: "Settings" },

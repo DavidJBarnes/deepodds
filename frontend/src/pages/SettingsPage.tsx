@@ -83,6 +83,11 @@ export default function SettingsPage() {
   const [kalshiConfigMessage, setKalshiConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [kalshiModeModal, setKalshiModeModal] = useState<"paper" | "live" | null>(null);
 
+  const [climateConfig, setClimateConfig] = useState<botApi.ClimateConfig | null>(null);
+  const [savingClimate, setSavingClimate] = useState(false);
+  const [climateConfigMessage, setClimateConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [climateModeModal, setClimateModeModal] = useState<"paper" | "live" | null>(null);
+
   const [dangerModal, setDangerModal] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -110,6 +115,7 @@ export default function SettingsPage() {
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getKalshiConfig().then(setKalshiConfig);
+    botApi.getClimateConfig().then(setClimateConfig);
   }, []);
 
   async function handleSaveKalshiKeys(e: React.FormEvent) {
@@ -148,6 +154,21 @@ export default function SettingsPage() {
       setKalshiConfigMessage({ type: "error", text: "Failed to save." });
     } finally {
       setSavingKalshi(false);
+    }
+  }
+
+  async function saveClimateConfig(updates: Partial<botApi.ClimateConfig>) {
+    setSavingClimate(true);
+    setClimateConfigMessage(null);
+    try {
+      const result = await botApi.updateClimateConfig(updates);
+      setClimateConfig(result);
+      setClimateConfigMessage({ type: "success", text: "Saved." });
+      setTimeout(() => setClimateConfigMessage(null), 2000);
+    } catch {
+      setClimateConfigMessage({ type: "error", text: "Failed to save." });
+    } finally {
+      setSavingClimate(false);
     }
   }
 
@@ -341,7 +362,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h5 className="text-xs font-semibold uppercase tracking-wider text-sky-400">SOTA Machine Learning Model</h5>
-                      <p className="text-[10px] text-slate-500">Synthetic Training Engine on Binance Historical Data</p>
+                      <p className="text-[10px] text-slate-500">Synthetic Training on Binance (crypto) + Open-Meteo (climate)</p>
                     </div>
                     <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">
                       ACTIVE
@@ -370,7 +391,7 @@ export default function SettingsPage() {
                       disabled={retraining}
                       className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-white rounded border border-slate-700 transition-colors"
                     >
-                      {retraining ? "Retraining Booster..." : "Retrain Model Now"}
+                      {retraining ? "Retraining Boosters..." : "Retrain Models Now"}
                     </button>
                     {retrainResult && (
                       <span className={`text-[11px] font-medium ${retrainResult.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
@@ -460,6 +481,249 @@ export default function SettingsPage() {
                   value={kalshiConfig.min_hold_minutes}
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hold_minutes: v })}
                   onBlur={() => saveKalshiConfig({ min_hold_minutes: kalshiConfig.min_hold_minutes })}
+                  suffix="min"
+                  step={5} min={0} max={480}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Climate Bot Settings */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">Climate Event Contracts</h3>
+          {savingClimate && <span className="text-xs text-amber-400">Saving...</span>}
+          {climateConfigMessage && (
+            <span className={`text-xs ${climateConfigMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+              {climateConfigMessage.text}
+            </span>
+          )}
+        </div>
+
+        {climateConfig && (
+          <>
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Mode:</label>
+                <button
+                  onClick={() => setClimateModeModal(climateConfig.mode === "paper" ? "live" : "paper")}
+                  className={`text-xs font-bold px-3 py-1 rounded transition-colors ${
+                    climateConfig.mode === "live"
+                      ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                      : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+                  }`}
+                >
+                  {climateConfig.mode.toUpperCase()}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-slate-400">Enabled:</label>
+                <button
+                  onClick={() => saveClimateConfig({ enabled: !climateConfig.enabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${
+                    climateConfig.enabled ? "bg-sky-600" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                      climateConfig.enabled ? "translate-x-5" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <ConfirmModal
+              open={climateModeModal === "live"}
+              title="Switch Climate to Live Mode"
+              confirmLabel="Switch to Live"
+              confirmClass="bg-red-600 hover:bg-red-500"
+              onConfirm={() => {
+                saveClimateConfig({ mode: "live" });
+                setClimateModeModal(null);
+              }}
+              onCancel={() => setClimateModeModal(null)}
+            >
+              <p>You are about to enable <strong className="text-red-400">live trading</strong> on Climate markets:</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400">
+                <li>Real orders will be placed on Kalshi using your API keys</li>
+                <li>Real money will be at risk on every signal</li>
+              </ul>
+            </ConfirmModal>
+
+            <ConfirmModal
+              open={climateModeModal === "paper"}
+              title="Switch Climate to Paper Mode"
+              confirmLabel="Switch to Paper"
+              onConfirm={() => {
+                saveClimateConfig({ mode: "paper" });
+                setClimateModeModal(null);
+              }}
+              onCancel={() => setClimateModeModal(null)}
+            >
+              <p>Switching Climate to <strong className="text-amber-400">paper mode</strong>. No real orders will be placed.</p>
+            </ConfirmModal>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Market Filters</h4>
+              <p className="text-xs text-slate-500 mb-3">
+                Kalshi climate series to scan. Temperature, precipitation, and other weather markets.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-400 mb-1 block">Series Tickers</label>
+                  <input
+                    type="text"
+                    value={climateConfig.series_tickers}
+                    onChange={(e) => setClimateConfig({ ...climateConfig, series_tickers: e.target.value })}
+                    onBlur={() => saveClimateConfig({ series_tickers: climateConfig.series_tickers })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                    placeholder="KXHITEMP-NYC,KXHITEMP-CHI"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Comma-separated Kalshi climate series</p>
+                </div>
+                <ConfigField
+                  label="Min 24h Volume"
+                  description="Only trade markets with at least this many contracts traded in the last 24 hours."
+                  value={climateConfig.min_volume_24h}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_volume_24h: v })}
+                  onBlur={() => saveClimateConfig({ min_volume_24h: climateConfig.min_volume_24h })}
+                  step={10} min={0} max={10000}
+                />
+                <ConfigField
+                  label="Min Price"
+                  description="Skip markets priced below this."
+                  prefix="$"
+                  value={climateConfig.min_price}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_price: v })}
+                  onBlur={() => saveClimateConfig({ min_price: climateConfig.min_price })}
+                  step={0.01} min={0} max={0.95}
+                />
+                <ConfigField
+                  label="Max Price"
+                  description="Skip markets priced above this."
+                  prefix="$"
+                  value={climateConfig.max_price}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_price: v })}
+                  onBlur={() => saveClimateConfig({ max_price: climateConfig.max_price })}
+                  step={0.01} min={0.05} max={0.99}
+                />
+                <ConfigField
+                  label="Min Hours to Expiry"
+                  description="Skip markets expiring sooner than this."
+                  suffix="hrs"
+                  value={climateConfig.min_hours_to_expiry}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_hours_to_expiry: v })}
+                  onBlur={() => saveClimateConfig({ min_hours_to_expiry: climateConfig.min_hours_to_expiry })}
+                  step={1} min={0} max={72}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Strategy Parameters</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigField
+                  label="Min Edge"
+                  description="Minimum edge to trigger a buy."
+                  suffix="%"
+                  value={Math.round(climateConfig.min_edge * 100)}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_edge: v / 100 })}
+                  onBlur={() => saveClimateConfig({ min_edge: climateConfig.min_edge })}
+                  step={1} min={1} max={50}
+                />
+                <ConfigField
+                  label="Exit Edge"
+                  description="Sell when edge drops below this."
+                  suffix="%"
+                  value={Math.round(climateConfig.exit_edge * 100)}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, exit_edge: v / 100 })}
+                  onBlur={() => saveClimateConfig({ exit_edge: climateConfig.exit_edge })}
+                  step={1} min={-50} max={0}
+                />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-4">
+              <h4 className="text-sm font-semibold text-slate-300 mb-1">Climate Risk Management</h4>
+              <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <ConfigField
+                  label="Contracts per Signal"
+                  description="Max contracts to buy per signal."
+                  value={climateConfig.contracts_per_signal}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, contracts_per_signal: v })}
+                  onBlur={() => saveClimateConfig({ contracts_per_signal: climateConfig.contracts_per_signal })}
+                  step={5} min={1} max={500}
+                />
+                <ConfigField
+                  label="Max Cost per Signal"
+                  description="Caps total cost per signal."
+                  prefix="$"
+                  value={climateConfig.max_cost_per_signal}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_cost_per_signal: v })}
+                  onBlur={() => saveClimateConfig({ max_cost_per_signal: climateConfig.max_cost_per_signal })}
+                  step={5} min={1} max={1000}
+                />
+                <ConfigField
+                  label="Max Open Positions"
+                  description="Maximum concurrent climate positions."
+                  value={climateConfig.max_open_positions}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_open_positions: v })}
+                  onBlur={() => saveClimateConfig({ max_open_positions: climateConfig.max_open_positions })}
+                  step={1} min={1} max={20}
+                />
+                <ConfigField
+                  label="Max Positions / Event"
+                  description="Max positions per climate event."
+                  value={climateConfig.max_positions_per_event}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_positions_per_event: v })}
+                  onBlur={() => saveClimateConfig({ max_positions_per_event: climateConfig.max_positions_per_event })}
+                  step={1} min={1} max={10}
+                />
+                <ConfigField
+                  label="Stop Loss"
+                  description="Close position if unrealized loss exceeds this."
+                  suffix="%"
+                  value={climateConfig.stop_loss_pct}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, stop_loss_pct: v })}
+                  onBlur={() => saveClimateConfig({ stop_loss_pct: climateConfig.stop_loss_pct })}
+                  step={1} min={1} max={50}
+                />
+                <ConfigField
+                  label="Take Profit"
+                  description="Close position when gain reaches this. 0 = disabled."
+                  suffix="%"
+                  value={climateConfig.take_profit_pct}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, take_profit_pct: v })}
+                  onBlur={() => saveClimateConfig({ take_profit_pct: climateConfig.take_profit_pct })}
+                  step={1} min={0} max={500}
+                />
+                <ConfigField
+                  label="Daily Loss Limit"
+                  description="Pauses the climate bot for the day if losses exceed this."
+                  prefix="$"
+                  value={climateConfig.daily_loss_limit_usd}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, daily_loss_limit_usd: v })}
+                  onBlur={() => saveClimateConfig({ daily_loss_limit_usd: climateConfig.daily_loss_limit_usd })}
+                  step={5} min={0} max={10000}
+                />
+                <ConfigField
+                  label="Max Signals/Hour"
+                  description="Rate limit on new climate signals. 0 = unlimited."
+                  value={climateConfig.max_signals_per_hour}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_signals_per_hour: v })}
+                  onBlur={() => saveClimateConfig({ max_signals_per_hour: climateConfig.max_signals_per_hour })}
+                  step={1} min={0} max={20}
+                />
+                <ConfigField
+                  label="Min Hold Time"
+                  description="Minimum minutes to hold before edge_lost exit can fire."
+                  value={climateConfig.min_hold_minutes}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_hold_minutes: v })}
+                  onBlur={() => saveClimateConfig({ min_hold_minutes: climateConfig.min_hold_minutes })}
                   suffix="min"
                   step={5} min={0} max={480}
                 />

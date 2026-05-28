@@ -63,6 +63,7 @@ def _signal_response(s) -> SignalResponse:
 async def list_signals(
     statuses: str | None = Query(None, description="Comma-separated status values"),
     status: str | None = Query(None, deprecated="Use statuses instead"),
+    venue: str | None = Query(None, description="Filter by venue: kalshi, climate"),
     date: date_type | None = Query(None),
     tz_offset: int | None = Query(None, description="Minutes from UTC (JS getTimezoneOffset convention)"),
     limit: int = Query(50, ge=1, le=200),
@@ -72,6 +73,10 @@ async def list_signals(
 ):
     stmt = select(Signal).where(Signal.user_id == user.id)
     count_stmt = select(func.count()).select_from(Signal).where(Signal.user_id == user.id)
+
+    if venue:
+        stmt = stmt.where(Signal.venue == venue)
+        count_stmt = count_stmt.where(Signal.venue == venue)
 
     raw_statuses = statuses.split(",") if statuses else ([status] if status else None)
     if raw_statuses:
