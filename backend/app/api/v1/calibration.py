@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.history import History
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.calibration import CalibrationBin, CalibrationResponse, RetrainResponse
@@ -81,19 +82,29 @@ async def get_calibration(
 @router.post("/calibration/retrain", response_model=RetrainResponse)
 async def trigger_retrain(
     _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Triggers manual model retraining on Binance data and reloads the booster."""
-    # Runs the training pipeline asynchronously
     success = await train_and_save_model()
     if success:
         reload_booster()
         size_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
+        db.add(History(
+            user_id=_user.id,
+            text="Manual SOTA ML model retraining completed successfully",
+        ))
+        await db.commit()
         return RetrainResponse(
             success=True,
             message="Model successfully retrained and booster reloaded in memory.",
             model_file_size_kb=round(size_kb, 1),
         )
     else:
+        db.add(History(
+            user_id=_user.id,
+            text="Manual SOTA ML model retraining failed",
+        ))
+        await db.commit()
         return RetrainResponse(
             success=False,
             message="Model retraining failed. Please check backend logs.",

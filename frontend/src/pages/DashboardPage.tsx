@@ -12,7 +12,7 @@ import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { getTodayISO } from "@/utils/date";
 
-const REFRESH_INTERVAL = 60;
+const REFRESH_INTERVAL = 30;
 
 export default function DashboardPage() {
   const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
@@ -60,20 +60,26 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, signalFilters.date, signalFilters.statuses?.join(",") ?? "", lastRefreshed]);
+  }, [tab, signalFilters.date, signalFilters.statuses?.join(",") ?? "", lastRefreshed?.getTime()]);
 
-  useEffect(() => {
-    refresh();
-    intervalRef.current = setInterval(refresh, REFRESH_INTERVAL * 1000);
-    return () => clearInterval(intervalRef.current);
-  }, [refresh]);
-
+  // Unified interval for countdown and auto-refresh
   useEffect(() => {
     const tick = setInterval(() => {
-      setCountdown((c) => (c > 0 ? c - 1 : 0));
+      setCountdown((c) => {
+        if (c <= 1) {
+          fetchDashboard();
+          return REFRESH_INTERVAL;
+        }
+        return c - 1;
+      });
     }, 1000);
     return () => clearInterval(tick);
-  }, []);
+  }, [fetchDashboard]);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   if (!dashboard && loading) {
     return (
@@ -138,8 +144,8 @@ export default function DashboardPage() {
       )}
 
       <StatsCard stats={dashboard.stats} />
-      <PnLChart />
-      <CalibrationChart />
+      <PnLChart refreshKey={lastRefreshed?.getTime() ?? undefined} />
+      <CalibrationChart refreshKey={lastRefreshed?.getTime() ?? undefined} />
 
       <div className="flex gap-1 border-b border-slate-800">
         <button

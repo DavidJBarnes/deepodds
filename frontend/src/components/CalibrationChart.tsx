@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCalibration, type CalibrationData } from "@/api/bot";
+import { getCalibration, type CalibrationBin, type CalibrationData } from "@/api/bot";
 import {
   BarChart,
   Bar,
@@ -27,16 +27,24 @@ function barColor(bin: CalibrationData["bins"][number]): string {
   return COLORS.calibrated;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function formatTooltip(value: any, name: any): any {
-  const v = Number(value) || 0;
-  const n = String(name);
-  if (n === "actualPct") return [`${v}%`, "Actual win rate"];
-  if (n === "modelPct") return [`${v}%`, "Model predicted"];
-  return [String(v), n];
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: CalibrationBin & { modelPct: number; actualPct: number } }[] }) {
+  if (!active || !payload?.[0]) return null;
+  const d = payload[0].payload;
+  const diff = d.avg_model_prob - d.actual_win_rate;
+  const diffLabel = diff > 0.05 ? "Overconfident" : diff < -0.05 ? "Underconfident" : "Well-calibrated";
+  const diffColor = diff > 0.05 ? "text-red-400" : diff < -0.05 ? "text-emerald-400" : "text-sky-400";
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+      <p className="text-slate-300 font-medium mb-1">{d.bin_label}</p>
+      <p className="text-sky-400">Model: {d.modelPct}%</p>
+      <p className={diffColor}>Actual: {d.actualPct}%</p>
+      <p className={`mt-1 ${diffColor}`}>{diffLabel}</p>
+      <p className="text-slate-400 mt-1">{d.count} signals · {d.wins}W / {d.count - d.wins}L</p>
+    </div>
+  );
 }
 
-export default function CalibrationChart() {
+export default function CalibrationChart({ refreshKey }: { refreshKey?: number }) {
   const [data, setData] = useState<CalibrationData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -47,7 +55,7 @@ export default function CalibrationChart() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshKey]);
 
   if (loading) {
     return (
@@ -127,13 +135,9 @@ export default function CalibrationChart() {
             tickFormatter={(v: number) => `${v}%`}
           />
           <Tooltip
-            contentStyle={{
-              background: "#0f172a",
-              border: "1px solid #334155",
-              borderRadius: "8px",
-              fontSize: "12px",
-            }}
-            formatter={formatTooltip}
+            content={<CustomTooltip />}
+            cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+            contentStyle={{ backgroundColor: "transparent", border: "none" }}
           />
           <ReferenceLine
             segment={[

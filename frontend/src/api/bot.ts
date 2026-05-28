@@ -145,12 +145,12 @@ export interface PnLChartData {
 }
 
 export async function getPnLChart(days = 30) {
-  const { data } = await client.get<PnLChartData>("/dashboard/pnl-chart", { params: { days } });
+  const { data } = await client.get<PnLChartData>("/dashboard/pnl-chart", { params: { days, _t: Date.now() } });
   return data;
 }
 
 export async function getDashboard() {
-  const { data } = await client.get<DashboardData>("/dashboard");
+  const { data } = await client.get<DashboardData>("/dashboard", { params: { _t: Date.now() } });
   return data;
 }
 
@@ -204,7 +204,7 @@ export interface RetrainResult {
   model_file_size_kb: number;
 }
 export async function getCalibration() {
-  const { data } = await client.get<CalibrationData>("/calibration");
+  const { data } = await client.get<CalibrationData>("/calibration", { params: { _t: Date.now() } });
   return data;
 }
 
