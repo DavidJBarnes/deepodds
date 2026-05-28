@@ -201,7 +201,7 @@ async def start_scheduler():
                 logger.info("Triggering weekly SOTA ML auto-retraining...")
                 from app.services.train_model import train_and_save_model
                 from app.services.probability_model import reload_booster
-                success = await asyncio.to_thread(train_and_save_model)
+                success = await train_and_save_model()
                 if success:
                     reload_booster()
                     logger.info("SOTA ML auto-retraining completed successfully and booster reloaded.")

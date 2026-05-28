@@ -121,15 +121,14 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
     return pd.DataFrame(df_list)
 
 
-def train_and_save_model() -> bool:
+async def train_and_save_model() -> bool:
     """Fetches Binance klines, generates synthetic data, trains XGBoost and saves to JSON."""
     logger.info("Starting SOTA Synthetic ML Model Training...")
 
     all_data = []
-    loop = asyncio.get_event_loop()
 
     for sym in SUPPORTED_SYMBOLS:
-        closes = loop.run_until_complete(fetch_historical_data_for_training(sym, hours=1500))
+        closes = await fetch_historical_data_for_training(sym, hours=1500)
         if not closes:
             logger.warning("No closes fetched for %s, skipping", sym)
             continue

@@ -84,7 +84,7 @@ async def trigger_retrain(
 ):
     """Triggers manual model retraining on Binance data and reloads the booster."""
     # Runs the training pipeline synchronously
-    success = train_and_save_model()
+    success = await train_and_save_model()
     if success:
         reload_booster()
         size_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
