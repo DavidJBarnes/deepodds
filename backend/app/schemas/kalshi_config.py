@@ -8,7 +8,7 @@ class KalshiConfigResponse(BaseModel):
     min_volume_24h: int = 50
     min_price: float = 0.05
     max_price: float = 0.80
-    min_hours_to_expiry: int = 4
+    min_hours_to_expiry: int = 2
     min_edge: float = 0.08
     exit_edge: float = -0.02
     contracts_per_signal: int = 50

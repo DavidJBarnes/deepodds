@@ -20,7 +20,7 @@ class KalshiConfig(Base):
     min_volume_24h: Mapped[int] = mapped_column(Integer, default=50)
     min_price: Mapped[float] = mapped_column(Float, default=0.05)
     max_price: Mapped[float] = mapped_column(Float, default=0.80)
-    min_hours_to_expiry: Mapped[int] = mapped_column(Integer, default=4)
+    min_hours_to_expiry: Mapped[int] = mapped_column(Integer, default=2)
 
     min_edge: Mapped[float] = mapped_column(Float, default=0.08)
     exit_edge: Mapped[float] = mapped_column(Float, default=-0.02)
