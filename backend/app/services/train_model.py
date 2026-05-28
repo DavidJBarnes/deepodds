@@ -60,8 +60,7 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
             future_spot = closes[i + t_hours]
             t_years = t_hours / (365.25 * 24)
 
-            # Mix vol-scaled and fixed-percentage widths so the model
-            # sees range widths decoupled from vol (like real Kalshi buckets)
+            # Mix vol-scaled and fixed-percentage widths
             widths = []
             for mult in [0.2, 0.5, 0.8, 1.2]:
                 w = spot * vol * math.sqrt(t_years) * mult
@@ -70,31 +69,38 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
             for pct in [0.005, 0.01, 0.02, 0.03, 0.05]:
                 widths.append(spot * pct)
 
+            # Generate ranges at various offsets from spot so the model
+            # sees ATM through deep OTM. sigma = 1 std dev of price move.
+            sigma = spot * vol * math.sqrt(t_years)
+            offsets = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]
+
             for width in widths:
-                drift_shift = spot * np.random.normal(0, vol * math.sqrt(t_years) * 0.2)
-                center = spot + drift_shift
+                for offset in offsets:
+                    center = spot + sigma * offset
 
-                floor = center - width / 2
-                cap = center + width / 2
+                    floor = center - width / 2
+                    cap = center + width / 2
+                    if cap <= 0:
+                        continue
 
-                won = 1 if floor <= future_spot <= cap else 0
+                    won = 1 if floor <= future_spot <= cap else 0
 
-                dist_floor = (spot - floor) / spot
-                dist_cap = (cap - spot) / spot
-                range_width_pct = (cap - floor) / spot
-                rel_spot = (spot - floor) / (cap - floor) if cap > floor else 0.5
+                    dist_floor = (spot - floor) / spot
+                    dist_cap = (cap - spot) / spot
+                    range_width_pct = (cap - floor) / spot
+                    rel_spot = (spot - floor) / (cap - floor) if cap > floor else 0.5
 
-                df_list.append({
-                    "symbol": symbol,
-                    "dist_floor": dist_floor,
-                    "dist_cap": dist_cap,
-                    "range_width_pct": range_width_pct,
-                    "rel_spot": rel_spot,
-                    "hours_to_expiry": float(t_hours),
-                    "log_hours_to_expiry": math.log(float(t_hours)),
-                    "vol_24h": vol,
-                    "outcome": won
-                })
+                    df_list.append({
+                        "symbol": symbol,
+                        "dist_floor": dist_floor,
+                        "dist_cap": dist_cap,
+                        "range_width_pct": range_width_pct,
+                        "rel_spot": rel_spot,
+                        "hours_to_expiry": float(t_hours),
+                        "log_hours_to_expiry": math.log(float(t_hours)),
+                        "vol_24h": vol,
+                        "outcome": won
+                    })
 
     return pd.DataFrame(df_list)
 
