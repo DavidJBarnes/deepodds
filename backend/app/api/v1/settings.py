@@ -26,8 +26,6 @@ _FIELD_LABELS: dict[str, str] = {
     "max_price": "Max Price",
     "min_hours_to_expiry": "Min Hours to Expiry",
     "min_edge": "Min Edge",
-    "vol_lookback_hours": "Vol Lookback Hours",
-    "vol_interval": "Vol Interval",
     "exit_edge": "Exit Edge",
     "contracts_per_signal": "Contracts per Signal",
     "max_cost_per_signal": "Max Cost per Signal",
@@ -82,8 +80,6 @@ def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
         max_price=config.max_price,
         min_hours_to_expiry=config.min_hours_to_expiry,
         min_edge=config.min_edge,
-        vol_lookback_hours=config.vol_lookback_hours,
-        vol_interval=config.vol_interval,
         exit_edge=config.exit_edge,
         contracts_per_signal=config.contracts_per_signal,
         max_cost_per_signal=config.max_cost_per_signal,
@@ -184,33 +180,7 @@ class KalshiBalanceResponse(BaseModel):
     error: str | None = None
 
 
-class BacktestRequest(BaseModel):
-    venue: str
-    pair: str
-    stop_loss_pct: float = Field(ge=0.5, le=50.0)
-    contracts_per_signal: int = Field(default=50, ge=1, le=10000)
-    min_edge: float | None = Field(None, ge=0.01, le=0.50)
-    exit_edge: float | None = Field(None, ge=-0.50, le=0.0)
-    vol_lookback_hours: int | None = Field(None, ge=1, le=168)
-
-
-@router.post("/backtest-preview")
-async def backtest_preview(
-    body: BacktestRequest,
-    _user: User = Depends(get_current_user),
-):
-    from app.services.backtest import run_backtest_preview
-
-    result = await run_backtest_preview(
-        venue=body.venue,
-        pair=body.pair,
-        stop_loss_pct=body.stop_loss_pct,
-        contracts_per_signal=body.contracts_per_signal,
-        min_edge=body.min_edge,
-        exit_edge=body.exit_edge,
-        vol_lookback_hours=body.vol_lookback_hours,
-    )
-    return result
+# Backtest endpoint removed as classical backtesting is deprecated.
 
 
 @router.post("/reset-data")

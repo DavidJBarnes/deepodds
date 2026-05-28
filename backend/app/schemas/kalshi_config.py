@@ -5,13 +5,11 @@ class KalshiConfigResponse(BaseModel):
     mode: str
     enabled: bool
     series_tickers: str = "KXBTC,KXETH"
-    min_volume_24h: int = 100
+    min_volume_24h: int = 15
     min_price: float = 0.01
     max_price: float = 0.80
-    min_hours_to_expiry: int = 1
+    min_hours_to_expiry: int = 2
     min_edge: float = 0.08
-    vol_lookback_hours: int = 24
-    vol_interval: str = "15m"
     exit_edge: float = -0.02
     contracts_per_signal: int = 50
     max_cost_per_signal: float = 25.0
@@ -33,8 +31,6 @@ class KalshiConfigUpdate(BaseModel):
     max_price: float | None = Field(None, ge=0.50, le=0.99)
     min_hours_to_expiry: int | None = Field(None, ge=0, le=48)
     min_edge: float | None = Field(None, ge=0.01, le=0.50)
-    vol_lookback_hours: int | None = Field(None, ge=1, le=168)
-    vol_interval: str | None = None
     exit_edge: float | None = Field(None, ge=-0.50, le=0.0)
     contracts_per_signal: int | None = Field(None, ge=1, le=10000)
     max_cost_per_signal: float | None = Field(None, ge=1.0, le=1000.0)

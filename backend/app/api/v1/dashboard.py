@@ -204,7 +204,7 @@ async def get_dashboard(
                 if symbol not in spot_prices:
                     continue
                 try:
-                    vol = await get_realized_vol(symbol, hours=kalshi_cfg.vol_lookback_hours, interval=kalshi_cfg.vol_interval)
+                    vol = await get_realized_vol(symbol, hours=24, interval="15m")
                     if vol and vol > 0:
                         underlying_data[series] = {"spot": spot_prices[symbol], "vol": vol}
                 except Exception:

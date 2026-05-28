@@ -19,6 +19,9 @@ dependencies = [
     "psycopg2-binary>=2.9",
     "scipy>=1.14",
     "pyjwt[crypto]>=2.13.0",
+    "xgboost>=2.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]

@@ -12,10 +12,6 @@ from app.models.signal import Signal
 from app.services.binance_client import get_crypto_prices, get_daily_closes, get_market_stats, get_realized_vol
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import (
-    FREQ_EDGE_WEIGHT,
-    SPOT_RANGE_WEIGHT,
-    _historical_freq_edge,
-    _spot_in_range_edge,
     compute_edge,
     series_to_underlying,
 )
@@ -322,7 +318,7 @@ def scan_kalshi_entries(
         min_ask_size=1,
     )
 
-    underlying = _fetch_underlying_data(series, config.vol_lookback_hours, config.vol_interval)
+    underlying = _fetch_underlying_data(series, 24, "15m")
 
     # Approach A: Fetch historical daily closes for empirical frequency calibration.
     hist_closes: dict[str, list[float]] = {}
@@ -412,39 +408,20 @@ def scan_kalshi_entries(
                 )
                 continue
 
+            # Predict probability using the new SOTA ML model
+            symbol = series_to_underlying(series_ticker) if series_ticker else "BTC"
             result = compute_edge(
                 spot, floor_strike, cap_strike, strike_type,
-                t_years, vol, market_price, drift=drift,
+                t_years, vol, market_price, drift=drift, symbol=symbol
             )
 
-            # Approach A: Empirical frequency edge from historical closes.
-            freq_edge = 0.0
-            spot_boost = 0.0
-            if strike_type == "between":
-                symbol_for_freq = series_to_underlying(series_ticker) if series_ticker else None
-                if symbol_for_freq and symbol_for_freq in hist_closes:
-                    freq_edge = _historical_freq_edge(
-                        hist_closes[symbol_for_freq], floor_strike, cap_strike, market_price,
-                    )
-                spot_boost = _spot_in_range_edge(
-                    spot, floor_strike, cap_strike, strike_type, t_years, vol, market_price,
-                )
-
-            combined_edge = result.edge + FREQ_EDGE_WEIGHT * freq_edge + SPOT_RANGE_WEIGHT * spot_boost
-            result.frequency_edge = freq_edge
-            result.spot_range_edge = spot_boost
-            result.edge = combined_edge
-
             logger.info(
-                "KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% (vol=%.1f%% freq=%.1f%% spot=%.1f%%) "
-                "spread=%.1f%% (min=%.1f%%) vol_r=%.0f%% vol_i=%.0f%% vol_b=%.0f%% drift=%+.0f%%",
+                "SOTA ML KALSHI %s: model=%.1f%% mkt=%.1f%% edge=%.1f%% "
+                "spread=%.1f%% (min=%.1f%%) vol=%.1f%% drift=%+.1f%%",
                 ticker, result.model_prob * 100, result.market_prob * 100,
-                combined_edge * 100,
-                (result.model_prob - result.market_prob) * 100,
-                freq_edge * 100, spot_boost * 100,
+                result.edge * 100,
                 spread_pct, config.min_edge * 100,
-                result.realized_vol * 100, result.implied_vol * 100,
-                result.blended_vol * 100,
+                result.realized_vol * 100,
                 result.realized_drift * 100,
             )
 
@@ -640,10 +617,6 @@ def check_kalshi_exits(
     all_series = list(series_set)
     vol_hours = 24
     vol_interval = "15m"
-    if configs:
-        first_cfg = next(iter(configs.values()))
-        vol_hours = first_cfg.vol_lookback_hours
-        vol_interval = first_cfg.vol_interval
 
     underlying = _fetch_underlying_data(all_series, vol_hours, vol_interval)
 
