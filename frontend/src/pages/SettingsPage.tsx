@@ -359,7 +359,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
                       <span className="text-slate-500 block mb-0.5">Features</span>
-                      <span className="text-white font-medium">12 Tabular Metrics</span>
+                      <span className="text-white font-medium">13 Tabular Metrics</span>
                     </div>
                   </div>
 
@@ -427,6 +427,15 @@ export default function SettingsPage() {
                   onChange={(v) => setKalshiConfig({ ...kalshiConfig, stop_loss_pct: v })}
                   onBlur={() => saveKalshiConfig({ stop_loss_pct: kalshiConfig.stop_loss_pct })}
                   step={1} min={1} max={50}
+                />
+                <ConfigField
+                  label="Take Profit"
+                  description="Close position when unrealized gain reaches this percentage. 0 = disabled."
+                  suffix="%"
+                  value={kalshiConfig.take_profit_pct}
+                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, take_profit_pct: v })}
+                  onBlur={() => saveKalshiConfig({ take_profit_pct: kalshiConfig.take_profit_pct })}
+                  step={1} min={0} max={500}
                 />
                 <ConfigField
                   label="Daily Loss Limit"
