@@ -198,11 +198,20 @@ export interface CalibrationData {
   reliability_ready: boolean;
 }
 
+export interface RetrainResult {
+  success: boolean;
+  message: string;
+  model_file_size_kb: number;
+}
 export async function getCalibration() {
   const { data } = await client.get<CalibrationData>("/calibration");
   return data;
 }
 
+export async function triggerRetrain() {
+  const { data } = await client.post<RetrainResult>("/calibration/retrain");
+  return data;
+}
 export async function createHistory(text: string) {
   const { data } = await client.post<HistoryEntry>("/history", { text });
   return data;

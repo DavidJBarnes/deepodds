@@ -110,7 +110,6 @@ class TestLogConfigChanges:
         assert _FIELD_LABELS["max_signals_per_hour"] == "Max Signals per Hour"
         assert _FIELD_LABELS["min_hold_minutes"] == "Min Hold Minutes"
         assert _FIELD_LABELS["min_hours_to_expiry"] == "Min Hours to Expiry"
-        assert _FIELD_LABELS["vol_lookback_hours"] == "Vol Lookback Hours"
 
     def test_field_labels_cover_all_kalshi_config_fields(self):
         from app.api.v1.settings import _FIELD_LABELS

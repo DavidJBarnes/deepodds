@@ -198,7 +198,12 @@ async def get_dashboard(
                     func.coalesce(func.sum(Signal.quantity), 0.0),
                 )
                 .select_from(Signal)
-                .where(Signal.user_id == user.id, Signal.venue == "kalshi", Signal.status.in_(OPEN_STATUSES))
+                .where(
+                    Signal.user_id == user.id,
+                    Signal.venue == "kalshi",
+                    Signal.signal_type == kalshi_cfg.mode,
+                    Signal.status.in_(OPEN_STATUSES)
+                )
             )
         ).one()
         kalshi_open, kalshi_exposure, kalshi_payout = kalshi_open_stats
@@ -232,7 +237,7 @@ async def get_dashboard(
                 if symbol not in spot_prices:
                     continue
                 try:
-                    vol = await get_realized_vol(symbol, hours=kalshi_cfg.vol_lookback_hours, interval=kalshi_cfg.vol_interval)
+                    vol = await get_realized_vol(symbol, hours=24, interval="15m")
                     if vol and vol > 0:
                         underlying_data[series] = {"spot": spot_prices[symbol], "vol": vol}
                 except Exception:

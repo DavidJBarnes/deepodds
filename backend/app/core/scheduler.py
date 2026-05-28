@@ -193,12 +193,29 @@ async def start_scheduler():
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 30 - elapsed))
 
+    async def kalshi_retrain_loop():
+        # Wait 1 hour on startup to allow immediate scanning
+        await asyncio.sleep(3600)
+        while True:
+            try:
+                logger.info("Triggering weekly SOTA ML auto-retraining...")
+                from app.services.train_model import train_and_save_model
+                from app.services.probability_model import reload_booster
+                success = await train_and_save_model()
+                if success:
+                    reload_booster()
+                    logger.info("SOTA ML auto-retraining completed successfully and booster reloaded.")
+            except Exception:
+                logger.exception("SOTA ML auto-retraining loop encountered an error")
+            await asyncio.sleep(7 * 24 * 3600)
+
     tasks = [
         asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
         asyncio.create_task(kalshi_sync_live_loop(), name="kalshi_sync_live"),
+        asyncio.create_task(kalshi_retrain_loop(), name="kalshi_retrain"),
     ]
 
     logger.info(
-        "Scheduler running: kalshi(30s), kalshi_live(30s)"
+        "Scheduler running: kalshi(30s), kalshi_live(30s), retrain(7d)"
     )
     return tasks

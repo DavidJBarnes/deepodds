@@ -87,6 +87,26 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  const [retraining, setRetraining] = useState(false);
+  const [retrainResult, setRetrainResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  async function handleRetrainModel() {
+    setRetraining(true);
+    setRetrainResult(null);
+    try {
+      const res = await botApi.triggerRetrain();
+      if (res.success) {
+        setRetrainResult({ type: "success", text: `${res.message} (${res.model_file_size_kb} KB)` });
+      } else {
+        setRetrainResult({ type: "error", text: res.message });
+      }
+    } catch {
+      setRetrainResult({ type: "error", text: "Manual retraining request failed." });
+    } finally {
+      setRetraining(false);
+    }
+  }
+
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getKalshiConfig().then(setKalshiConfig);
@@ -317,30 +337,47 @@ export default function SettingsPage() {
                   onBlur={() => saveKalshiConfig({ exit_edge: kalshiConfig.exit_edge })}
                   step={1} min={-50} max={0}
                 />
-                <ConfigField
-                  label="Vol Lookback"
-                  description="Hours of Binance kline data used to compute realized volatility. 24 = 1 day of price history."
-                  suffix="hrs"
-                  value={kalshiConfig.vol_lookback_hours}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, vol_lookback_hours: v })}
-                  onBlur={() => saveKalshiConfig({ vol_lookback_hours: kalshiConfig.vol_lookback_hours })}
-                  step={1} min={1} max={168}
-                />
-                <div>
-                  <label className="text-sm text-slate-400 mb-1 block">Vol Interval</label>
-                  <select
-                    value={kalshiConfig.vol_interval}
-                    onChange={(e) => {
-                      setKalshiConfig({ ...kalshiConfig, vol_interval: e.target.value });
-                      saveKalshiConfig({ vol_interval: e.target.value });
-                    }}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    <option value="5m">5 min</option>
-                    <option value="15m">15 min</option>
-                    <option value="1h">1 hour</option>
-                  </select>
-                  <p className="text-xs text-slate-500 mt-1">Kline interval for volatility calculation</p>
+                <div className="col-span-2 bg-slate-950/40 border border-slate-800 rounded-lg p-4 mt-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-sky-400">SOTA Machine Learning Model</h5>
+                      <p className="text-[10px] text-slate-500">Synthetic Training Engine on Binance Historical Data</p>
+                    </div>
+                    <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">
+                      ACTIVE
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <span className="text-slate-500 block mb-0.5">Model Type</span>
+                      <span className="text-white font-mono font-medium">XGBoost Binary</span>
+                    </div>
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <span className="text-slate-500 block mb-0.5">Auto-Retrain</span>
+                      <span className="text-white font-medium">Weekly (Sun 12 AM)</span>
+                    </div>
+                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
+                      <span className="text-slate-500 block mb-0.5">Features</span>
+                      <span className="text-white font-medium">12 Tabular Metrics</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleRetrainModel}
+                      disabled={retraining}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-white rounded border border-slate-700 transition-colors"
+                    >
+                      {retraining ? "Retraining Booster..." : "Retrain Model Now"}
+                    </button>
+                    {retrainResult && (
+                      <span className={`text-[11px] font-medium ${retrainResult.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                        {retrainResult.text}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
