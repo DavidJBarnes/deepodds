@@ -318,7 +318,7 @@ def scan_kalshi_entries(
         min_ask_size=1,
     )
 
-    underlying = _fetch_underlying_data(series, 24, "1h")
+    underlying = _fetch_underlying_data(series, 48, "1h")
 
     # Approach A: Fetch historical daily closes for empirical frequency calibration.
     hist_closes: dict[str, list[float]] = {}
