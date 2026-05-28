@@ -19,6 +19,8 @@ from app.services.kalshi_fair_value import (
 from app.services.kalshi_live_sync import sync_kalshi_live
 
 _BALANCE_CACHE_TTL = 60  # seconds; scheduler refreshes every 30s
+_SCAN_INTERVAL = 30  # seconds between entry scan cycles
+_EXIT_INTERVAL = 15  # seconds between exit check cycles
 
 logger = logging.getLogger(__name__)
 
@@ -174,14 +176,23 @@ async def start_scheduler():
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_kalshi_scan)
-                await asyncio.to_thread(_run_kalshi_check_exits)
-                await asyncio.to_thread(_run_kalshi_housekeeping)
                 _write_scanner_health("online")
             except Exception as exc:
                 _write_scanner_health("error", str(exc)[:200])
-                logger.exception("Kalshi scan/exit loop failed")
+                logger.exception("Kalshi scan loop failed")
             elapsed = time.monotonic() - t0
-            await asyncio.sleep(max(0, 30 - elapsed))
+            await asyncio.sleep(max(0, _SCAN_INTERVAL - elapsed))
+
+    async def kalshi_exit_loop():
+        while True:
+            t0 = time.monotonic()
+            try:
+                await asyncio.to_thread(_run_kalshi_check_exits)
+                await asyncio.to_thread(_run_kalshi_housekeeping)
+            except Exception:
+                logger.exception("Kalshi exit/housekeeping loop failed")
+            elapsed = time.monotonic() - t0
+            await asyncio.sleep(max(0, _EXIT_INTERVAL - elapsed))
 
     async def kalshi_sync_live_loop():
         while True:
@@ -199,23 +210,48 @@ async def start_scheduler():
         while True:
             try:
                 logger.info("Triggering weekly SOTA ML auto-retraining...")
+                from app.models.history import History
                 from app.services.train_model import train_and_save_model
                 from app.services.probability_model import reload_booster
                 success = await train_and_save_model()
                 if success:
                     reload_booster()
+                    # Record history entry for each user
+                    with Session(_sync_engine) as session:
+                        users = session.execute(
+                            select(User)
+                        ).scalars().all()
+                        for user in users:
+                            session.add(History(
+                                user_id=user.id,
+                                text="Automated weekly SOTA ML model retraining completed successfully",
+                            ))
+                        session.commit()
                     logger.info("SOTA ML auto-retraining completed successfully and booster reloaded.")
+                else:
+                    with Session(_sync_engine) as session:
+                        users = session.execute(
+                            select(User)
+                        ).scalars().all()
+                        for user in users:
+                            session.add(History(
+                                user_id=user.id,
+                                text="Automated weekly SOTA ML model retraining failed",
+                            ))
+                        session.commit()
             except Exception:
                 logger.exception("SOTA ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)
 
     tasks = [
         asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
+        asyncio.create_task(kalshi_exit_loop(), name="kalshi_exit"),
         asyncio.create_task(kalshi_sync_live_loop(), name="kalshi_sync_live"),
         asyncio.create_task(kalshi_retrain_loop(), name="kalshi_retrain"),
     ]
 
     logger.info(
-        "Scheduler running: kalshi(30s), kalshi_live(30s), retrain(7d)"
+        "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), retrain(7d)",
+        _SCAN_INTERVAL, _EXIT_INTERVAL,
     )
     return tasks

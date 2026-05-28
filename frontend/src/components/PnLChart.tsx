@@ -48,7 +48,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
   );
 }
 
-export default function PnLChart() {
+export default function PnLChart({ refreshKey }: { refreshKey?: number }) {
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<PnLChartData | null>(null);
   const [days, setDays] = useState(30);
@@ -59,7 +59,7 @@ export default function PnLChart() {
   useEffect(() => {
     setLoading(true);
     getPnLChart(days).then(setData).finally(() => setLoading(false));
-  }, [days]);
+  }, [days, refreshKey]);
 
   if (loading && !data) {
     return (
@@ -139,7 +139,7 @@ export default function PnLChart() {
               tickLine={false}
               width={50}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip />} contentStyle={{ backgroundColor: "transparent", border: "none" }} />
             <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
             <Bar dataKey="pnlDollars" fill="#475569" opacity={0.5} barSize={8} radius={[2, 2, 0, 0]} />
             <Bar dataKey="todayPnL" fill="#fbbf24" barSize={8} radius={[2, 2, 0, 0]} />

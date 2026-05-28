@@ -74,7 +74,6 @@ def predict_ml_probability(
     market_price: float,
     drift: float = 0.0,
     symbol: str = "BTC",
-    spread_pct: float = 5.0,  # Added feature for spread/liquidity matching
 ) -> FairValueResult:
     """Predicts range/binary option probability using the trained SOTA XGBoost model.
 
@@ -130,7 +129,6 @@ def predict_ml_probability(
             "hours_to_expiry": [hours_to_expiry],
             "log_hours_to_expiry": [math.log(hours_to_expiry)],
             "vol_24h": [vol],
-            "spread_pct": [spread_pct]
         }
 
         # One-hot encoding the target asset
@@ -187,10 +185,9 @@ def compute_edge(
     market_price: float,
     drift: float = 0.0,
     symbol: str = "BTC",
-    spread_pct: float = 5.0,  # Added parameter for compatibility
 ) -> FairValueResult:
     """Compatibility wrapper that routes directly to our SOTA XGBoost predictor."""
     return predict_ml_probability(
         spot, floor_strike, cap_strike, strike_type, t_years, sigma, market_price,
-        drift=drift, symbol=symbol, spread_pct=spread_pct
+        drift=drift, symbol=symbol
     )

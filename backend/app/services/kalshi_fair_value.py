@@ -318,7 +318,7 @@ def scan_kalshi_entries(
         min_ask_size=1,
     )
 
-    underlying = _fetch_underlying_data(series, 24, "15m")
+    underlying = _fetch_underlying_data(series, 24, "1h")
 
     # Approach A: Fetch historical daily closes for empirical frequency calibration.
     hist_closes: dict[str, list[float]] = {}
@@ -412,7 +412,7 @@ def scan_kalshi_entries(
             symbol = series_to_underlying(series_ticker) if series_ticker else "BTC"
             result = compute_edge(
                 spot, floor_strike, cap_strike, strike_type,
-                t_years, vol, market_price, drift=drift, symbol=symbol, spread_pct=spread_pct
+                t_years, vol, market_price, drift=drift, symbol=symbol
             )
 
             logger.info(

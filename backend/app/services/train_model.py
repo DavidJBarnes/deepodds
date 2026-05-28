@@ -60,32 +60,29 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
             future_spot = closes[i + t_hours]
             t_years = t_hours / (365.25 * 24)
 
-            for width_multiplier in [0.2, 0.5, 0.8, 1.2]:
-                width = spot * vol * math.sqrt(t_years) * width_multiplier
-                if width <= 0:
-                    continue
+            # Mix vol-scaled and fixed-percentage widths so the model
+            # sees range widths decoupled from vol (like real Kalshi buckets)
+            widths = []
+            for mult in [0.2, 0.5, 0.8, 1.2]:
+                w = spot * vol * math.sqrt(t_years) * mult
+                if w > 0:
+                    widths.append(w)
+            for pct in [0.005, 0.01, 0.02, 0.03, 0.05]:
+                widths.append(spot * pct)
 
-                # Simulate a small random drift shift
+            for width in widths:
                 drift_shift = spot * np.random.normal(0, vol * math.sqrt(t_years) * 0.2)
                 center = spot + drift_shift
 
                 floor = center - width / 2
                 cap = center + width / 2
 
-                # Label: Y=1 if future price ended inside the range
                 won = 1 if floor <= future_spot <= cap else 0
 
-                # Compute simplified, highly robust features
                 dist_floor = (spot - floor) / spot
                 dist_cap = (cap - spot) / spot
                 range_width_pct = (cap - floor) / spot
                 rel_spot = (spot - floor) / (cap - floor) if cap > floor else 0.5
-
-                # Simulate realistic bid-ask spread percentages
-                # Typical spreads are 1% to 15% of contract value. We correlate wider spreads
-                # with lower probability (OTM contracts) to let XGBoost penalize illiquid friction.
-                is_otm = abs(rel_spot - 0.5) > 0.3
-                spread_pct = np.random.uniform(8.0, 25.0) if is_otm else np.random.uniform(1.0, 8.0)
 
                 df_list.append({
                     "symbol": symbol,
@@ -96,7 +93,6 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
                     "hours_to_expiry": float(t_hours),
                     "log_hours_to_expiry": math.log(float(t_hours)),
                     "vol_24h": vol,
-                    "spread_pct": spread_pct,
                     "outcome": won
                 })
 
@@ -131,7 +127,7 @@ async def train_and_save_model() -> bool:
 
     feature_cols = [
         "dist_floor", "dist_cap", "range_width_pct", "rel_spot",
-        "hours_to_expiry", "log_hours_to_expiry", "vol_24h", "spread_pct"
+        "hours_to_expiry", "log_hours_to_expiry", "vol_24h"
     ] + [f"is_{sym.lower()}" for sym in SUPPORTED_SYMBOLS]
 
     X = df[feature_cols]
