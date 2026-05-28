@@ -11,15 +11,25 @@ from app.models.kalshi_config import KalshiConfig
 from app.models.signal import Signal
 from app.services.binance_client import get_crypto_prices, get_daily_closes, get_market_stats, get_realized_vol
 from app.services.kalshi_client import KalshiClient
+from app.services.kalshi_utils import (
+    HOURS_TO_YEARS,
+    OPEN_STATUSES,
+    check_spread_filter,
+    discover_markets as _discover_markets,
+    kelly_count as _kelly_count,
+    market_ask as _market_ask,
+    market_ask_size as _market_ask_size,
+    market_bid as _market_bid,
+    market_mid as _market_mid,
+    market_spread_pct as _market_spread_pct,
+    read_balance_cache as _read_balance_cache,
+)
 from app.services.probability_model import (
     compute_edge,
     series_to_underlying,
 )
 
 logger = logging.getLogger(__name__)
-
-OPEN_STATUSES = ("signaled", "placed", "filled")
-HOURS_TO_YEARS = 1 / (365.25 * 24)
 
 
 def _today_pnl_kalshi(session: Session, user_id) -> float:
@@ -97,92 +107,6 @@ def _open_event_count(session: Session, user_id, event_ticker: str) -> int:
     ).scalar() or 0
 
 
-def _market_ask(market: dict) -> float:
-    """Return the YES ask in dollars — the price we would actually pay to enter."""
-    return float(market.get("yes_ask_dollars", 0) or 0)
-
-
-def _market_bid(market: dict) -> float:
-    """Return the YES bid in dollars — the price we'd receive if we sold."""
-    return float(market.get("yes_bid_dollars", 0) or 0)
-
-
-def _market_ask_size(market: dict) -> float:
-    return float(market.get("yes_ask_size_fp", 0) or 0)
-
-
-def _market_mid(market: dict) -> float:
-    bid = float(market.get("yes_bid_dollars", 0) or 0)
-    ask = float(market.get("yes_ask_dollars", 0) or 0)
-    if bid <= 0 or ask <= 0:
-        return ask
-    return (bid + ask) / 2
-
-
-def _market_spread_pct(market: dict) -> float:
-    bid = float(market.get("yes_bid_dollars", 0) or 0)
-    ask = float(market.get("yes_ask_dollars", 0) or 0)
-    if bid <= 0 or ask <= 0:
-        return 0.0
-    return (ask - bid) / ask * 100 if ask > 0 else 0.0
-
-
-def _discover_markets(
-    client: KalshiClient,
-    series_tickers: list[str],
-    min_volume: int,
-    min_price: float,
-    max_price: float,
-    min_hours_to_expiry: int,
-    min_ask_size: int = 1,
-) -> list[dict]:
-    """Find markets where we could actually fill a buy order at a sensible price.
-
-    Filters on the YES ask (the price we'd pay), not last_price (which can be
-    stale). Also requires ask size >= min_ask_size so the order book has depth
-    for at least our smallest position.
-    """
-    now = datetime.now(timezone.utc)
-    cutoff = now + timedelta(hours=min_hours_to_expiry)
-    eligible = []
-
-    for series in series_tickers:
-        try:
-            data = run_async(client.get_markets(series_ticker=series, limit=200))
-        except Exception:
-            logger.warning("Failed to fetch markets for series %s", series)
-            continue
-
-        for m in data.get("markets", []):
-            vol_24h = float(m.get("volume_24h_fp", 0) or 0)
-            if vol_24h < min_volume:
-                continue
-
-            ask = _market_ask(m)
-            if ask < min_price or ask > max_price:
-                continue
-
-            if _market_ask_size(m) < min_ask_size:
-                continue
-
-            close_time = m.get("close_time", "")
-            try:
-                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                continue
-            if ct < cutoff:
-                continue
-
-            m["_series_ticker"] = series
-            m["_close_dt"] = ct
-            m["_ask"] = ask
-            m["_bid"] = _market_bid(m)
-            m["_mid"] = _market_mid(m)
-            m["_spread_pct"] = _market_spread_pct(m)
-            eligible.append(m)
-
-    eligible.sort(key=lambda m: float(m.get("volume_24h_fp", 0) or 0), reverse=True)
-    return eligible
 
 
 def _compute_vol_scaling(symbol: str, current_vol: float) -> float:
@@ -214,40 +138,6 @@ def _compute_vol_scaling(symbol: str, current_vol: float) -> float:
     return 1.0
 
 
-def _read_balance_cache(user_id: str) -> float | None:
-    """Return portfolio_cents from the scheduler-written balance cache, or None."""
-    import json as _json
-    from pathlib import Path
-
-    try:
-        path = Path(f"/tmp/kalshi_balance_{user_id}.json")
-        if not path.exists():
-            return None
-        data = _json.loads(path.read_text())
-        return float(data.get("portfolio_cents", 0))
-    except Exception:
-        return None
-
-
-def _kelly_count(edge: float, market_price: float, bankroll_cents: float, max_contracts: int, max_cost: float) -> int:
-    """Compute position size using fractional Kelly.
-
-    For a binary YES bet at price P with edge e = model_prob - P:
-      Kelly fraction f* = e / (1 - P)
-
-    Contracts = floor(f* × bankroll / P), capped by max_contracts and max_cost.
-    Uses 1/4 Kelly (quarter-Kelly) as a conservative default.
-    """
-    if market_price <= 0 or edge <= 0:
-        return 0
-    kelly = edge / (1 - market_price)
-    quarter_kelly = kelly * 0.25
-    bankroll_dollars = bankroll_cents / 100
-    count = int(quarter_kelly * bankroll_dollars / market_price)
-    count = min(count, max_contracts)
-    if market_price * count > max_cost:
-        count = int(max_cost / market_price)
-    return max(count, 0)
 
 
 def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interval: str) -> dict:
@@ -428,19 +318,8 @@ def scan_kalshi_entries(
             if result.edge < config.min_edge:
                 continue
 
-            # P1: Bid-ask spread filter — only enter when edge covers the
-            # spread cost, and entering at mid won't instantly stop-loss.
-            if spread_pct > 0:
-                # Edge must exceed half the spread (cost of round-trip friction)
-                if result.edge * 100 < spread_pct / 2:
-                    logger.info("Skipping %s: edge=%.1f%% < spread/2=%.1f%%", ticker, result.edge * 100, spread_pct / 2)
-                    continue
-                # Entering at mid then exiting at bid would lose spread/2.
-                # Reject if that instant loss would exceed the stop-loss.
-                loss_if_exit_at_bid = (mid - bid) / mid * 100 if mid > 0 else 0
-                if loss_if_exit_at_bid > config.stop_loss_pct:
-                    logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, config.stop_loss_pct)
-                    continue
+            if not check_spread_filter(result.edge, spread_pct, mid, bid, config.stop_loss_pct, ticker):
+                continue
 
             # P0: Vol regime filter + Kelly position sizing
             vol_scaling = underlying[series_ticker].get("vol_scaling", 1.0)

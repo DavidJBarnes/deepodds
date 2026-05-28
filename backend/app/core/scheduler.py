@@ -7,8 +7,14 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.core.config import settings
+from app.models.climate_config import ClimateConfig
 from app.models.kalshi_config import KalshiConfig
 from app.models.user import User
+from app.services.climate_fair_value import (
+    check_climate_exits,
+    scan_climate_entries,
+    settle_expired_climate_paper,
+)
 from app.services.kalshi_client import KalshiClient
 from app.services.kalshi_fair_value import (
     cancel_stale_placed_orders,
@@ -168,6 +174,81 @@ def _run_kalshi_housekeeping():
             logger.info("Cancelled %d stale placed orders", cancelled)
 
 
+def _write_scanner_health_climate(status: str, error: str | None = None) -> None:
+    import json as _json
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    health = {
+        "last_scan": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+    }
+    if error:
+        health["error"] = error
+    try:
+        Path("/tmp/scanner_health_climate.json").write_text(_json.dumps(health))
+    except Exception:
+        logger.warning("Failed to write climate scanner health file")
+
+
+def _run_climate_scan():
+    with Session(_sync_engine) as session:
+        configs = session.execute(
+            select(ClimateConfig).where(ClimateConfig.enabled.is_(True))
+        ).scalars().all()
+
+        for cfg in configs:
+            user = session.execute(
+                select(User).where(User.id == cfg.user_id)
+            ).scalar_one_or_none()
+            if not user:
+                continue
+
+            client = None
+            if cfg.mode == "live" and user.kalshi_api_key_id and user.kalshi_private_key:
+                try:
+                    client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+                except Exception:
+                    pass
+
+            try:
+                signals = scan_climate_entries(cfg.user_id, session, client)
+                if signals:
+                    logger.info("Created %d climate signals for %s", len(signals), user.email)
+            except Exception:
+                logger.exception("Climate scan failed for user %s", cfg.user_id)
+
+
+def _run_climate_check_exits():
+    with Session(_sync_engine) as session:
+        users = session.execute(
+            select(User).where(
+                User.kalshi_api_key_id.isnot(None),
+                User.kalshi_private_key.isnot(None),
+            )
+        ).scalars().all()
+
+        exchange_clients = {}
+        for user in users:
+            try:
+                exchange_clients[str(user.id)] = KalshiClient(
+                    user.kalshi_api_key_id, user.kalshi_private_key
+                )
+            except Exception:
+                pass
+
+        exited = check_climate_exits(session, exchange_clients if exchange_clients else None)
+        if exited:
+            logger.info("Exited %d climate positions", exited)
+
+
+def _run_climate_housekeeping():
+    with Session(_sync_engine) as session:
+        settled = settle_expired_climate_paper(session)
+        if settled:
+            logger.info("Settled %d expired climate paper signals", settled)
+
+
 async def start_scheduler():
     logger.info("Starting Kalshi scheduler")
 
@@ -243,15 +324,74 @@ async def start_scheduler():
                 logger.exception("SOTA ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)
 
+    async def climate_scan_loop():
+        while True:
+            t0 = time.monotonic()
+            try:
+                await asyncio.to_thread(_run_climate_scan)
+                _write_scanner_health_climate("online")
+            except Exception as exc:
+                _write_scanner_health_climate("error", str(exc)[:200])
+                logger.exception("Climate scan loop failed")
+            elapsed = time.monotonic() - t0
+            await asyncio.sleep(max(0, _SCAN_INTERVAL - elapsed))
+
+    async def climate_exit_loop():
+        while True:
+            t0 = time.monotonic()
+            try:
+                await asyncio.to_thread(_run_climate_check_exits)
+                await asyncio.to_thread(_run_climate_housekeeping)
+            except Exception:
+                logger.exception("Climate exit/housekeeping loop failed")
+            elapsed = time.monotonic() - t0
+            await asyncio.sleep(max(0, _EXIT_INTERVAL - elapsed))
+
+    async def climate_retrain_loop():
+        await asyncio.sleep(3600)
+        while True:
+            try:
+                logger.info("Triggering weekly climate ML auto-retraining...")
+                from app.services.train_climate_model import train_and_save_climate_model
+                from app.services.climate_probability_model import reload_booster as reload_climate_booster
+                success = await train_and_save_climate_model()
+                if success:
+                    reload_climate_booster()
+                    with Session(_sync_engine) as session:
+                        users = session.execute(select(User)).scalars().all()
+                        for user in users:
+                            session.add(History(
+                                user_id=user.id,
+                                text="Automated weekly climate ML model retraining completed successfully",
+                            ))
+                        session.commit()
+                    logger.info("Climate ML auto-retraining completed successfully.")
+                else:
+                    with Session(_sync_engine) as session:
+                        users = session.execute(select(User)).scalars().all()
+                        for user in users:
+                            session.add(History(
+                                user_id=user.id,
+                                text="Automated weekly climate ML model retraining failed",
+                            ))
+                        session.commit()
+            except Exception:
+                logger.exception("Climate ML auto-retraining loop encountered an error")
+            await asyncio.sleep(7 * 24 * 3600)
+
     tasks = [
         asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
         asyncio.create_task(kalshi_exit_loop(), name="kalshi_exit"),
         asyncio.create_task(kalshi_sync_live_loop(), name="kalshi_sync_live"),
         asyncio.create_task(kalshi_retrain_loop(), name="kalshi_retrain"),
+        asyncio.create_task(climate_scan_loop(), name="climate_scan"),
+        asyncio.create_task(climate_exit_loop(), name="climate_exit"),
+        asyncio.create_task(climate_retrain_loop(), name="climate_retrain"),
     ]
 
     logger.info(
-        "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), retrain(7d)",
-        _SCAN_INTERVAL, _EXIT_INTERVAL,
+        "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), "
+        "climate_scan(%ds), climate_exit(%ds), retrain(7d)",
+        _SCAN_INTERVAL, _EXIT_INTERVAL, _SCAN_INTERVAL, _EXIT_INTERVAL,
     )
     return tasks

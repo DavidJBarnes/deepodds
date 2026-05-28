@@ -9,7 +9,12 @@ from app.models.history import History
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.calibration import CalibrationBin, CalibrationResponse, RetrainResponse
+from app.services.climate_probability_model import (
+    MODEL_FILE as CLIMATE_MODEL_FILE,
+    reload_booster as reload_climate_booster,
+)
 from app.services.probability_model import MODEL_FILE, reload_booster
+from app.services.train_climate_model import train_and_save_climate_model
 from app.services.train_model import train_and_save_model
 
 router = APIRouter(tags=["calibration"])
@@ -84,29 +89,39 @@ async def trigger_retrain(
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Triggers manual model retraining on Binance data and reloads the booster."""
-    success = await train_and_save_model()
-    if success:
+    """Retrain the crypto (Binance) and climate (Open-Meteo) models, then reload both boosters."""
+    crypto_ok = await train_and_save_model()
+    if crypto_ok:
         reload_booster()
-        size_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
-        db.add(History(
-            user_id=_user.id,
-            text="Manual SOTA ML model retraining completed successfully",
-        ))
+
+    climate_ok = await train_and_save_climate_model()
+    if climate_ok:
+        reload_climate_booster()
+
+    crypto_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
+    climate_kb = os.path.getsize(CLIMATE_MODEL_FILE) / 1024 if os.path.exists(CLIMATE_MODEL_FILE) else 0
+    total_kb = round(crypto_kb + climate_kb, 1)
+
+    if crypto_ok and climate_ok:
+        msg = f"Crypto + climate models retrained (crypto {crypto_kb:.0f} KB, climate {climate_kb:.0f} KB)."
+        db.add(History(user_id=_user.id, text=msg))
         await db.commit()
-        return RetrainResponse(
-            success=True,
-            message="Model successfully retrained and booster reloaded in memory.",
-            model_file_size_kb=round(size_kb, 1),
-        )
+        return RetrainResponse(success=True, message=msg, model_file_size_kb=total_kb)
+
+    parts = []
+    if crypto_ok:
+        parts.append(f"crypto OK ({crypto_kb:.0f} KB)")
     else:
-        db.add(History(
-            user_id=_user.id,
-            text="Manual SOTA ML model retraining failed",
-        ))
-        await db.commit()
-        return RetrainResponse(
-            success=False,
-            message="Model retraining failed. Please check backend logs.",
-            model_file_size_kb=0,
-        )
+        parts.append("crypto FAILED")
+    if climate_ok:
+        parts.append(f"climate OK ({climate_kb:.0f} KB)")
+    else:
+        parts.append("climate FAILED")
+    msg = "Retrain partial: " + ", ".join(parts) + ". Check backend logs."
+    db.add(History(user_id=_user.id, text=msg))
+    await db.commit()
+    return RetrainResponse(
+        success=crypto_ok or climate_ok,
+        message=msg,
+        model_file_size_kb=total_kb,
+    )

@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.history import History
+from app.models.climate_config import ClimateConfig
 from app.models.kalshi_config import KalshiConfig
 from app.models.user import User
+from app.schemas.climate_config import ClimateConfigResponse, ClimateConfigUpdate
 from app.schemas.kalshi_config import KalshiConfigResponse, KalshiConfigUpdate, KalshiKeysStatus, KalshiKeysUpdate
 from app.services.kalshi_client import KalshiClient
 
@@ -172,6 +174,79 @@ async def delete_kalshi_keys(
     user.kalshi_private_key = None
     await db.commit()
     return KalshiKeysStatus(has_keys=False)
+
+
+def _climate_config_response(config: ClimateConfig) -> ClimateConfigResponse:
+    return ClimateConfigResponse(
+        mode=config.mode,
+        enabled=config.enabled,
+        series_tickers=config.series_tickers,
+        min_volume_24h=config.min_volume_24h,
+        min_price=config.min_price,
+        max_price=config.max_price,
+        min_hours_to_expiry=config.min_hours_to_expiry,
+        min_edge=config.min_edge,
+        exit_edge=config.exit_edge,
+        contracts_per_signal=config.contracts_per_signal,
+        max_cost_per_signal=config.max_cost_per_signal,
+        max_open_positions=config.max_open_positions,
+        max_positions_per_event=config.max_positions_per_event,
+        min_hold_minutes=config.min_hold_minutes,
+        stop_loss_pct=config.stop_loss_pct,
+        take_profit_pct=config.take_profit_pct,
+        daily_loss_limit_usd=config.daily_loss_limit_usd,
+        max_signals_per_hour=config.max_signals_per_hour,
+    )
+
+
+@router.get("/climate-config", response_model=ClimateConfigResponse)
+async def get_climate_config(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = (
+        await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user.id))
+    ).scalar_one_or_none()
+    if not config:
+        config = ClimateConfig(user_id=user.id)
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+    return _climate_config_response(config)
+
+
+@router.put("/climate-config", response_model=ClimateConfigResponse)
+async def update_climate_config(
+    body: ClimateConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    config = (
+        await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user.id))
+    ).scalar_one_or_none()
+    if not config:
+        config = ClimateConfig(user_id=user.id)
+        db.add(config)
+        await db.commit()
+        await db.refresh(config)
+
+    updates = body.model_dump(exclude_unset=True)
+    if "mode" in updates and updates["mode"] not in ("paper", "live"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mode must be 'paper' or 'live'",
+        )
+
+    old_values = {key: getattr(config, key, None) for key in updates}
+
+    for key, value in updates.items():
+        setattr(config, key, value)
+    await db.commit()
+    await db.refresh(config)
+
+    await _log_config_changes(db, user.id, old_values, updates)
+
+    return _climate_config_response(config)
 
 
 class KalshiBalanceResponse(BaseModel):

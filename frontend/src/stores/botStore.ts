@@ -7,7 +7,7 @@ interface BotState {
   refreshing: boolean;
   error: string | null;
   lastRefreshed: Date | null;
-  fetchDashboard: () => Promise<void>;
+  fetchDashboard: (venue?: string) => Promise<void>;
 }
 
 export const useBotStore = create<BotState>((set, get) => ({
@@ -17,11 +17,11 @@ export const useBotStore = create<BotState>((set, get) => ({
   error: null,
   lastRefreshed: null,
 
-  fetchDashboard: async () => {
+  fetchDashboard: async (venue = "all") => {
     const isFirst = !get().dashboard;
     set(isFirst ? { loading: true, error: null } : { refreshing: true, error: null });
     try {
-      const data = await botApi.getDashboard();
+      const data = await botApi.getDashboard(venue);
       set({ dashboard: data, loading: false, refreshing: false, lastRefreshed: new Date() });
     } catch {
       set({ error: "Failed to load dashboard", loading: false, refreshing: false });

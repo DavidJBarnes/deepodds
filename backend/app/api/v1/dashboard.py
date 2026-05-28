@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.models.climate_config import ClimateConfig
 from app.models.kalshi_config import KalshiConfig
 from app.models.signal import Signal
 from app.models.user import User
@@ -20,8 +21,15 @@ from app.schemas.dashboard import (
 )
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices, get_realized_vol
+from app.services.climate_probability_model import compute_climate_edge
 from app.services.kalshi_client import KalshiClient
 from app.services.probability_model import compute_edge, series_to_underlying
+from app.services.weather_client import (
+    get_daily_extreme_vol,
+    get_forecast_daily_value,
+    parse_event_date,
+    series_to_city_kind,
+)
 
 router = APIRouter(tags=["dashboard"])
 
@@ -30,17 +38,18 @@ OPEN_STATUSES = ("signaled", "placed", "filled")
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
+    venue: str = Query("all", pattern="^(all|crypto|climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    recent = (
-        await db.execute(
-            select(Signal)
-            .where(Signal.user_id == user.id)
-            .order_by(Signal.created_at.desc())
-            .limit(50)
-        )
-    ).scalars().all()
+    venue_filter = []
+    if venue == "crypto":
+        venue_filter = [Signal.venue == "kalshi"]
+    elif venue == "climate":
+        venue_filter = [Signal.venue == "climate"]
+
+    recent_q = select(Signal).where(Signal.user_id == user.id, *venue_filter).order_by(Signal.created_at.desc()).limit(50)
+    recent = (await db.execute(recent_q)).scalars().all()
 
     recent_signals = []
     for s in recent:
@@ -87,38 +96,38 @@ async def get_dashboard(
             )
         )
 
-    # Stats
+    # Stats (venue-filtered)
     total_signals = (
         await db.execute(
-            select(func.count()).select_from(Signal).where(Signal.user_id == user.id)
+            select(func.count()).select_from(Signal).where(Signal.user_id == user.id, *venue_filter)
         )
     ).scalar()
     wins = (
         await db.execute(
             select(func.count())
             .select_from(Signal)
-            .where(Signal.user_id == user.id, Signal.status == "settled_win")
+            .where(Signal.user_id == user.id, Signal.status == "settled_win", *venue_filter)
         )
     ).scalar()
     losses = (
         await db.execute(
             select(func.count())
             .select_from(Signal)
-            .where(Signal.user_id == user.id, Signal.status == "settled_loss")
+            .where(Signal.user_id == user.id, Signal.status == "settled_loss", *venue_filter)
         )
     ).scalar()
     breakevens = (
         await db.execute(
             select(func.count())
             .select_from(Signal)
-            .where(Signal.user_id == user.id, Signal.status == "settled_breakeven")
+            .where(Signal.user_id == user.id, Signal.status == "settled_breakeven", *venue_filter)
         )
     ).scalar()
     settled_count = wins + losses + breakevens
     total_pnl = (
         await db.execute(
             select(func.coalesce(func.sum(Signal.pnl_usd), 0.0)).where(
-                Signal.user_id == user.id, Signal.pnl_usd.isnot(None)
+                Signal.user_id == user.id, Signal.pnl_usd.isnot(None), *venue_filter
             )
         )
     ).scalar()
@@ -127,6 +136,7 @@ async def get_dashboard(
             select(func.coalesce(func.sum(Signal.cost_usd), 0.0)).where(
                 Signal.user_id == user.id,
                 Signal.status.in_(["settled_win", "settled_loss", "settled_breakeven"]),
+                *venue_filter,
             )
         )
     ).scalar()
@@ -135,7 +145,7 @@ async def get_dashboard(
         await db.execute(
             select(func.count())
             .select_from(Signal)
-            .where(Signal.user_id == user.id, Signal.status == "filled")
+            .where(Signal.user_id == user.id, Signal.status == "filled", *venue_filter)
         )
     ).scalar()
 
@@ -147,6 +157,7 @@ async def get_dashboard(
                 Signal.status == "filled",
                 Signal.live_market_prob.isnot(None),
                 Signal.fill_price.isnot(None),
+                *venue_filter,
             )
         )
     ).scalars().all()
@@ -334,23 +345,211 @@ async def get_dashboard(
         except Exception:
             pass
 
+    # Climate status + market scanning
+    from app.schemas.dashboard import ClimateStatusResponse
+
+    climate_cfg = (
+        await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user.id))
+    ).scalar_one_or_none()
+
+    climate_status = None
+    climate_markets_list: list[KalshiMarketSnapshot] = []
+    climate_filtered_list: list[KalshiFilteredMarket] = []
+
+    if climate_cfg:
+        climate_open_stats = (
+            await db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(Signal.cost_usd), 0.0),
+                    func.coalesce(func.sum(Signal.quantity), 0.0),
+                )
+                .select_from(Signal)
+                .where(
+                    Signal.user_id == user.id,
+                    Signal.venue == "climate",
+                    Signal.signal_type == climate_cfg.mode,
+                    Signal.status.in_(OPEN_STATUSES),
+                )
+            )
+        ).one()
+        climate_open, climate_exposure, climate_payout = climate_open_stats
+        climate_status = ClimateStatusResponse(
+            mode=climate_cfg.mode,
+            enabled=climate_cfg.enabled,
+            has_keys=bool(user.kalshi_api_key_id),
+            series_tickers=climate_cfg.series_tickers,
+            open_positions=climate_open,
+            max_open_positions=climate_cfg.max_open_positions,
+            min_edge=climate_cfg.min_edge,
+            exit_edge=climate_cfg.exit_edge,
+            current_exposure_usd=round(float(climate_exposure), 2),
+            max_payout_usd=round(float(climate_payout), 2),
+        )
+
+        if venue in ("all", "climate"):
+            try:
+                kc = KalshiClient.public()
+                climate_series = [s.strip() for s in climate_cfg.series_tickers.split(",") if s.strip()]
+                now = datetime.now(timezone.utc)
+                today_utc = now.date()
+                cutoff = now + timedelta(hours=climate_cfg.min_hours_to_expiry)
+
+                # Per-series sigma + per-date forecast caches
+                sigma_cache: dict[tuple[str, str], float | None] = {}
+                forecast_cache: dict[tuple[str, str, str], float | None] = {}
+
+                async def resolve_forecast(series_ticker: str, event_ticker: str):
+                    mapping = series_to_city_kind(series_ticker)
+                    if not mapping:
+                        return None
+                    city, kind = mapping
+                    target_date = parse_event_date(event_ticker or series_ticker)
+                    if not target_date:
+                        return None
+                    sigma_k = (city, kind)
+                    if sigma_k not in sigma_cache:
+                        sigma_cache[sigma_k] = await get_daily_extreme_vol(city, kind, days=180)
+                    sigma = sigma_cache[sigma_k]
+                    if sigma is None or sigma <= 0:
+                        return None
+                    fc_k = (city, kind, target_date.isoformat())
+                    if fc_k not in forecast_cache:
+                        forecast_cache[fc_k] = await get_forecast_daily_value(city, kind, target_date)
+                    fc = forecast_cache[fc_k]
+                    if fc is None:
+                        return None
+                    days_ahead = max((target_date - today_utc).days, 1)
+                    return city, kind, target_date, fc, sigma, days_ahead
+
+                for series in climate_series:
+                    try:
+                        data = await kc.get_markets(series_ticker=series, limit=200)
+                    except Exception:
+                        continue
+
+                    for m in data.get("markets", []):
+                        vol_24h = float(m.get("volume_24h_fp", 0) or 0)
+                        ask_price = float(m.get("yes_ask_dollars", 0) or 0)
+                        ask_size = float(m.get("yes_ask_size_fp", 0) or 0)
+                        ticker = m.get("ticker", "")
+                        title = m.get("title", "")
+                        event_ticker = m.get("event_ticker", "")
+
+                        close_time = m.get("close_time", "")
+                        try:
+                            ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+                            hours_left = (ct - now).total_seconds() / 3600
+                        except (ValueError, AttributeError):
+                            ct = None
+                            hours_left = None
+
+                        filter_reason = None
+                        if ask_price <= 0:
+                            filter_reason = "no_ask"
+                        elif ask_size < 1:
+                            filter_reason = "no_ask_size"
+                        elif vol_24h < climate_cfg.min_volume_24h:
+                            filter_reason = "low_volume"
+                        elif ask_price < climate_cfg.min_price or ask_price > climate_cfg.max_price:
+                            filter_reason = "price_range"
+                        elif ct is None:
+                            filter_reason = "invalid_expiry"
+                        elif ct < cutoff:
+                            filter_reason = "expiry_too_soon"
+
+                        if filter_reason:
+                            climate_filtered_list.append(KalshiFilteredMarket(
+                                ticker=ticker, series=series, title=title,
+                                price=round(ask_price, 2), volume_24h=vol_24h,
+                                hours_to_expiry=round(hours_left, 1) if hours_left is not None else None,
+                                filter_reason=filter_reason,
+                            ))
+                            continue
+
+                        model_prob_val = 0.0
+                        edge_val = 0.0
+                        floor_strike = m.get("floor_strike")
+                        cap_strike = m.get("cap_strike")
+                        strike_type = m.get("strike_type", "between")
+                        forecast_val = 0.0
+                        sigma_val = 0.0
+
+                        if floor_strike is not None:
+                            floor_strike = float(floor_strike)
+                        if cap_strike is not None:
+                            cap_strike = float(cap_strike)
+
+                        resolved = await resolve_forecast(series, event_ticker)
+                        if resolved and (floor_strike is not None or cap_strike is not None):
+                            _city, _kind, _date, forecast_val, sigma_val, days_ahead = resolved
+                            result = compute_climate_edge(
+                                forecast_val, floor_strike, cap_strike, strike_type,
+                                sigma_val, ask_price, city=_city, days_ahead=days_ahead,
+                            )
+                            model_prob_val = result.model_prob
+                            edge_val = result.edge
+
+                        climate_markets_list.append(KalshiMarketSnapshot(
+                            ticker=ticker,
+                            series=series,
+                            title=title,
+                            price=round(ask_price, 2),
+                            model_prob=round(model_prob_val, 4),
+                            edge=round(edge_val, 4),
+                            floor_strike=floor_strike,
+                            cap_strike=cap_strike,
+                            strike_type=strike_type,
+                            underlying_price=round(forecast_val, 2),
+                            realized_vol=round(sigma_val, 4),
+                            volume_24h=vol_24h,
+                            hours_to_expiry=round(hours_left, 1),
+                            expiry_time=ct,
+                            would_signal=edge_val >= climate_cfg.min_edge and edge_val > 0,
+                        ))
+
+                climate_markets_list.sort(key=lambda x: x.edge, reverse=True)
+            except Exception:
+                pass
+
+    climate_scanner_health = None
+    try:
+        import json as _json
+        from pathlib import Path
+
+        raw = Path("/tmp/scanner_health_climate.json").read_text()
+        climate_scanner_health = _json.loads(raw)
+    except Exception:
+        pass
+
     return DashboardResponse(
         kalshi_status=kalshi_status,
+        climate_status=climate_status,
         recent_signals=recent_signals,
         kalshi_markets=kalshi_markets_list,
         kalshi_filtered=kalshi_filtered_list,
+        climate_markets=climate_markets_list,
+        climate_filtered=climate_filtered_list,
         stats=stats,
         scanner_health=scanner_health,
+        climate_scanner_health=climate_scanner_health,
     )
 
 
 @router.get("/dashboard/pnl-chart", response_model=PnLChartResponse)
 async def get_pnl_chart(
     days: int = Query(30, ge=7, le=365),
+    venue: str = Query("all", pattern="^(all|crypto|climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    pnl_venue_filter = []
+    if venue == "crypto":
+        pnl_venue_filter = [Signal.venue == "kalshi"]
+    elif venue == "climate":
+        pnl_venue_filter = [Signal.venue == "climate"]
 
     day_col = func.date(
         func.timezone("America/New_York", Signal.resolved_at)
@@ -369,6 +568,7 @@ async def get_pnl_chart(
             Signal.user_id == user.id,
             Signal.pnl_usd.isnot(None),
             Signal.resolved_at >= since,
+            *pnl_venue_filter,
         )
         .group_by(day_col)
         .order_by(day_col)
