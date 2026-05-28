@@ -7,28 +7,34 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Coordinates point to the NWS climate-report station for each city (the
+# CLI code Kalshi resolves on), not the city center. For coastal/marine
+# cities (SEA, SFO, LAX) and cities where the official station is at a
+# specific airport (e.g., Houston uses Hobby/KHOU not Intercontinental,
+# Chicago uses Midway/KMDW not O'Hare), the city-center coordinates were
+# producing forecasts a few degrees off the resolution value.
 CITY_COORDS = {
-    "NYC": (40.7128, -74.0060),
-    "CHI": (41.8781, -87.6298),
-    "MIA": (25.7617, -80.1918),
-    "LA": (34.0522, -118.2437),
-    "LAX": (34.0522, -118.2437),
-    "HOU": (29.7604, -95.3698),
-    "PHX": (33.4484, -112.0740),
-    "ATL": (33.7490, -84.3880),
-    "BOS": (42.3601, -71.0589),
-    "DAL": (32.7767, -96.7970),
-    "DC": (38.9072, -77.0369),
-    "DEN": (39.7392, -104.9903),
-    "LV": (36.1699, -115.1398),
-    "MIN": (44.9778, -93.2650),
-    "NOLA": (29.9511, -90.0715),
-    "OKC": (35.4676, -97.5164),
-    "SATX": (29.4241, -98.4936),
-    "SEA": (47.6062, -122.3321),
-    "SFO": (37.7749, -122.4194),
-    "AUS": (30.2672, -97.7431),
-    "PHIL": (39.9526, -75.1652),
+    "NYC": (40.7794, -73.9692),    # KNYC Central Park
+    "CHI": (41.7868, -87.7522),    # KMDW Chicago Midway
+    "MIA": (25.7959, -80.2870),    # KMIA Miami International
+    "LA": (33.9425, -118.4081),    # KLAX (alias)
+    "LAX": (33.9425, -118.4081),   # KLAX Los Angeles International
+    "HOU": (29.6454, -95.2789),    # KHOU Houston Hobby
+    "PHX": (33.4373, -112.0078),   # KPHX Sky Harbor
+    "ATL": (33.6407, -84.4277),    # KATL Hartsfield-Jackson
+    "BOS": (42.3656, -71.0096),    # KBOS Logan
+    "DAL": (32.8998, -97.0403),    # KDFW Dallas/Fort Worth
+    "DC": (38.8512, -77.0402),     # KDCA Reagan National
+    "DEN": (39.8561, -104.6737),   # KDEN Denver International
+    "LV": (36.0840, -115.1537),    # KLAS Harry Reid
+    "MIN": (44.8848, -93.2223),    # KMSP Minneapolis-St. Paul
+    "NOLA": (29.9934, -90.2580),   # KMSY Louis Armstrong
+    "OKC": (35.3931, -97.6007),    # KOKC Will Rogers World
+    "SATX": (29.5337, -98.4698),   # KSAT San Antonio International
+    "SEA": (47.4502, -122.3088),   # KSEA Sea-Tac
+    "SFO": (37.6189, -122.3750),   # KSFO San Francisco International
+    "AUS": (30.1945, -97.6699),    # KAUS Austin-Bergstrom
+    "PHIL": (39.8729, -75.2437),   # KPHL Philadelphia International
 }
 
 SUPPORTED_CITIES = list(CITY_COORDS.keys())
