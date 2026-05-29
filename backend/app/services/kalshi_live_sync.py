@@ -54,7 +54,7 @@ def sync_kalshi_live(
 
     pending = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.signal_type == "live",
             Signal.status.in_(_PENDING_STATUSES),
         )

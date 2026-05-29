@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,7 @@ def _compute_calibration(settled_signals: list[tuple[float, int]]) -> Calibratio
 
 @router.get("/calibration", response_model=CalibrationResponse)
 async def get_calibration(
+    venue: str = Query("kalshi_crypto", pattern="^(kalshi_crypto|kalshi_climate)$"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -72,7 +73,7 @@ async def get_calibration(
         select(Signal.model_prob, Signal.status)
         .where(
             Signal.user_id == user.id,
-            Signal.venue == "kalshi",
+            Signal.venue == venue,
             Signal.status.in_(SETTLED_STATUSES),
             Signal.model_prob.isnot(None),
         )

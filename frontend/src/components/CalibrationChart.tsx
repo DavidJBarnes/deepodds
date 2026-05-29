@@ -44,18 +44,33 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
   );
 }
 
-export default function CalibrationChart({ refreshKey }: { refreshKey?: number }) {
+type CalibrationVenue = "kalshi_crypto" | "kalshi_climate";
+
+const VENUE_TITLE: Record<CalibrationVenue, string> = {
+  kalshi_crypto: "Crypto Model Calibration",
+  kalshi_climate: "Climate Model Calibration",
+};
+
+export default function CalibrationChart({
+  venue = "kalshi_crypto",
+  refreshKey,
+}: {
+  venue?: CalibrationVenue;
+  refreshKey?: number;
+}) {
   const [data, setData] = useState<CalibrationData | null>(null);
   const [loading, setLoading] = useState(true);
+  const title = VENUE_TITLE[venue];
 
   useEffect(() => {
     let cancelled = false;
-    getCalibration()
+    setLoading(true);
+    getCalibration(venue)
       .then((d) => { if (!cancelled) setData(d); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [venue, refreshKey]);
 
   if (loading) {
     return (
@@ -69,7 +84,7 @@ export default function CalibrationChart({ refreshKey }: { refreshKey?: number }
   if (!data || data.total_samples === 0) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <h3 className="text-sm font-semibold text-white mb-1">Model Calibration</h3>
+        <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>
         <p className="text-xs text-slate-400">
           No settled signals yet. Data will appear as paper signals are resolved at expiry.
         </p>
@@ -89,7 +104,7 @@ export default function CalibrationChart({ refreshKey }: { refreshKey?: number }
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">Model Calibration</h3>
+        <h3 className="text-sm font-semibold text-white">{title}</h3>
         <div className="flex items-center gap-3 text-xs">
           <span className="text-slate-400">
             n={data.total_samples}

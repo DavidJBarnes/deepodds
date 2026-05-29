@@ -61,7 +61,10 @@ export default function DashboardPage() {
 
       <StatsCard stats={dashboard.stats} />
       <PnLChart refreshKey={lastRefreshed?.getTime() ?? undefined} />
-      <CalibrationChart refreshKey={lastRefreshed?.getTime() ?? undefined} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <CalibrationChart venue="kalshi_crypto" refreshKey={lastRefreshed?.getTime() ?? undefined} />
+        <CalibrationChart venue="kalshi_climate" refreshKey={lastRefreshed?.getTime() ?? undefined} />
+      </div>
     </div>
   );
 }

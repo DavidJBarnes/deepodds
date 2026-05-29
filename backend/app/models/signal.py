@@ -13,7 +13,7 @@ class Signal(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
-    venue: Mapped[str] = mapped_column(String(16), default="kalshi", server_default="kalshi", index=True)
+    venue: Mapped[str] = mapped_column(String(16), default="kalshi_crypto", server_default="kalshi_crypto", index=True)
     pair: Mapped[str] = mapped_column(String(16), index=True)
     side: Mapped[str] = mapped_column(String(8))
     signal_type: Mapped[str] = mapped_column(String(8))

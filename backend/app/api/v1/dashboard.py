@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.climate_config import ClimateConfig
-from app.models.kalshi_config import KalshiConfig
+from app.models.crypto_config import CryptoConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
@@ -38,15 +38,15 @@ OPEN_STATUSES = ("signaled", "placed", "filled")
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
-    venue: str = Query("all", pattern="^(all|crypto|climate)$"),
+    venue: str = Query("all", pattern="^(all|kalshi_crypto|kalshi_climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     venue_filter = []
-    if venue == "crypto":
-        venue_filter = [Signal.venue == "kalshi"]
-    elif venue == "climate":
-        venue_filter = [Signal.venue == "climate"]
+    if venue == "kalshi_crypto":
+        venue_filter = [Signal.venue == "kalshi_crypto"]
+    elif venue == "kalshi_climate":
+        venue_filter = [Signal.venue == "kalshi_climate"]
 
     recent_q = select(Signal).where(Signal.user_id == user.id, *venue_filter).order_by(Signal.created_at.desc()).limit(50)
     recent = (await db.execute(recent_q)).scalars().all()
@@ -63,7 +63,7 @@ async def get_dashboard(
         recent_signals.append(
             SignalResponse(
                 id=s.id,
-                venue=s.venue or "kalshi",
+                venue=s.venue or "kalshi_crypto",
                 pair=s.pair,
                 side=s.side,
                 signal_type=s.signal_type,
@@ -194,7 +194,7 @@ async def get_dashboard(
         pass
 
     kalshi_cfg = (
-        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
     ).scalar_one_or_none()
 
     kalshi_status = None
@@ -211,7 +211,7 @@ async def get_dashboard(
                 .select_from(Signal)
                 .where(
                     Signal.user_id == user.id,
-                    Signal.venue == "kalshi",
+                    Signal.venue == "kalshi_crypto",
                     Signal.signal_type == kalshi_cfg.mode,
                     Signal.status.in_(OPEN_STATUSES)
                 )
@@ -367,7 +367,7 @@ async def get_dashboard(
                 .select_from(Signal)
                 .where(
                     Signal.user_id == user.id,
-                    Signal.venue == "climate",
+                    Signal.venue == "kalshi_climate",
                     Signal.signal_type == climate_cfg.mode,
                     Signal.status.in_(OPEN_STATUSES),
                 )
@@ -387,7 +387,7 @@ async def get_dashboard(
             max_payout_usd=round(float(climate_payout), 2),
         )
 
-        if venue in ("all", "climate"):
+        if venue in ("all", "kalshi_climate"):
             try:
                 kc = KalshiClient.public()
                 climate_series = [s.strip() for s in climate_cfg.series_tickers.split(",") if s.strip()]
@@ -539,17 +539,17 @@ async def get_dashboard(
 @router.get("/dashboard/pnl-chart", response_model=PnLChartResponse)
 async def get_pnl_chart(
     days: int = Query(30, ge=7, le=365),
-    venue: str = Query("all", pattern="^(all|crypto|climate)$"),
+    venue: str = Query("all", pattern="^(all|kalshi_crypto|kalshi_climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
     pnl_venue_filter = []
-    if venue == "crypto":
-        pnl_venue_filter = [Signal.venue == "kalshi"]
-    elif venue == "climate":
-        pnl_venue_filter = [Signal.venue == "climate"]
+    if venue == "kalshi_crypto":
+        pnl_venue_filter = [Signal.venue == "kalshi_crypto"]
+    elif venue == "kalshi_climate":
+        pnl_venue_filter = [Signal.venue == "kalshi_climate"]
 
     day_col = func.date(
         func.timezone("America/New_York", Signal.resolved_at)
