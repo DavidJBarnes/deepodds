@@ -57,12 +57,12 @@ class FakeAsyncSession:
 class TestLogConfigChanges:
     """Direct unit tests of _log_config_changes in settings.py."""
 
-    def _run(self, old, new):
+    def _run(self, old, new, section="Crypto"):
         import anyio
         from app.api.v1.settings import _log_config_changes
 
         db = FakeAsyncSession()
-        anyio.run(_log_config_changes, db, "user-1", old, new)
+        anyio.run(_log_config_changes, db, "user-1", section, old, new)
         return db
 
     def test_single_field_change(self):
