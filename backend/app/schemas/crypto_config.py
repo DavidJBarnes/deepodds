@@ -36,7 +36,7 @@ class CryptoConfigUpdate(BaseModel):
     max_cost_per_signal: float | None = Field(None, ge=1.0, le=1000.0)
     max_open_positions: int | None = Field(None, ge=1, le=20)
     max_positions_per_event: int | None = Field(None, ge=1, le=20)
-    stop_loss_pct: float | None = Field(None, ge=1.0, le=50.0)
+    stop_loss_pct: float | None = Field(None, ge=0.0, le=50.0)
     take_profit_pct: float | None = Field(None, ge=0.0, le=500.0)
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)

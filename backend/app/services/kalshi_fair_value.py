@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
@@ -376,7 +377,15 @@ def scan_kalshi_entries(
                 # the order (the orphaned position is still visible to
                 # sync_kalshi_live via the ticker).
                 session.add(signal)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Concurrent scanner created a signal for the same event
+                    # first. Unique partial index on (user_id, event_ticker)
+                    # for open statuses caught it. Roll back and skip.
+                    session.rollback()
+                    logger.info("Skipping %s: another scan already opened this event", ticker)
+                    continue
                 signals_created.append(signal)
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
@@ -433,7 +442,12 @@ def scan_kalshi_entries(
                 signal.cost_usd = round(paper_fill * count, 4)
                 signal.filled_at = datetime.now(timezone.utc)
                 session.add(signal)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    logger.info("Skipping %s: another scan already opened this event", ticker)
+                    continue
                 signals_created.append(signal)
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
@@ -562,8 +576,11 @@ def check_kalshi_exits(
         # Catastrophic stop — loss exceeds 2x the stop-loss threshold.
         # Bypasses min_hold: a true adverse move needs immediate exit,
         # regardless of how recently the position was entered.
+        # stop_loss_pct == 0 means "hold to resolution" — disables both
+        # the catastrophic stop and the regular stop-loss.
+        stops_enabled = cfg.stop_loss_pct > 0
         catastrophic_threshold = -cfg.stop_loss_pct * 2
-        is_catastrophic = adjusted_pnl_pct <= catastrophic_threshold
+        is_catastrophic = stops_enabled and adjusted_pnl_pct <= catastrophic_threshold
 
         # Normal stop loss is gated by min_hold to prevent bid-ask spread
         # from triggering immediate exits (entry at ask, exit check uses bid).
@@ -572,15 +589,18 @@ def check_kalshi_exits(
         if is_catastrophic:
             should_exit = True
             exit_reason = f"catastrophic_stop ({pnl_pct:.1f}%)"
-        elif adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
+        elif stops_enabled and adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
             should_exit = True
             exit_reason = "approaching_expiry"
-        elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
+        elif sig.expiry_time and now > sig.expiry_time + timedelta(hours=2):
+            # Settlement didn't fire 2h past expiry — orphaned position. Close
+            # it so we don't carry stale state. Was previously a hard-coded
+            # 24h-since-filled cap that wrongly fired on multi-day contracts.
             should_exit = True
-            exit_reason = "max_hold (24h)"
+            exit_reason = "post_expiry_orphan"
         elif cfg.take_profit_pct > 0 and pnl_pct >= cfg.take_profit_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"take_profit ({pnl_pct:.1f}%)"

@@ -140,8 +140,11 @@ def check_spread_filter(
     if edge * 100 < spread_pct / 2:
         logger.info("Skipping %s: edge=%.1f%% < spread/2=%.1f%%", ticker, edge * 100, spread_pct / 2)
         return False
-    loss_if_exit_at_bid = (mid - bid) / mid * 100 if mid > 0 else 0
-    if loss_if_exit_at_bid > stop_loss_pct:
-        logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, stop_loss_pct)
-        return False
+    # When stop_loss_pct == 0 ("hold to resolution" mode), the exit-at-bid
+    # check is irrelevant — we don't exit on bid moves anyway.
+    if stop_loss_pct > 0:
+        loss_if_exit_at_bid = (mid - bid) / mid * 100 if mid > 0 else 0
+        if loss_if_exit_at_bid > stop_loss_pct:
+            logger.info("Skipping %s: exit-at-bid loss %.1f%% > stop %.1f%%", ticker, loss_if_exit_at_bid, stop_loss_pct)
+            return False
     return True
