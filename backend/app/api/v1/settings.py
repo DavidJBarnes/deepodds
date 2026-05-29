@@ -42,7 +42,7 @@ _FIELD_LABELS: dict[str, str] = {
 }
 
 
-async def _log_config_changes(db: AsyncSession, user_id, old_values: dict, new_values: dict):
+async def _log_config_changes(db: AsyncSession, user_id, section: str, old_values: dict, new_values: dict):
     """Create a History entry for each changed config field."""
     for key, value in new_values.items():
         old = old_values.get(key)
@@ -51,7 +51,7 @@ async def _log_config_changes(db: AsyncSession, user_id, old_values: dict, new_v
         if old_str == new_str:
             continue
         label = _FIELD_LABELS.get(key, key)
-        text = f"User changed {label} from {old_str} to {new_str}"
+        text = f"{section}: User changed {label} from {old_str} to {new_str}"
         db.add(History(user_id=user_id, text=text))
     if new_values:
         await db.commit()
@@ -125,7 +125,7 @@ async def update_crypto_config(
     await db.commit()
     await db.refresh(config)
 
-    await _log_config_changes(db, user.id, old_values, updates)
+    await _log_config_changes(db, user.id, "Crypto", old_values, updates)
 
     return _crypto_config_response(config)
 
@@ -246,7 +246,7 @@ async def update_climate_config(
     await db.commit()
     await db.refresh(config)
 
-    await _log_config_changes(db, user.id, old_values, updates)
+    await _log_config_changes(db, user.id, "Climate", old_values, updates)
 
     return _climate_config_response(config)
 
