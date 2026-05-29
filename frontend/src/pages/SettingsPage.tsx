@@ -362,7 +362,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="border-t border-slate-800 pt-4">
-              <h4 className="text-sm font-semibold text-slate-300 mb-1">Kalshi Risk Management</h4>
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Crypto Risk Management</h4>
               <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
               <div className="grid grid-cols-2 gap-4">
                 <ConfigField
@@ -649,7 +649,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="border-t border-slate-800 pt-4">
-              <h4 className="text-sm font-semibold text-slate-300 mb-1">Climate Risk Management</h4>
+              <h4 className="text-sm font-semibold text-sky-400 mb-1">Climate Risk Management</h4>
               <p className="text-xs text-slate-500 mb-3">Changes save when you click away from a field.</p>
               <div className="grid grid-cols-2 gap-4">
                 <ConfigField
