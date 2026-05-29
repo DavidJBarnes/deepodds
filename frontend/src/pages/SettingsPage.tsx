@@ -94,6 +94,8 @@ export default function SettingsPage() {
 
   const [retraining, setRetraining] = useState(false);
   const [retrainResult, setRetrainResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [trainingHistory, setTrainingHistory] = useState<botApi.ModelTrainHistoryEntry[]>([]);
+  const [loadingTrainingHistory, setLoadingTrainingHistory] = useState(true);
 
   async function handleRetrainModel() {
     setRetraining(true);
@@ -105,6 +107,7 @@ export default function SettingsPage() {
       } else {
         setRetrainResult({ type: "error", text: res.message });
       }
+      fetchTrainingHistory();
     } catch {
       setRetrainResult({ type: "error", text: "Manual retraining request failed." });
     } finally {
@@ -112,10 +115,22 @@ export default function SettingsPage() {
     }
   }
 
+  async function fetchTrainingHistory() {
+    try {
+      const data = await botApi.getModelTrainingHistory({ limit: 10 });
+      setTrainingHistory(data.items);
+    } catch {
+      /* history fetch is best-effort */
+    } finally {
+      setLoadingTrainingHistory(false);
+    }
+  }
+
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
     botApi.getCryptoConfig().then(setCryptoConfig);
     botApi.getClimateConfig().then(setClimateConfig);
+    fetchTrainingHistory();
   }, []);
 
   async function handleSaveKalshiKeys(e: React.FormEvent) {
@@ -490,6 +505,70 @@ export default function SettingsPage() {
             </span>
           )}
         </div>
+
+        {!loadingTrainingHistory && (
+          <div className="border-t border-slate-800 pt-4">
+            <h4 className="text-sm font-semibold text-sky-400 mb-2">Training Runs</h4>
+            {trainingHistory.length === 0 ? (
+              <p className="text-xs text-slate-500">No training runs yet. Click "Retrain Models Now" to run the first one.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-slate-300">
+                  <thead>
+                    <tr className="text-slate-500 border-b border-slate-800">
+                      <th className="text-left py-1.5 pr-3 font-medium">Model</th>
+                      <th className="text-left py-1.5 pr-3 font-medium">Trigger</th>
+                      <th className="text-left py-1.5 pr-3 font-medium">Started</th>
+                      <th className="text-left py-1.5 pr-3 font-medium">Result</th>
+                      <th className="text-left py-1.5 pr-3 font-medium">Size</th>
+                      <th className="text-left py-1.5 font-medium">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trainingHistory.map((r) => (
+                      <tr key={r.id} className="border-b border-slate-800/50">
+                        <td className="py-1.5 pr-3">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            r.model_type === "crypto"
+                              ? "bg-amber-500/15 text-amber-400"
+                              : r.model_type === "climate"
+                                ? "bg-sky-500/15 text-sky-400"
+                                : "bg-emerald-500/15 text-emerald-400"
+                          }`}>
+                            {r.model_type === "both" ? "Crypto+Climate" : r.model_type === "crypto" ? "Crypto" : "Climate"}
+                          </span>
+                        </td>
+                        <td className="py-1.5 pr-3 text-slate-400">
+                          {r.trigger === "scheduled" ? "Scheduled" : "Manual"}
+                        </td>
+                        <td className="py-1.5 pr-3 text-slate-500">
+                          {new Date(r.started_at).toLocaleString()}
+                        </td>
+                        <td className="py-1.5 pr-3">
+                          {r.crypto_ok !== null && (
+                            <span className={r.crypto_ok ? "text-emerald-400" : "text-red-400"}>
+                              Crypto {r.crypto_ok ? "OK" : "FAIL"}
+                            </span>
+                          )}
+                          {r.crypto_ok !== null && r.climate_ok !== null && " · "}
+                          {r.climate_ok !== null && (
+                            <span className={r.climate_ok ? "text-emerald-400" : "text-red-400"}>
+                              Climate {r.climate_ok ? "OK" : "FAIL"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-3 text-slate-500">
+                          {r.total_size_kb != null ? `${Math.round(r.total_size_kb)} KB` : "—"}
+                        </td>
+                        <td className="py-1.5 text-slate-400 max-w-64 truncate">{r.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Climate Bot Settings */}

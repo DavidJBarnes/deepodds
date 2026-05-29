@@ -86,7 +86,10 @@ export default function CalibrationChart({
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
         <h3 className="text-sm font-semibold text-white mb-1">{title}</h3>
         <p className="text-xs text-slate-400">
-          No settled signals yet. Data will appear as paper signals are resolved at expiry.
+          No signals have reached resolution yet. Data appears only after paper
+          signals settle at expiry (exit price $0 or $1). Take-profit / edge
+          exits at intermediate prices don&apos;t count — the underlying
+          outcome wasn&apos;t observed.
         </p>
       </div>
     );
