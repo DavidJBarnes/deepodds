@@ -264,3 +264,26 @@ export async function createHistory(text: string) {
   const { data } = await client.post<HistoryEntry>("/history", { text });
   return data;
 }
+
+export interface ModelTrainHistoryEntry {
+  id: string;
+  user_id: string | null;
+  model_type: string;
+  crypto_ok: boolean | null;
+  climate_ok: boolean | null;
+  crypto_size_kb: number | null;
+  climate_size_kb: number | null;
+  total_size_kb: number | null;
+  message: string;
+  trigger: string;
+  started_at: string;
+  completed_at: string;
+}
+
+export async function getModelTrainingHistory(params: { limit?: number; offset?: number }) {
+  const { data } = await client.get<{ items: ModelTrainHistoryEntry[]; total: number }>(
+    "/model-training-history",
+    { params },
+  );
+  return data;
+}

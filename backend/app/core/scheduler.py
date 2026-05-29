@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 import time
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -9,6 +11,7 @@ from app.core.async_util import run_async
 from app.core.config import settings
 from app.models.climate_config import ClimateConfig
 from app.models.crypto_config import CryptoConfig
+from app.models.model_train_history import ModelTrainHistory
 from app.models.user import User
 from app.services.climate_fair_value import (
     check_climate_exits,
@@ -293,33 +296,36 @@ async def start_scheduler():
                 logger.info("Triggering weekly SOTA ML auto-retraining...")
                 from app.models.history import History
                 from app.services.train_model import train_and_save_model
-                from app.services.probability_model import reload_booster
+                from app.services.probability_model import MODEL_FILE, reload_booster
+                started_at = datetime.now(timezone.utc)
                 success = await train_and_save_model()
+                crypto_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
+                msg = "Automated weekly SOTA ML model retraining completed successfully" if success else "Automated weekly SOTA ML model retraining failed"
                 if success:
                     reload_booster()
-                    # Record history entry for each user
-                    with Session(_sync_engine) as session:
-                        users = session.execute(
-                            select(User)
-                        ).scalars().all()
-                        for user in users:
-                            session.add(History(
-                                user_id=user.id,
-                                text="Automated weekly SOTA ML model retraining completed successfully",
-                            ))
-                        session.commit()
-                    logger.info("SOTA ML auto-retraining completed successfully and booster reloaded.")
-                else:
-                    with Session(_sync_engine) as session:
-                        users = session.execute(
-                            select(User)
-                        ).scalars().all()
-                        for user in users:
-                            session.add(History(
-                                user_id=user.id,
-                                text="Automated weekly SOTA ML model retraining failed",
-                            ))
-                        session.commit()
+                with Session(_sync_engine) as session:
+                    users = session.execute(
+                        select(User)
+                    ).scalars().all()
+                    for user in users:
+                        session.add(History(
+                            user_id=user.id,
+                            text=msg,
+                        ))
+                    session.add(ModelTrainHistory(
+                        user_id=None,
+                        model_type="crypto",
+                        crypto_ok=success,
+                        climate_ok=None,
+                        crypto_size_kb=crypto_kb,
+                        climate_size_kb=None,
+                        total_size_kb=crypto_kb,
+                        message=msg,
+                        trigger="scheduled",
+                        started_at=started_at,
+                    ))
+                    session.commit()
+                logger.info("SOTA ML auto-retraining completed successfully and booster reloaded.")
             except Exception:
                 logger.exception("SOTA ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)
@@ -354,28 +360,37 @@ async def start_scheduler():
                 logger.info("Triggering weekly climate ML auto-retraining...")
                 from app.models.history import History
                 from app.services.train_climate_model import train_and_save_climate_model
-                from app.services.climate_probability_model import reload_booster as reload_climate_booster
+                from app.services.climate_probability_model import (
+                    MODEL_FILE as CLIMATE_MODEL_FILE,
+                    reload_booster as reload_climate_booster,
+                )
+                started_at = datetime.now(timezone.utc)
                 success = await train_and_save_climate_model()
+                climate_kb = os.path.getsize(CLIMATE_MODEL_FILE) / 1024 if os.path.exists(CLIMATE_MODEL_FILE) else 0
+                msg = "Automated weekly climate ML model retraining completed successfully" if success else "Automated weekly climate ML model retraining failed"
                 if success:
                     reload_climate_booster()
-                    with Session(_sync_engine) as session:
-                        users = session.execute(select(User)).scalars().all()
-                        for user in users:
-                            session.add(History(
-                                user_id=user.id,
-                                text="Automated weekly climate ML model retraining completed successfully",
-                            ))
-                        session.commit()
-                    logger.info("Climate ML auto-retraining completed successfully.")
-                else:
-                    with Session(_sync_engine) as session:
-                        users = session.execute(select(User)).scalars().all()
-                        for user in users:
-                            session.add(History(
-                                user_id=user.id,
-                                text="Automated weekly climate ML model retraining failed",
-                            ))
-                        session.commit()
+                with Session(_sync_engine) as session:
+                    users = session.execute(select(User)).scalars().all()
+                    for user in users:
+                        session.add(History(
+                            user_id=user.id,
+                            text=msg,
+                        ))
+                    session.add(ModelTrainHistory(
+                        user_id=None,
+                        model_type="climate",
+                        crypto_ok=None,
+                        climate_ok=success,
+                        crypto_size_kb=None,
+                        climate_size_kb=climate_kb,
+                        total_size_kb=climate_kb,
+                        message=msg,
+                        trigger="scheduled",
+                        started_at=started_at,
+                    ))
+                    session.commit()
+                logger.info("Climate ML auto-retraining completed successfully.")
             except Exception:
                 logger.exception("Climate ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)

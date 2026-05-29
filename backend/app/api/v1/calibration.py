@@ -1,5 +1,6 @@
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.history import History
+from app.models.model_train_history import ModelTrainHistory
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.calibration import CalibrationBin, CalibrationResponse, RetrainResponse
@@ -103,6 +105,8 @@ async def trigger_retrain(
     db: AsyncSession = Depends(get_db),
 ):
     """Retrain the crypto (Binance) and climate (Open-Meteo) models, then reload both boosters."""
+    started_at = datetime.now(timezone.utc)
+
     crypto_ok = await train_and_save_model()
     if crypto_ok:
         reload_booster()
@@ -112,27 +116,47 @@ async def trigger_retrain(
         reload_climate_booster()
 
     crypto_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
-    climate_kb = os.path.getsize(CLIMATE_MODEL_FILE) / 1024 if os.path.exists(CLIMATE_MODEL_FILE) else 0
+    climate_kb = (
+        os.path.getsize(CLIMATE_MODEL_FILE) / 1024
+        if os.path.exists(CLIMATE_MODEL_FILE)
+        else 0
+    )
     total_kb = round(crypto_kb + climate_kb, 1)
 
     if crypto_ok and climate_ok:
-        msg = f"Crypto + climate models retrained (crypto {crypto_kb:.0f} KB, climate {climate_kb:.0f} KB)."
-        db.add(History(user_id=_user.id, text=msg))
-        await db.commit()
-        return RetrainResponse(success=True, message=msg, model_file_size_kb=total_kb)
+        msg = (
+            f"Crypto + climate models retrained "
+            f"(crypto {crypto_kb:.0f} KB, climate {climate_kb:.0f} KB)."
+        )
+    else:
+        parts = []
+        if crypto_ok:
+            parts.append(f"crypto OK ({crypto_kb:.0f} KB)")
+        else:
+            parts.append("crypto FAILED")
+        if climate_ok:
+            parts.append(f"climate OK ({climate_kb:.0f} KB)")
+        else:
+            parts.append("climate FAILED")
+        msg = "Retrain partial: " + ", ".join(parts) + ". Check backend logs."
 
-    parts = []
-    if crypto_ok:
-        parts.append(f"crypto OK ({crypto_kb:.0f} KB)")
-    else:
-        parts.append("crypto FAILED")
-    if climate_ok:
-        parts.append(f"climate OK ({climate_kb:.0f} KB)")
-    else:
-        parts.append("climate FAILED")
-    msg = "Retrain partial: " + ", ".join(parts) + ". Check backend logs."
     db.add(History(user_id=_user.id, text=msg))
+    db.add(
+        ModelTrainHistory(
+            user_id=_user.id,
+            model_type="both",
+            crypto_ok=crypto_ok,
+            climate_ok=climate_ok,
+            crypto_size_kb=crypto_kb,
+            climate_size_kb=climate_kb,
+            total_size_kb=total_kb,
+            message=msg,
+            trigger="manual",
+            started_at=started_at,
+        )
+    )
     await db.commit()
+
     return RetrainResponse(
         success=crypto_ok or climate_ok,
         message=msg,
