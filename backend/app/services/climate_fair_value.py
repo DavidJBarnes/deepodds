@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
@@ -292,7 +293,13 @@ def scan_climate_entries(
 
             if config.mode == "live" and client:
                 session.add(signal)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    # Concurrent scanner already opened this event.
+                    session.rollback()
+                    logger.info("Skipping %s: another scan already opened this event", ticker)
+                    continue
                 signals_created.append(signal)
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
@@ -335,7 +342,12 @@ def scan_climate_entries(
                 signal.cost_usd = round(paper_fill * count, 4)
                 signal.filled_at = datetime.now(timezone.utc)
                 session.add(signal)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    logger.info("Skipping %s: another scan already opened this event", ticker)
+                    continue
                 signals_created.append(signal)
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
@@ -438,20 +450,25 @@ def check_climate_exits(
 
         fee_estimate_pct = 0.07
         adjusted_pnl_pct = pnl_pct - fee_estimate_pct
+        # stop_loss_pct == 0 disables both stops — "hold to resolution" mode.
+        stops_enabled = cfg.stop_loss_pct > 0
         catastrophic_threshold = -cfg.stop_loss_pct * 2
 
-        if adjusted_pnl_pct <= catastrophic_threshold:
+        if stops_enabled and adjusted_pnl_pct <= catastrophic_threshold:
             should_exit = True
             exit_reason = f"catastrophic_stop ({pnl_pct:.1f}%)"
-        elif adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
+        elif stops_enabled and adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
         elif sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=cfg.min_hours_to_expiry / 2):
             should_exit = True
             exit_reason = "approaching_expiry"
-        elif sig.filled_at and (now - sig.filled_at) > timedelta(hours=24):
+        elif sig.expiry_time and now > sig.expiry_time + timedelta(hours=2):
+            # Orphaned: expiry passed without paper settlement firing. Close
+            # it so we don't carry stale state. Was previously a 24h-since-
+            # filled cap that wrongly fired on multi-day climate contracts.
             should_exit = True
-            exit_reason = "max_hold (24h)"
+            exit_reason = "post_expiry_orphan"
         elif cfg.take_profit_pct > 0 and pnl_pct >= cfg.take_profit_pct and hold_minutes >= min_hold:
             should_exit = True
             exit_reason = f"take_profit ({pnl_pct:.1f}%)"

@@ -1,6 +1,7 @@
 import os
+from datetime import timedelta
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -69,6 +70,13 @@ async def get_calibration(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Filter to signals that reached a genuine resolution: either the exit
+    # price snapped to a binary outcome (0 / 1, indicating settle-at-expiry)
+    # or the position was held longer than 2 hours (excludes stop-loss
+    # noise where positions exit on bid-ask spread movement). Without this
+    # filter, calibration is dominated by exit prices like $0.32 from
+    # short-held stop-outs, which doesn't tell us anything about the
+    # model's actual predictive accuracy.
     rows = await db.execute(
         select(Signal.model_prob, Signal.status)
         .where(
@@ -76,6 +84,10 @@ async def get_calibration(
             Signal.venue == venue,
             Signal.status.in_(SETTLED_STATUSES),
             Signal.model_prob.isnot(None),
+            or_(
+                Signal.exit_price.in_([0.0, 1.0]),
+                (Signal.resolved_at - Signal.filled_at) > timedelta(hours=2),
+            ),
         )
     )
     settled = [

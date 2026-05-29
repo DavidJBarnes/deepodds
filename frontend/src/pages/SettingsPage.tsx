@@ -351,7 +351,7 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Exit Edge"
-                  description="Sell when edge drops below this. -2% = exit when the model no longer favors the position."
+                  description="Sell when the model's perceived edge drops to this level. -2% = exit when model no longer favors the position. -50% disables (hold to resolution)."
                   suffix="%"
                   value={Math.round(cryptoConfig.exit_edge * 100)}
                   onChange={(v) => setCryptoConfig({ ...cryptoConfig, exit_edge: v / 100 })}
@@ -400,16 +400,16 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Stop Loss"
-                  description="Close position if unrealized loss exceeds this percentage."
+                  description="Close position if unrealized loss exceeds this percentage. 0 disables both stop-loss and catastrophic-stop — positions hold to resolution. Recommended for paper mode on binary/range markets where bid-ask noise can trigger premature exits."
                   suffix="%"
                   value={cryptoConfig.stop_loss_pct}
                   onChange={(v) => setCryptoConfig({ ...cryptoConfig, stop_loss_pct: v })}
                   onBlur={() => saveCryptoConfig({ stop_loss_pct: cryptoConfig.stop_loss_pct })}
-                  step={1} min={1} max={50}
+                  step={1} min={0} max={50}
                 />
                 <ConfigField
                   label="Take Profit"
-                  description="Close position when unrealized gain reaches this percentage. 0 = disabled."
+                  description="Close position when unrealized gain reaches this percentage. 0 disables early exits on gains — lets the position ride to resolution. Pair with Stop Loss = 0 for full hold-to-resolution mode."
                   suffix="%"
                   value={cryptoConfig.take_profit_pct}
                   onChange={(v) => setCryptoConfig({ ...cryptoConfig, take_profit_pct: v })}
@@ -638,7 +638,7 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Exit Edge"
-                  description="Sell when edge drops below this."
+                  description="Sell when the model's perceived edge drops to this level. -2% = exit when model no longer favors the position. -50% disables (hold to resolution)."
                   suffix="%"
                   value={Math.round(climateConfig.exit_edge * 100)}
                   onChange={(v) => setClimateConfig({ ...climateConfig, exit_edge: v / 100 })}
@@ -687,16 +687,16 @@ export default function SettingsPage() {
                 />
                 <ConfigField
                   label="Stop Loss"
-                  description="Close position if unrealized loss exceeds this."
+                  description="Close position if unrealized loss exceeds this percentage. 0 disables both stop-loss and catastrophic-stop — positions hold to resolution. Recommended for paper mode on daily-extreme markets where intraday price noise can trigger premature exits."
                   suffix="%"
                   value={climateConfig.stop_loss_pct}
                   onChange={(v) => setClimateConfig({ ...climateConfig, stop_loss_pct: v })}
                   onBlur={() => saveClimateConfig({ stop_loss_pct: climateConfig.stop_loss_pct })}
-                  step={1} min={1} max={50}
+                  step={1} min={0} max={50}
                 />
                 <ConfigField
                   label="Take Profit"
-                  description="Close position when gain reaches this. 0 = disabled."
+                  description="Close position when unrealized gain reaches this percentage. 0 disables early exits on gains — lets the position ride to resolution. Pair with Stop Loss = 0 for full hold-to-resolution mode."
                   suffix="%"
                   value={climateConfig.take_profit_pct}
                   onChange={(v) => setClimateConfig({ ...climateConfig, take_profit_pct: v })}
