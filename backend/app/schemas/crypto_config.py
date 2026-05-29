@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class KalshiConfigResponse(BaseModel):
+class CryptoConfigResponse(BaseModel):
     mode: str
     enabled: bool
     series_tickers: str = "KXBTC,KXETH"
@@ -22,7 +22,7 @@ class KalshiConfigResponse(BaseModel):
     min_hold_minutes: int = 15
 
 
-class KalshiConfigUpdate(BaseModel):
+class CryptoConfigUpdate(BaseModel):
     mode: str | None = None
     enabled: bool | None = None
     series_tickers: str | None = None
@@ -41,14 +41,3 @@ class KalshiConfigUpdate(BaseModel):
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)
     min_hold_minutes: int | None = Field(None, ge=0, le=480)
-
-
-class KalshiKeysUpdate(BaseModel):
-    api_key_id: str
-    private_key_pem: str
-
-
-class KalshiKeysStatus(BaseModel):
-    has_keys: bool
-    key_preview: str | None = None
-    valid: bool = False

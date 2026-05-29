@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.async_util import run_async
 from app.core.config import settings
 from app.models.climate_config import ClimateConfig
-from app.models.kalshi_config import KalshiConfig
+from app.models.crypto_config import CryptoConfig
 from app.models.user import User
 from app.services.climate_fair_value import (
     check_climate_exits,
@@ -70,7 +70,7 @@ def _write_balance_cache(user_id: str, data: dict) -> None:
 def _run_kalshi_scan():
     with Session(_sync_engine) as session:
         configs = session.execute(
-            select(KalshiConfig).where(KalshiConfig.enabled.is_(True))
+            select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
         ).scalars().all()
 
         for cfg in configs:

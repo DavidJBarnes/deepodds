@@ -141,7 +141,7 @@ export interface ScannerHealth {
   error?: string;
 }
 
-export interface KalshiConfig {
+export interface CryptoConfig {
   mode: string;
   enabled: boolean;
   series_tickers: string;
@@ -192,13 +192,13 @@ export async function getDashboard(venue = "all") {
   return data;
 }
 
-export async function getKalshiConfig() {
-  const { data } = await client.get<KalshiConfig>("/settings/kalshi-config");
+export async function getCryptoConfig() {
+  const { data } = await client.get<CryptoConfig>("/settings/crypto-config");
   return data;
 }
 
-export async function updateKalshiConfig(updates: Partial<KalshiConfig>) {
-  const { data } = await client.put<KalshiConfig>("/settings/kalshi-config", updates);
+export async function updateCryptoConfig(updates: Partial<CryptoConfig>) {
+  const { data } = await client.put<CryptoConfig>("/settings/crypto-config", updates);
   return data;
 }
 
@@ -251,8 +251,8 @@ export interface RetrainResult {
   message: string;
   model_file_size_kb: number;
 }
-export async function getCalibration() {
-  const { data } = await client.get<CalibrationData>("/calibration", { params: { _t: Date.now() } });
+export async function getCalibration(venue: "kalshi_crypto" | "kalshi_climate" = "kalshi_crypto") {
+  const { data } = await client.get<CalibrationData>("/calibration", { params: { venue, _t: Date.now() } });
   return data;
 }
 

@@ -26,7 +26,7 @@ def _signal_response(s) -> SignalResponse:
 
     return SignalResponse(
         id=getattr(s, "original_id", s.id),
-        venue=getattr(s, "venue", "kalshi") or "kalshi",
+        venue=getattr(s, "venue", "kalshi_crypto") or "kalshi_crypto",
         pair=s.pair,
         side=s.side,
         signal_type=s.signal_type,
@@ -63,7 +63,7 @@ def _signal_response(s) -> SignalResponse:
 async def list_signals(
     statuses: str | None = Query(None, description="Comma-separated status values"),
     status: str | None = Query(None, deprecated="Use statuses instead"),
-    venue: str | None = Query(None, description="Filter by venue: kalshi, climate"),
+    venue: str | None = Query(None, description="Filter by venue: kalshi_crypto, kalshi_climate"),
     date: date_type | None = Query(None),
     tz_offset: int | None = Query(None, description="Minutes from UTC (JS getTimezoneOffset convention)"),
     limit: int = Query(50, ge=1, le=200),

@@ -78,10 +78,10 @@ export default function SettingsPage() {
   const [savingKalshiKeys, setSavingKalshiKeys] = useState(false);
   const [kalshiKeysMessage, setKalshiKeysMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const [kalshiConfig, setKalshiConfig] = useState<botApi.KalshiConfig | null>(null);
+  const [cryptoConfig, setCryptoConfig] = useState<botApi.CryptoConfig | null>(null);
   const [savingKalshi, setSavingKalshi] = useState(false);
-  const [kalshiConfigMessage, setKalshiConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [kalshiModeModal, setKalshiModeModal] = useState<"paper" | "live" | null>(null);
+  const [cryptoConfigMessage, setCryptoConfigMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [cryptoModeModal, setCryptoModeModal] = useState<"paper" | "live" | null>(null);
 
   const [climateConfig, setClimateConfig] = useState<botApi.ClimateConfig | null>(null);
   const [savingClimate, setSavingClimate] = useState(false);
@@ -114,7 +114,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     settingsApi.getKalshiKeysStatus().then(setKalshiKeysStatus);
-    botApi.getKalshiConfig().then(setKalshiConfig);
+    botApi.getCryptoConfig().then(setCryptoConfig);
     botApi.getClimateConfig().then(setClimateConfig);
   }, []);
 
@@ -142,16 +142,16 @@ export default function SettingsPage() {
     setKalshiKeysMessage({ type: "success", text: "Kalshi keys removed." });
   }
 
-  async function saveKalshiConfig(updates: Partial<botApi.KalshiConfig>) {
+  async function saveCryptoConfig(updates: Partial<botApi.CryptoConfig>) {
     setSavingKalshi(true);
-    setKalshiConfigMessage(null);
+    setCryptoConfigMessage(null);
     try {
-      const result = await botApi.updateKalshiConfig(updates);
-      setKalshiConfig(result);
-      setKalshiConfigMessage({ type: "success", text: "Saved." });
-      setTimeout(() => setKalshiConfigMessage(null), 2000);
+      const result = await botApi.updateCryptoConfig(updates);
+      setCryptoConfig(result);
+      setCryptoConfigMessage({ type: "success", text: "Saved." });
+      setTimeout(() => setCryptoConfigMessage(null), 2000);
     } catch {
-      setKalshiConfigMessage({ type: "error", text: "Failed to save." });
+      setCryptoConfigMessage({ type: "error", text: "Failed to save." });
     } finally {
       setSavingKalshi(false);
     }
@@ -193,42 +193,42 @@ export default function SettingsPage() {
       {/* Kalshi Strategy Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Kalshi Event Contracts</h3>
+          <h3 className="text-lg font-semibold text-white">Kalshi Crypto Settings</h3>
           {savingKalshi && <span className="text-xs text-amber-400">Saving...</span>}
-          {kalshiConfigMessage && (
-            <span className={`text-xs ${kalshiConfigMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
-              {kalshiConfigMessage.text}
+          {cryptoConfigMessage && (
+            <span className={`text-xs ${cryptoConfigMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+              {cryptoConfigMessage.text}
             </span>
           )}
         </div>
 
-        {kalshiConfig && (
+        {cryptoConfig && (
           <>
             <div className="flex items-center gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Mode:</label>
                 <button
-                  onClick={() => setKalshiModeModal(kalshiConfig.mode === "paper" ? "live" : "paper")}
+                  onClick={() => setCryptoModeModal(cryptoConfig.mode === "paper" ? "live" : "paper")}
                   className={`text-xs font-bold px-3 py-1 rounded transition-colors ${
-                    kalshiConfig.mode === "live"
+                    cryptoConfig.mode === "live"
                       ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                       : "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
                   }`}
                 >
-                  {kalshiConfig.mode.toUpperCase()}
+                  {cryptoConfig.mode.toUpperCase()}
                 </button>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-slate-400">Enabled:</label>
                 <button
-                  onClick={() => saveKalshiConfig({ enabled: !kalshiConfig.enabled })}
+                  onClick={() => saveCryptoConfig({ enabled: !cryptoConfig.enabled })}
                   className={`relative w-10 h-5 rounded-full transition-colors ${
-                    kalshiConfig.enabled ? "bg-sky-600" : "bg-slate-700"
+                    cryptoConfig.enabled ? "bg-sky-600" : "bg-slate-700"
                   }`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
-                      kalshiConfig.enabled ? "translate-x-5" : ""
+                      cryptoConfig.enabled ? "translate-x-5" : ""
                     }`}
                   />
                 </button>
@@ -236,15 +236,15 @@ export default function SettingsPage() {
             </div>
 
             <ConfirmModal
-              open={kalshiModeModal === "live"}
+              open={cryptoModeModal === "live"}
               title="Switch Kalshi to Live Mode"
               confirmLabel="Switch to Live"
               confirmClass="bg-red-600 hover:bg-red-500"
               onConfirm={() => {
-                saveKalshiConfig({ mode: "live" });
-                setKalshiModeModal(null);
+                saveCryptoConfig({ mode: "live" });
+                setCryptoModeModal(null);
               }}
-              onCancel={() => setKalshiModeModal(null)}
+              onCancel={() => setCryptoModeModal(null)}
             >
               <p>You are about to enable <strong className="text-red-400">live trading</strong> on Kalshi:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400">
@@ -261,14 +261,14 @@ export default function SettingsPage() {
             </ConfirmModal>
 
             <ConfirmModal
-              open={kalshiModeModal === "paper"}
+              open={cryptoModeModal === "paper"}
               title="Switch Kalshi to Paper Mode"
               confirmLabel="Switch to Paper"
               onConfirm={() => {
-                saveKalshiConfig({ mode: "paper" });
-                setKalshiModeModal(null);
+                saveCryptoConfig({ mode: "paper" });
+                setCryptoModeModal(null);
               }}
-              onCancel={() => setKalshiModeModal(null)}
+              onCancel={() => setCryptoModeModal(null)}
             >
               <p>Switching Kalshi to <strong className="text-amber-400">paper mode</strong> means:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400">
@@ -288,9 +288,9 @@ export default function SettingsPage() {
                   <label className="text-sm text-slate-400 mb-1 block">Series Tickers</label>
                   <input
                     type="text"
-                    value={kalshiConfig.series_tickers}
-                    onChange={(e) => setKalshiConfig({ ...kalshiConfig, series_tickers: e.target.value })}
-                    onBlur={() => saveKalshiConfig({ series_tickers: kalshiConfig.series_tickers })}
+                    value={cryptoConfig.series_tickers}
+                    onChange={(e) => setCryptoConfig({ ...cryptoConfig, series_tickers: e.target.value })}
+                    onBlur={() => saveCryptoConfig({ series_tickers: cryptoConfig.series_tickers })}
                     className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                     placeholder="KXBTC,KXETH"
                   />
@@ -299,36 +299,36 @@ export default function SettingsPage() {
                 <ConfigField
                   label="Min 24h Volume"
                   description="Only trade markets with at least this many contracts traded in the last 24 hours."
-                  value={kalshiConfig.min_volume_24h}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_volume_24h: v })}
-                  onBlur={() => saveKalshiConfig({ min_volume_24h: kalshiConfig.min_volume_24h })}
+                  value={cryptoConfig.min_volume_24h}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_volume_24h: v })}
+                  onBlur={() => saveCryptoConfig({ min_volume_24h: cryptoConfig.min_volume_24h })}
                   step={50} min={0} max={10000}
                 />
                 <ConfigField
                   label="Min Price"
                   description="Skip markets priced below this (in dollars, e.g. 0.15 = 15 cents). Avoids extreme long-shots."
                   prefix="$"
-                  value={kalshiConfig.min_price}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_price: v })}
-                  onBlur={() => saveKalshiConfig({ min_price: kalshiConfig.min_price })}
+                  value={cryptoConfig.min_price}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_price: v })}
+                  onBlur={() => saveCryptoConfig({ min_price: cryptoConfig.min_price })}
                   step={0.01} min={0} max={0.95}
                 />
                 <ConfigField
                   label="Max Price"
                   description="Skip markets priced above this. Avoids near-certainties with tiny upside."
                   prefix="$"
-                  value={kalshiConfig.max_price}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_price: v })}
-                  onBlur={() => saveKalshiConfig({ max_price: kalshiConfig.max_price })}
+                  value={cryptoConfig.max_price}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_price: v })}
+                  onBlur={() => saveCryptoConfig({ max_price: cryptoConfig.max_price })}
                   step={0.01} min={0.05} max={0.99}
                 />
                 <ConfigField
                   label="Min Hours to Expiry"
                   description="Skip markets expiring sooner than this. 0 = include all. Prevents buying contracts about to settle."
                   suffix="hrs"
-                  value={kalshiConfig.min_hours_to_expiry}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hours_to_expiry: v })}
-                  onBlur={() => saveKalshiConfig({ min_hours_to_expiry: kalshiConfig.min_hours_to_expiry })}
+                  value={cryptoConfig.min_hours_to_expiry}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_hours_to_expiry: v })}
+                  onBlur={() => saveCryptoConfig({ min_hours_to_expiry: cryptoConfig.min_hours_to_expiry })}
                   step={1} min={0} max={72}
                 />
               </div>
@@ -344,62 +344,20 @@ export default function SettingsPage() {
                   label="Min Edge"
                   description="Minimum edge (model prob - market price) to trigger a buy. 0.05 = buy when model says 5%+ more likely than the market price implies."
                   suffix="%"
-                  value={Math.round(kalshiConfig.min_edge * 100)}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_edge: v / 100 })}
-                  onBlur={() => saveKalshiConfig({ min_edge: kalshiConfig.min_edge })}
+                  value={Math.round(cryptoConfig.min_edge * 100)}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_edge: v / 100 })}
+                  onBlur={() => saveCryptoConfig({ min_edge: cryptoConfig.min_edge })}
                   step={1} min={1} max={50}
                 />
                 <ConfigField
                   label="Exit Edge"
                   description="Sell when edge drops below this. -2% = exit when the model no longer favors the position."
                   suffix="%"
-                  value={Math.round(kalshiConfig.exit_edge * 100)}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, exit_edge: v / 100 })}
-                  onBlur={() => saveKalshiConfig({ exit_edge: kalshiConfig.exit_edge })}
+                  value={Math.round(cryptoConfig.exit_edge * 100)}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, exit_edge: v / 100 })}
+                  onBlur={() => saveCryptoConfig({ exit_edge: cryptoConfig.exit_edge })}
                   step={1} min={-50} max={0}
                 />
-                <div className="col-span-2 bg-slate-950/40 border border-slate-800 rounded-lg p-4 mt-2 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h5 className="text-xs font-semibold uppercase tracking-wider text-sky-400">SOTA Machine Learning Model</h5>
-                      <p className="text-[10px] text-slate-500">Synthetic Training on Binance (crypto) + Open-Meteo (climate)</p>
-                    </div>
-                    <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">
-                      ACTIVE
-                    </span>
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
-                      <span className="text-slate-500 block mb-0.5">Model Type</span>
-                      <span className="text-white font-mono font-medium">XGBoost Binary</span>
-                    </div>
-                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
-                      <span className="text-slate-500 block mb-0.5">Auto-Retrain</span>
-                      <span className="text-white font-medium">Weekly (Sun 12 AM)</span>
-                    </div>
-                    <div className="bg-slate-900/50 p-2 rounded border border-slate-800/50">
-                      <span className="text-slate-500 block mb-0.5">Features</span>
-                      <span className="text-white font-medium">13 Tabular Metrics</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleRetrainModel}
-                      disabled={retraining}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-white rounded border border-slate-700 transition-colors"
-                    >
-                      {retraining ? "Retraining Boosters..." : "Retrain Models Now"}
-                    </button>
-                    {retrainResult && (
-                      <span className={`text-[11px] font-medium ${retrainResult.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
-                        {retrainResult.text}
-                      </span>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -410,77 +368,77 @@ export default function SettingsPage() {
                 <ConfigField
                   label="Contracts per Signal"
                   description="Max contracts to buy per signal. Capped by max cost."
-                  value={kalshiConfig.contracts_per_signal}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, contracts_per_signal: v })}
-                  onBlur={() => saveKalshiConfig({ contracts_per_signal: kalshiConfig.contracts_per_signal })}
+                  value={cryptoConfig.contracts_per_signal}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, contracts_per_signal: v })}
+                  onBlur={() => saveCryptoConfig({ contracts_per_signal: cryptoConfig.contracts_per_signal })}
                   step={5} min={1} max={500}
                 />
                 <ConfigField
                   label="Max Cost per Signal"
                   description="Caps total cost per signal. Reduces contract count for expensive contracts."
                   prefix="$"
-                  value={kalshiConfig.max_cost_per_signal}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_cost_per_signal: v })}
-                  onBlur={() => saveKalshiConfig({ max_cost_per_signal: kalshiConfig.max_cost_per_signal })}
+                  value={cryptoConfig.max_cost_per_signal}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_cost_per_signal: v })}
+                  onBlur={() => saveCryptoConfig({ max_cost_per_signal: cryptoConfig.max_cost_per_signal })}
                   step={5} min={1} max={1000}
                 />
                 <ConfigField
                   label="Max Open Positions"
                   description="Maximum concurrent Kalshi positions."
-                  value={kalshiConfig.max_open_positions}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_open_positions: v })}
-                  onBlur={() => saveKalshiConfig({ max_open_positions: kalshiConfig.max_open_positions })}
+                  value={cryptoConfig.max_open_positions}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_open_positions: v })}
+                  onBlur={() => saveCryptoConfig({ max_open_positions: cryptoConfig.max_open_positions })}
                   step={1} min={1} max={20}
                 />
                 <ConfigField
                   label="Max Positions / Event"
                   description="Buckets within an event are mutually exclusive — only one wins."
-                  value={kalshiConfig.max_positions_per_event}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_positions_per_event: v })}
-                  onBlur={() => saveKalshiConfig({ max_positions_per_event: kalshiConfig.max_positions_per_event })}
+                  value={cryptoConfig.max_positions_per_event}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_positions_per_event: v })}
+                  onBlur={() => saveCryptoConfig({ max_positions_per_event: cryptoConfig.max_positions_per_event })}
                   step={1} min={1} max={10}
                 />
                 <ConfigField
                   label="Stop Loss"
                   description="Close position if unrealized loss exceeds this percentage."
                   suffix="%"
-                  value={kalshiConfig.stop_loss_pct}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, stop_loss_pct: v })}
-                  onBlur={() => saveKalshiConfig({ stop_loss_pct: kalshiConfig.stop_loss_pct })}
+                  value={cryptoConfig.stop_loss_pct}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, stop_loss_pct: v })}
+                  onBlur={() => saveCryptoConfig({ stop_loss_pct: cryptoConfig.stop_loss_pct })}
                   step={1} min={1} max={50}
                 />
                 <ConfigField
                   label="Take Profit"
                   description="Close position when unrealized gain reaches this percentage. 0 = disabled."
                   suffix="%"
-                  value={kalshiConfig.take_profit_pct}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, take_profit_pct: v })}
-                  onBlur={() => saveKalshiConfig({ take_profit_pct: kalshiConfig.take_profit_pct })}
+                  value={cryptoConfig.take_profit_pct}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, take_profit_pct: v })}
+                  onBlur={() => saveCryptoConfig({ take_profit_pct: cryptoConfig.take_profit_pct })}
                   step={1} min={0} max={500}
                 />
                 <ConfigField
                   label="Daily Loss Limit"
                   description="Pauses the Kalshi bot for the day if realized losses exceed this."
                   prefix="$"
-                  value={kalshiConfig.daily_loss_limit_usd}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, daily_loss_limit_usd: v })}
-                  onBlur={() => saveKalshiConfig({ daily_loss_limit_usd: kalshiConfig.daily_loss_limit_usd })}
+                  value={cryptoConfig.daily_loss_limit_usd}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, daily_loss_limit_usd: v })}
+                  onBlur={() => saveCryptoConfig({ daily_loss_limit_usd: cryptoConfig.daily_loss_limit_usd })}
                   step={5} min={0} max={10000}
                 />
                 <ConfigField
                   label="Max Signals/Hour"
                   description="Rate limit on new Kalshi signals. 0 = unlimited."
-                  value={kalshiConfig.max_signals_per_hour}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, max_signals_per_hour: v })}
-                  onBlur={() => saveKalshiConfig({ max_signals_per_hour: kalshiConfig.max_signals_per_hour })}
+                  value={cryptoConfig.max_signals_per_hour}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_signals_per_hour: v })}
+                  onBlur={() => saveCryptoConfig({ max_signals_per_hour: cryptoConfig.max_signals_per_hour })}
                   step={1} min={0} max={20}
                 />
                 <ConfigField
                   label="Min Hold Time"
                   description="Minimum minutes to hold before edge_lost exit can fire. Stop loss and approaching-expiry exits ignore this."
-                  value={kalshiConfig.min_hold_minutes}
-                  onChange={(v) => setKalshiConfig({ ...kalshiConfig, min_hold_minutes: v })}
-                  onBlur={() => saveKalshiConfig({ min_hold_minutes: kalshiConfig.min_hold_minutes })}
+                  value={cryptoConfig.min_hold_minutes}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_hold_minutes: v })}
+                  onBlur={() => saveCryptoConfig({ min_hold_minutes: cryptoConfig.min_hold_minutes })}
                   suffix="min"
                   step={5} min={0} max={480}
                 />
@@ -490,10 +448,54 @@ export default function SettingsPage() {
         )}
       </section>
 
+      {/* SOTA ML Model — applies to both crypto and climate */}
+      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">SOTA Machine Learning Model</h3>
+            <p className="text-xs text-slate-500">Synthetic Training on Binance (crypto) + Open-Meteo (climate)</p>
+          </div>
+          <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">
+            ACTIVE
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 text-xs">
+          <div className="bg-slate-950/40 p-3 rounded border border-slate-800/50">
+            <span className="text-slate-500 block mb-0.5">Model Type</span>
+            <span className="text-white font-mono font-medium">XGBoost Binary</span>
+          </div>
+          <div className="bg-slate-950/40 p-3 rounded border border-slate-800/50">
+            <span className="text-slate-500 block mb-0.5">Auto-Retrain</span>
+            <span className="text-white font-medium">Weekly (Sun 12 AM)</span>
+          </div>
+          <div className="bg-slate-950/40 p-3 rounded border border-slate-800/50">
+            <span className="text-slate-500 block mb-0.5">Features</span>
+            <span className="text-white font-medium">13 (crypto) · 29 (climate)</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleRetrainModel}
+            disabled={retraining}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-white rounded border border-slate-700 transition-colors"
+          >
+            {retraining ? "Retraining Boosters..." : "Retrain Models Now"}
+          </button>
+          {retrainResult && (
+            <span className={`text-[11px] font-medium ${retrainResult.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+              {retrainResult.text}
+            </span>
+          )}
+        </div>
+      </section>
+
       {/* Climate Bot Settings */}
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">Climate Event Contracts</h3>
+          <h3 className="text-lg font-semibold text-white">Kalshi Climate Settings</h3>
           {savingClimate && <span className="text-xs text-amber-400">Saving...</span>}
           {climateConfigMessage && (
             <span className={`text-xs ${climateConfigMessage.type === "success" ? "text-emerald-400" : "text-red-400"}`}>

@@ -39,7 +39,7 @@ from app.services.weather_client import (
 
 logger = logging.getLogger(__name__)
 
-VENUE = "climate"
+VENUE = "kalshi_climate"
 
 
 def _today_pnl_climate(session: Session, user_id) -> float:

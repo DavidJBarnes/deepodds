@@ -26,7 +26,7 @@ export default function CryptoPage() {
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
-    fetchDashboard("crypto");
+    fetchDashboard("kalshi_crypto");
   }, [fetchDashboard]);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function CryptoPage() {
     setSignalsLoading(true);
     const statusList = signalFilters.statuses ?? [];
     getSignals({
-      venue: "kalshi",
+      venue: "kalshi_crypto",
       date: signalFilters.date,
       tz_offset: new Date().getTimezoneOffset(),
       statuses: statusList.length ? statusList.join(",") : undefined,
@@ -63,7 +63,7 @@ export default function CryptoPage() {
     const tick = setInterval(() => {
       setCountdown((c) => {
         if (c <= 1) {
-          fetchDashboard("crypto");
+          fetchDashboard("kalshi_crypto");
           return REFRESH_INTERVAL;
         }
         return c - 1;

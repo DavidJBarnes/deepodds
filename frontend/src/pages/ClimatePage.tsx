@@ -26,7 +26,7 @@ export default function ClimatePage() {
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
-    fetchDashboard("climate");
+    fetchDashboard("kalshi_climate");
   }, [fetchDashboard]);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ export default function ClimatePage() {
     setSignalsLoading(true);
     const statusList = signalFilters.statuses ?? [];
     getSignals({
-      venue: "climate",
+      venue: "kalshi_climate",
       date: signalFilters.date,
       tz_offset: new Date().getTimezoneOffset(),
       statuses: statusList.length ? statusList.join(",") : undefined,
@@ -63,7 +63,7 @@ export default function ClimatePage() {
     const tick = setInterval(() => {
       setCountdown((c) => {
         if (c <= 1) {
-          fetchDashboard("climate");
+          fetchDashboard("kalshi_climate");
           return REFRESH_INTERVAL;
         }
         return c - 1;

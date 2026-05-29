@@ -8,8 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class KalshiConfig(Base):
-    __tablename__ = "kalshi_configs"
+class CryptoConfig(Base):
+    __tablename__ = "crypto_configs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), unique=True, index=True)

@@ -9,10 +9,11 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.history import History
 from app.models.climate_config import ClimateConfig
-from app.models.kalshi_config import KalshiConfig
+from app.models.crypto_config import CryptoConfig
 from app.models.user import User
 from app.schemas.climate_config import ClimateConfigResponse, ClimateConfigUpdate
-from app.schemas.kalshi_config import KalshiConfigResponse, KalshiConfigUpdate, KalshiKeysStatus, KalshiKeysUpdate
+from app.schemas.crypto_config import CryptoConfigResponse, CryptoConfigUpdate
+from app.schemas.kalshi_keys import KalshiKeysStatus, KalshiKeysUpdate
 from app.services.kalshi_client import KalshiClient
 
 logger = logging.getLogger(__name__)
@@ -56,24 +57,24 @@ async def _log_config_changes(db: AsyncSession, user_id, old_values: dict, new_v
         await db.commit()
 
 
-@router.get("/kalshi-config", response_model=KalshiConfigResponse)
-async def get_kalshi_config(
+@router.get("/crypto-config", response_model=CryptoConfigResponse)
+async def get_crypto_config(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     config = (
-        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
     ).scalar_one_or_none()
     if not config:
-        config = KalshiConfig(user_id=user.id)
+        config = CryptoConfig(user_id=user.id)
         db.add(config)
         await db.commit()
         await db.refresh(config)
-    return _kalshi_config_response(config)
+    return _crypto_config_response(config)
 
 
-def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
-    return KalshiConfigResponse(
+def _crypto_config_response(config: CryptoConfig) -> CryptoConfigResponse:
+    return CryptoConfigResponse(
         mode=config.mode,
         enabled=config.enabled,
         series_tickers=config.series_tickers,
@@ -94,17 +95,17 @@ def _kalshi_config_response(config: KalshiConfig) -> KalshiConfigResponse:
     )
 
 
-@router.put("/kalshi-config", response_model=KalshiConfigResponse)
-async def update_kalshi_config(
-    body: KalshiConfigUpdate,
+@router.put("/crypto-config", response_model=CryptoConfigResponse)
+async def update_crypto_config(
+    body: CryptoConfigUpdate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     config = (
-        await db.execute(select(KalshiConfig).where(KalshiConfig.user_id == user.id))
+        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
     ).scalar_one_or_none()
     if not config:
-        config = KalshiConfig(user_id=user.id)
+        config = CryptoConfig(user_id=user.id)
         db.add(config)
         await db.commit()
         await db.refresh(config)
@@ -125,7 +126,7 @@ async def update_kalshi_config(
 
     await _log_config_changes(db, user.id, old_values, updates)
 
-    return _kalshi_config_response(config)
+    return _crypto_config_response(config)
 
 
 @router.put("/kalshi-keys", response_model=KalshiKeysStatus)

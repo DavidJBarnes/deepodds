@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.models.history import History
-from app.models.kalshi_config import KalshiConfig
+from app.models.crypto_config import CryptoConfig
 from app.models.signal import Signal
 from app.services.binance_client import get_crypto_prices, get_daily_closes, get_market_stats, get_realized_vol
 from app.services.kalshi_client import KalshiClient
@@ -37,7 +37,7 @@ def _today_pnl_kalshi(session: Session, user_id) -> float:
     result = session.execute(
         select(func.coalesce(func.sum(Signal.pnl_usd), 0.0)).where(
             Signal.user_id == user_id,
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             func.date(func.timezone("America/New_York", Signal.resolved_at)) == today_ny,
             Signal.pnl_usd.isnot(None),
         )
@@ -50,7 +50,7 @@ def _signals_last_hour_kalshi(session: Session, user_id) -> int:
     result = session.execute(
         select(func.count(Signal.id)).where(
             Signal.user_id == user_id,
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.created_at >= one_hour_ago,
             Signal.status.notin_(["cancelled"]),
         )
@@ -63,7 +63,7 @@ def _open_kalshi_positions(session: Session, user_id) -> list[Signal]:
         session.execute(
             select(Signal).where(
                 Signal.user_id == user_id,
-                Signal.venue == "kalshi",
+                Signal.venue == "kalshi_crypto",
                 Signal.status.in_(OPEN_STATUSES),
             )
         ).scalars().all()
@@ -82,7 +82,7 @@ def _has_traded_ticker(session: Session, user_id, market_ticker: str) -> bool:
     result = session.execute(
         select(Signal.id).where(
             Signal.user_id == user_id,
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.market_ticker == market_ticker,
         ).limit(1)
     )
@@ -100,7 +100,7 @@ def _open_event_count(session: Session, user_id, event_ticker: str) -> int:
     return session.execute(
         select(func.count(Signal.id)).where(
             Signal.user_id == user_id,
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.event_ticker == event_ticker,
             Signal.status.in_(OPEN_STATUSES),
         )
@@ -179,7 +179,7 @@ def scan_kalshi_entries(
     client: KalshiClient | None = None,
 ) -> list[Signal]:
     config = session.execute(
-        select(KalshiConfig).where(KalshiConfig.user_id == user_id)
+        select(CryptoConfig).where(CryptoConfig.user_id == user_id)
     ).scalar_one_or_none()
 
     if not config or not config.enabled:
@@ -346,7 +346,7 @@ def scan_kalshi_entries(
 
             signal = Signal(
                 user_id=user_id,
-                venue="kalshi",
+                venue="kalshi_crypto",
                 pair=series_ticker,
                 side="buy",
                 signal_type=config.mode,
@@ -474,7 +474,7 @@ def check_kalshi_exits(
 ) -> int:
     filled = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.status == "filled",
             Signal.fill_price.isnot(None),
         )
@@ -487,7 +487,7 @@ def check_kalshi_exits(
     configs = {}
     for uid in user_ids:
         cfg = session.execute(
-            select(KalshiConfig).where(KalshiConfig.user_id == uid)
+            select(CryptoConfig).where(CryptoConfig.user_id == uid)
         ).scalar_one_or_none()
         if cfg:
             configs[uid] = cfg
@@ -654,7 +654,7 @@ def settle_expired_paper(session: Session) -> int:
     now = datetime.now(timezone.utc)
     expired = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.signal_type == "paper",
             Signal.status == "filled",
             Signal.expiry_time.isnot(None),
@@ -734,7 +734,7 @@ def cancel_stale_placed_orders(session: Session, max_age_minutes: int = 5) -> in
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
     stale = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi",
+            Signal.venue == "kalshi_crypto",
             Signal.signal_type == "live",
             Signal.status == "placed",
             Signal.created_at < cutoff,
