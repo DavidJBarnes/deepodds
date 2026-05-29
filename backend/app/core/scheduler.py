@@ -352,6 +352,7 @@ async def start_scheduler():
         while True:
             try:
                 logger.info("Triggering weekly climate ML auto-retraining...")
+                from app.models.history import History
                 from app.services.train_climate_model import train_and_save_climate_model
                 from app.services.climate_probability_model import reload_booster as reload_climate_booster
                 success = await train_and_save_climate_model()

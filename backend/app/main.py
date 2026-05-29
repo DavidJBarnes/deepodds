@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.v1.router import router as api_router
 from app.core.config import settings
@@ -41,6 +43,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(
+        "422 on %s %s — body=%r errors=%s",
+        request.method, request.url.path, exc.body, exc.errors(),
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors(), "body": exc.body})
 
 
 app.include_router(api_router)
