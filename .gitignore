@@ -18,3 +18,10 @@ frontend/.vite/
 *.swo
 *~
 .DS_Store
+
+.pi
+.opencode
+
+# Runtime model snapshots (versioned by ModelTrainHistory rows).
+# The .gitkeep stays so the dir exists; per-retrain v_*.json files are local artifacts.
+backend/app/core/models/**/v_*.json

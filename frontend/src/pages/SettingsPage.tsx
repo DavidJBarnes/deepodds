@@ -92,16 +92,17 @@ export default function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [dangerMessage, setDangerMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const [retraining, setRetraining] = useState(false);
+  const [retraining, setRetraining] = useState<botApi.RetrainVenue | null>(null);
   const [retrainResult, setRetrainResult] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [trainingHistory, setTrainingHistory] = useState<botApi.ModelTrainHistoryEntry[]>([]);
   const [loadingTrainingHistory, setLoadingTrainingHistory] = useState(true);
+  const [rollingBackId, setRollingBackId] = useState<string | null>(null);
 
-  async function handleRetrainModel() {
-    setRetraining(true);
+  async function handleRetrainModel(venue: botApi.RetrainVenue) {
+    setRetraining(venue);
     setRetrainResult(null);
     try {
-      const res = await botApi.triggerRetrain();
+      const res = await botApi.triggerRetrain(venue);
       if (res.success) {
         setRetrainResult({ type: "success", text: `${res.message} (${res.model_file_size_kb} KB)` });
       } else {
@@ -111,7 +112,25 @@ export default function SettingsPage() {
     } catch {
       setRetrainResult({ type: "error", text: "Manual retraining request failed." });
     } finally {
-      setRetraining(false);
+      setRetraining(null);
+    }
+  }
+
+  async function handleRollback(historyId: string, venue: "kalshi_crypto" | "kalshi_climate") {
+    setRollingBackId(historyId);
+    setRetrainResult(null);
+    try {
+      const res = await botApi.rollbackModel(historyId, venue);
+      setRetrainResult({
+        type: res.success ? "success" : "error",
+        text: res.message,
+      });
+      fetchTrainingHistory();
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Rollback failed.";
+      setRetrainResult({ type: "error", text: detail });
+    } finally {
+      setRollingBackId(null);
     }
   }
 
@@ -490,14 +509,22 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 pt-1 flex-wrap">
           <button
             type="button"
-            onClick={handleRetrainModel}
-            disabled={retraining}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-white rounded border border-slate-700 transition-colors"
+            onClick={() => handleRetrainModel("kalshi_crypto")}
+            disabled={retraining !== null}
+            className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-amber-300 rounded border border-amber-500/30 transition-colors"
           >
-            {retraining ? "Retraining Boosters..." : "Retrain Models Now"}
+            {retraining === "kalshi_crypto" ? "Retraining Crypto..." : "Retrain Crypto"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRetrainModel("kalshi_climate")}
+            disabled={retraining !== null}
+            className="px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 disabled:bg-slate-900 disabled:text-slate-600 text-xs font-medium text-sky-300 rounded border border-sky-500/30 transition-colors"
+          >
+            {retraining === "kalshi_climate" ? "Retraining Climate..." : "Retrain Climate"}
           </button>
           {retrainResult && (
             <span className={`text-[11px] font-medium ${retrainResult.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
@@ -510,7 +537,7 @@ export default function SettingsPage() {
           <div className="border-t border-slate-800 pt-4">
             <h4 className="text-sm font-semibold text-sky-400 mb-2">Training Runs</h4>
             {trainingHistory.length === 0 ? (
-              <p className="text-xs text-slate-500">No training runs yet. Click "Retrain Models Now" to run the first one.</p>
+              <p className="text-xs text-slate-500">No training runs yet. Click a "Retrain" button above to run the first one.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-slate-300">
@@ -521,48 +548,95 @@ export default function SettingsPage() {
                       <th className="text-left py-1.5 pr-3 font-medium">Started</th>
                       <th className="text-left py-1.5 pr-3 font-medium">Result</th>
                       <th className="text-left py-1.5 pr-3 font-medium">Size</th>
+                      <th className="text-left py-1.5 pr-3 font-medium">Status</th>
                       <th className="text-left py-1.5 font-medium">Message</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {trainingHistory.map((r) => (
-                      <tr key={r.id} className="border-b border-slate-800/50">
-                        <td className="py-1.5 pr-3">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            r.model_type === "crypto"
-                              ? "bg-amber-500/15 text-amber-400"
-                              : r.model_type === "climate"
-                                ? "bg-sky-500/15 text-sky-400"
-                                : "bg-emerald-500/15 text-emerald-400"
-                          }`}>
-                            {r.model_type === "both" ? "Crypto+Climate" : r.model_type === "crypto" ? "Crypto" : "Climate"}
-                          </span>
-                        </td>
-                        <td className="py-1.5 pr-3 text-slate-400">
-                          {r.trigger === "scheduled" ? "Scheduled" : "Manual"}
-                        </td>
-                        <td className="py-1.5 pr-3 text-slate-500">
-                          {new Date(r.started_at).toLocaleString()}
-                        </td>
-                        <td className="py-1.5 pr-3">
-                          {r.crypto_ok !== null && (
-                            <span className={r.crypto_ok ? "text-emerald-400" : "text-red-400"}>
-                              Crypto {r.crypto_ok ? "OK" : "FAIL"}
+                    {trainingHistory.map((r) => {
+                      const hasCrypto = r.crypto_ok !== null;
+                      const hasClimate = r.climate_ok !== null;
+                      const cryptoRestorable =
+                        hasCrypto && !!r.crypto_ok && r.crypto_snapshot_exists && !r.crypto_active;
+                      const climateRestorable =
+                        hasClimate && !!r.climate_ok && r.climate_snapshot_exists && !r.climate_active;
+                      return (
+                        <tr key={r.id} className="border-b border-slate-800/50">
+                          <td className="py-1.5 pr-3">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              r.model_type === "crypto" || r.model_type === "kalshi_crypto"
+                                ? "bg-amber-500/15 text-amber-400"
+                                : r.model_type === "climate" || r.model_type === "kalshi_climate"
+                                  ? "bg-sky-500/15 text-sky-400"
+                                  : "bg-emerald-500/15 text-emerald-400"
+                            }`}>
+                              {r.model_type === "both" ? "Crypto+Climate"
+                                : r.model_type === "crypto" || r.model_type === "kalshi_crypto" ? "Crypto"
+                                : "Climate"}
                             </span>
-                          )}
-                          {r.crypto_ok !== null && r.climate_ok !== null && " · "}
-                          {r.climate_ok !== null && (
-                            <span className={r.climate_ok ? "text-emerald-400" : "text-red-400"}>
-                              Climate {r.climate_ok ? "OK" : "FAIL"}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-1.5 pr-3 text-slate-500">
-                          {r.total_size_kb != null ? `${Math.round(r.total_size_kb)} KB` : "—"}
-                        </td>
-                        <td className="py-1.5 text-slate-400 max-w-64 truncate">{r.message}</td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-1.5 pr-3 text-slate-400">
+                            {r.trigger === "scheduled" ? "Scheduled" : "Manual"}
+                          </td>
+                          <td className="py-1.5 pr-3 text-slate-500">
+                            {new Date(r.started_at).toLocaleString()}
+                          </td>
+                          <td className="py-1.5 pr-3">
+                            {hasCrypto && (
+                              <span className={r.crypto_ok ? "text-emerald-400" : "text-red-400"}>
+                                Crypto {r.crypto_ok ? "OK" : "FAIL"}
+                              </span>
+                            )}
+                            {hasCrypto && hasClimate && " · "}
+                            {hasClimate && (
+                              <span className={r.climate_ok ? "text-emerald-400" : "text-red-400"}>
+                                Climate {r.climate_ok ? "OK" : "FAIL"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-3 text-slate-500">
+                            {r.total_size_kb != null ? `${Math.round(r.total_size_kb)} KB` : "—"}
+                          </td>
+                          <td className="py-1.5 pr-3">
+                            <div className="flex flex-col gap-1">
+                              {r.crypto_active && (
+                                <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded inline-block w-fit">
+                                  CRYPTO ACTIVE
+                                </span>
+                              )}
+                              {r.climate_active && (
+                                <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded inline-block w-fit">
+                                  CLIMATE ACTIVE
+                                </span>
+                              )}
+                              {cryptoRestorable && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRollback(r.id, "kalshi_crypto")}
+                                  disabled={rollingBackId !== null}
+                                  className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 disabled:opacity-40 w-fit"
+                                  title="Restore this crypto snapshot as the active model"
+                                >
+                                  {rollingBackId === r.id ? "..." : "Restore crypto"}
+                                </button>
+                              )}
+                              {climateRestorable && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRollback(r.id, "kalshi_climate")}
+                                  disabled={rollingBackId !== null}
+                                  className="text-[10px] px-1.5 py-0.5 rounded border border-sky-500/30 text-sky-300 hover:bg-sky-500/10 disabled:opacity-40 w-fit"
+                                  title="Restore this climate snapshot as the active model"
+                                >
+                                  {rollingBackId === r.id ? "..." : "Restore climate"}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-1.5 text-slate-400 max-w-64 truncate">{r.message}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

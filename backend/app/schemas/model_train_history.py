@@ -25,6 +25,12 @@ class ModelTrainHistoryResponse(BaseModel):
     crypto_size_kb: float | None
     climate_size_kb: float | None
     total_size_kb: float | None
+    crypto_model_path: str | None = None
+    climate_model_path: str | None = None
+    crypto_active: bool = False
+    climate_active: bool = False
+    crypto_snapshot_exists: bool = False
+    climate_snapshot_exists: bool = False
     message: str
     trigger: str
     started_at: datetime

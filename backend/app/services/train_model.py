@@ -2,6 +2,7 @@ import asyncio
 import logging
 import math
 import os
+import shutil
 from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
@@ -13,6 +14,12 @@ from app.services.probability_model import series_to_underlying
 logger = logging.getLogger(__name__)
 
 MODEL_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "core", "xgboost_model.json")
+SNAPSHOT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "core", "models", "crypto")
+
+
+def _snapshot_path() -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return os.path.join(SNAPSHOT_DIR, f"v_{ts}.json")
 
 SUPPORTED_SYMBOLS = ["BTC", "ETH", "XRP", "SOL", "DOGE", "BNB"]
 
@@ -105,8 +112,15 @@ def generate_synthetic_data(symbol: str, closes: list[float]) -> pd.DataFrame:
     return pd.DataFrame(df_list)
 
 
-async def train_and_save_model() -> bool:
-    """Fetches Binance klines, generates synthetic data, trains XGBoost and saves to JSON."""
+async def train_and_save_model() -> tuple[bool, str | None]:
+    """Train + save the crypto XGBoost model.
+
+    Returns (success, snapshot_path). On success a versioned snapshot is
+    written under core/models/crypto/ and copied into the canonical model
+    file. The caller persists the snapshot path on ModelTrainHistory and
+    can roll back to a prior snapshot by copying it back over the
+    canonical path.
+    """
     logger.info("Starting SOTA Synthetic ML Model Training...")
 
     all_data = []
@@ -122,7 +136,7 @@ async def train_and_save_model() -> bool:
 
     if not all_data:
         logger.error("No training data generated across any symbols. Training failed.")
-        return False
+        return False, None
 
     df = pd.concat(all_data, ignore_index=True)
     logger.info("Generated %d synthetic training samples", len(df))
@@ -173,8 +187,10 @@ async def train_and_save_model() -> bool:
     brier = np.mean((preds - y_test) ** 2)
     logger.info("Model training complete. Brier score on synthetic test set: %.4f", brier)
 
-    # Create directories if they do not exist
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(MODEL_FILE), exist_ok=True)
-    bst.save_model(MODEL_FILE)
-    logger.info("Model saved successfully to %s", MODEL_FILE)
-    return True
+    snapshot = _snapshot_path()
+    bst.save_model(snapshot)
+    shutil.copyfile(snapshot, MODEL_FILE)
+    logger.info("Crypto model saved to snapshot %s + canonical %s", snapshot, MODEL_FILE)
+    return True, snapshot
