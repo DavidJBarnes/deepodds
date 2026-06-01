@@ -7,7 +7,7 @@ import SignalTable from "@/components/SignalTable";
 import SignalFiltersBar from "@/components/SignalFiltersBar";
 import RefreshBar from "@/components/RefreshBar";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
-import { getTodayISO } from "@/utils/date";
+import { getDefaultDateRange } from "@/utils/date";
 
 const REFRESH_INTERVAL = 30;
 
@@ -17,9 +17,10 @@ export default function CryptoPage() {
   const [tab, setTab] = useState<"signals" | "kalshi">("signals");
   const [showFiltered, setShowFiltered] = useState(false);
   const [signalFilters, setSignalFilters] = useLocalStorage<{
-    date: string;
+    dateFrom: string;
+    dateTo: string;
     statuses: string[];
-  }>("deepodds.crypto.signals.filters.v2", { date: getTodayISO(), statuses: [] });
+  }>("deepodds.crypto.signals.filters.v3", { ...getDefaultDateRange(), statuses: [] });
   const [filteredSignals, setFilteredSignals] = useState<Signal[] | null>(null);
   const [filteredTotal, setFilteredTotal] = useState<number>(0);
   const [signalsLoading, setSignalsLoading] = useState(false);
@@ -36,7 +37,8 @@ export default function CryptoPage() {
     const statusList = signalFilters.statuses ?? [];
     getSignals({
       venue: "kalshi_crypto",
-      date: signalFilters.date,
+      date_from: signalFilters.dateFrom,
+      date_to: signalFilters.dateTo,
       tz_offset: new Date().getTimezoneOffset(),
       statuses: statusList.length ? statusList.join(",") : undefined,
       limit: 100,
@@ -57,7 +59,7 @@ export default function CryptoPage() {
     return () => {
       cancelled = true;
     };
-  }, [tab, signalFilters.date, signalFilters.statuses?.join(",") ?? "", lastRefreshed?.getTime()]);
+  }, [tab, signalFilters.dateFrom, signalFilters.dateTo, signalFilters.statuses?.join(",") ?? "", lastRefreshed?.getTime()]);
 
   useEffect(() => {
     const tick = setInterval(() => {
@@ -237,7 +239,8 @@ export default function CryptoPage() {
       {tab === "signals" && (
         <div className="space-y-3">
           <SignalFiltersBar
-            date={signalFilters.date}
+            dateFrom={signalFilters.dateFrom}
+            dateTo={signalFilters.dateTo}
             statuses={signalFilters.statuses}
             onChange={setSignalFilters}
             totalShown={filteredSignals?.length ?? 0}

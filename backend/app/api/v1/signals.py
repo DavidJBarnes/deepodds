@@ -64,7 +64,9 @@ async def list_signals(
     statuses: str | None = Query(None, description="Comma-separated status values"),
     status: str | None = Query(None, deprecated="Use statuses instead"),
     venue: str | None = Query(None, description="Filter by venue: kalshi_crypto, kalshi_climate"),
-    date: date_type | None = Query(None),
+    date: date_type | None = Query(None, deprecated="Use date_from/date_to for date ranges"),
+    date_from: date_type | None = Query(None, description="Start of date range (inclusive)"),
+    date_to: date_type | None = Query(None, description="End of date range (inclusive)"),
     tz_offset: int | None = Query(None, description="Minutes from UTC (JS getTimezoneOffset convention)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -86,7 +88,18 @@ async def list_signals(
         stmt = stmt.where(Signal.status.in_(raw_statuses))
         count_stmt = count_stmt.where(Signal.status.in_(raw_statuses))
 
-    if date:
+    if date_from or date_to:
+        start_dt = date_from if date_from else date_to
+        end_dt = date_to if date_to else date_from
+        assert start_dt is not None and end_dt is not None
+        start = datetime(start_dt.year, start_dt.month, start_dt.day, tzinfo=timezone.utc)
+        end = datetime(end_dt.year, end_dt.month, end_dt.day, tzinfo=timezone.utc) + timedelta(days=1)
+        if tz_offset is not None:
+            start += timedelta(minutes=tz_offset)
+            end += timedelta(minutes=tz_offset)
+        stmt = stmt.where(Signal.created_at >= start, Signal.created_at < end)
+        count_stmt = count_stmt.where(Signal.created_at >= start, Signal.created_at < end)
+    elif date:
         start = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
         if tz_offset is not None:
             start += timedelta(minutes=tz_offset)
