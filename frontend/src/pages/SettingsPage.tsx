@@ -422,7 +422,7 @@ export default function SettingsPage() {
                   value={cryptoConfig.max_open_positions}
                   onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_open_positions: v })}
                   onBlur={() => saveCryptoConfig({ max_open_positions: cryptoConfig.max_open_positions })}
-                  step={1} min={1} max={20}
+                  step={1} min={1} max={100}
                 />
                 <ConfigField
                   label="Max Positions / Event"
@@ -828,7 +828,7 @@ export default function SettingsPage() {
                   value={climateConfig.max_open_positions}
                   onChange={(v) => setClimateConfig({ ...climateConfig, max_open_positions: v })}
                   onBlur={() => saveClimateConfig({ max_open_positions: climateConfig.max_open_positions })}
-                  step={1} min={1} max={20}
+                  step={1} min={1} max={100}
                 />
                 <ConfigField
                   label="Max Positions / Event"
