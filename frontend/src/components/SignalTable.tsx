@@ -15,6 +15,22 @@ function formatTime(iso: string) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function getStatusTooltip(s: Signal): string | undefined {
+  const ts: string | null | undefined = (
+    (s.status.startsWith("settled_") || s.status.startsWith("resolved"))
+      ? s.resolved_at
+      : (s.status === "filled" ? s.filled_at : s.created_at)
+  );
+  if (!ts) return undefined;
+  const d = new Date(ts);
+  const formatted = d.toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const label = s.status.replace(/_/g, " ");
+  return `${label} on ${formatted}`;
+}
+
 export default function SignalTable({ signals }: { signals: Signal[] }) {
   if (signals.length === 0) {
     return (
@@ -87,7 +103,10 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   ${s.cost_usd.toFixed(2)}
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400"}`}>
+                  <span
+                    className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400"}`}
+                    title={getStatusTooltip(s)}
+                  >
                     {s.status.replace("_", " ")}
                   </span>
                 </td>
