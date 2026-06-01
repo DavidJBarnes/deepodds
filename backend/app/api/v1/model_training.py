@@ -1,4 +1,5 @@
 import logging
+import os
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -14,6 +15,33 @@ from app.schemas.model_train_history import (
     ModelTrainHistoryListResponse,
     ModelTrainHistoryResponse,
 )
+
+
+def _exists(path: str | None) -> bool:
+    return bool(path) and os.path.exists(path)
+
+
+def _to_response(r: ModelTrainHistory) -> ModelTrainHistoryResponse:
+    return ModelTrainHistoryResponse(
+        id=r.id,
+        user_id=r.user_id,
+        model_type=r.model_type,
+        crypto_ok=r.crypto_ok,
+        climate_ok=r.climate_ok,
+        crypto_size_kb=r.crypto_size_kb,
+        climate_size_kb=r.climate_size_kb,
+        total_size_kb=r.total_size_kb,
+        crypto_model_path=r.crypto_model_path,
+        climate_model_path=r.climate_model_path,
+        crypto_active=r.crypto_active,
+        climate_active=r.climate_active,
+        crypto_snapshot_exists=_exists(r.crypto_model_path),
+        climate_snapshot_exists=_exists(r.climate_model_path),
+        message=r.message,
+        trigger=r.trigger,
+        started_at=r.started_at,
+        completed_at=r.completed_at,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -51,23 +79,7 @@ async def list_model_training_history(
     ).scalars().all()
 
     return ModelTrainHistoryListResponse(
-        items=[
-            ModelTrainHistoryResponse(
-                id=r.id,
-                user_id=r.user_id,
-                model_type=r.model_type,
-                crypto_ok=r.crypto_ok,
-                climate_ok=r.climate_ok,
-                crypto_size_kb=r.crypto_size_kb,
-                climate_size_kb=r.climate_size_kb,
-                total_size_kb=r.total_size_kb,
-                message=r.message,
-                trigger=r.trigger,
-                started_at=r.started_at,
-                completed_at=r.completed_at,
-            )
-            for r in results
-        ],
+        items=[_to_response(r) for r in results],
         total=total,
     )
 
@@ -93,17 +105,4 @@ async def create_model_training_history(
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
-    return ModelTrainHistoryResponse(
-        id=entry.id,
-        user_id=entry.user_id,
-        model_type=entry.model_type,
-        crypto_ok=entry.crypto_ok,
-        climate_ok=entry.climate_ok,
-        crypto_size_kb=entry.crypto_size_kb,
-        climate_size_kb=entry.climate_size_kb,
-        total_size_kb=entry.total_size_kb,
-        message=entry.message,
-        trigger=entry.trigger,
-        started_at=entry.started_at,
-        completed_at=entry.completed_at,
-    )
+    return _to_response(entry)

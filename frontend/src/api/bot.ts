@@ -256,10 +256,22 @@ export async function getCalibration(venue: "kalshi_crypto" | "kalshi_climate" =
   return data;
 }
 
-export async function triggerRetrain() {
-  const { data } = await client.post<RetrainResult>("/calibration/retrain");
+export type RetrainVenue = "kalshi_crypto" | "kalshi_climate" | "both";
+
+export async function triggerRetrain(venue: RetrainVenue = "both") {
+  const { data } = await client.post<RetrainResult>("/calibration/retrain", null, {
+    params: { venue },
+  });
   return data;
 }
+
+export async function rollbackModel(historyId: string, venue: "kalshi_crypto" | "kalshi_climate") {
+  const { data } = await client.post<RetrainResult>("/calibration/rollback", null, {
+    params: { history_id: historyId, venue },
+  });
+  return data;
+}
+
 export async function createHistory(text: string) {
   const { data } = await client.post<HistoryEntry>("/history", { text });
   return data;
@@ -274,6 +286,12 @@ export interface ModelTrainHistoryEntry {
   crypto_size_kb: number | null;
   climate_size_kb: number | null;
   total_size_kb: number | null;
+  crypto_model_path: string | null;
+  climate_model_path: string | null;
+  crypto_active: boolean;
+  climate_active: boolean;
+  crypto_snapshot_exists: boolean;
+  climate_snapshot_exists: boolean;
   message: string;
   trigger: string;
   started_at: string;

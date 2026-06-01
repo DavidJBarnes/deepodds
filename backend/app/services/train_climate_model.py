@@ -12,6 +12,8 @@ import logging
 import math
 import os
 import random
+import shutil
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -29,6 +31,14 @@ logger = logging.getLogger(__name__)
 MODEL_FILE = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "core", "xgboost_climate_model.json"
 )
+SNAPSHOT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "core", "models", "climate"
+)
+
+
+def _snapshot_path() -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return os.path.join(SNAPSHOT_DIR, f"v_{ts}.json")
 
 # Match the feature ordering used by the probability model at inference time.
 FEATURE_COLS = [
@@ -131,9 +141,12 @@ def generate_synthetic_data(city: str, kind: str, values: list[float]) -> pd.Dat
     return pd.DataFrame(rows)
 
 
-async def train_and_save_climate_model() -> bool:
-    """Fetch daily extreme history per city, generate synthetic Kalshi-style
-    contracts, train XGBoost binary classifier, save to JSON."""
+async def train_and_save_climate_model() -> tuple[bool, str | None]:
+    """Train + save the climate XGBoost model.
+
+    Returns (success, snapshot_path). See train_model.train_and_save_model
+    for the snapshot semantics.
+    """
     logger.info("Starting climate ML training...")
 
     all_data = []
@@ -149,7 +162,7 @@ async def train_and_save_climate_model() -> bool:
 
     if not all_data:
         logger.error("No climate training data generated. Training failed.")
-        return False
+        return False, None
 
     df = pd.concat(all_data, ignore_index=True)
     logger.info("Generated %d synthetic climate samples", len(df))
@@ -193,7 +206,10 @@ async def train_and_save_climate_model() -> bool:
     logloss = float(-np.mean(y_test * np.log(np.clip(preds, 1e-6, 1)) + (1 - y_test) * np.log(np.clip(1 - preds, 1e-6, 1))))
     logger.info("Climate training done. n=%d brier=%.4f logloss=%.4f", len(df), brier, logloss)
 
+    os.makedirs(SNAPSHOT_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(MODEL_FILE), exist_ok=True)
-    bst.save_model(MODEL_FILE)
-    logger.info("Climate model saved to %s", MODEL_FILE)
-    return True
+    snapshot = _snapshot_path()
+    bst.save_model(snapshot)
+    shutil.copyfile(snapshot, MODEL_FILE)
+    logger.info("Climate model saved to snapshot %s + canonical %s", snapshot, MODEL_FILE)
+    return True, snapshot

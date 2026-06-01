@@ -294,11 +294,12 @@ async def start_scheduler():
         while True:
             try:
                 logger.info("Triggering weekly SOTA ML auto-retraining...")
+                from sqlalchemy import update
                 from app.models.history import History
                 from app.services.train_model import train_and_save_model
                 from app.services.probability_model import MODEL_FILE, reload_booster
                 started_at = datetime.now(timezone.utc)
-                success = await train_and_save_model()
+                success, snapshot = await train_and_save_model()
                 crypto_kb = os.path.getsize(MODEL_FILE) / 1024 if os.path.exists(MODEL_FILE) else 0
                 msg = "Automated weekly SOTA ML model retraining completed successfully" if success else "Automated weekly SOTA ML model retraining failed"
                 if success:
@@ -312,6 +313,12 @@ async def start_scheduler():
                             user_id=user.id,
                             text=msg,
                         ))
+                    if success and snapshot:
+                        session.execute(
+                            update(ModelTrainHistory)
+                            .where(ModelTrainHistory.crypto_active.is_(True))
+                            .values(crypto_active=False)
+                        )
                     session.add(ModelTrainHistory(
                         user_id=None,
                         model_type="crypto",
@@ -320,6 +327,10 @@ async def start_scheduler():
                         crypto_size_kb=crypto_kb,
                         climate_size_kb=None,
                         total_size_kb=crypto_kb,
+                        crypto_model_path=snapshot,
+                        climate_model_path=None,
+                        crypto_active=bool(success and snapshot),
+                        climate_active=False,
                         message=msg,
                         trigger="scheduled",
                         started_at=started_at,
@@ -358,6 +369,7 @@ async def start_scheduler():
         while True:
             try:
                 logger.info("Triggering weekly climate ML auto-retraining...")
+                from sqlalchemy import update
                 from app.models.history import History
                 from app.services.train_climate_model import train_and_save_climate_model
                 from app.services.climate_probability_model import (
@@ -365,7 +377,7 @@ async def start_scheduler():
                     reload_booster as reload_climate_booster,
                 )
                 started_at = datetime.now(timezone.utc)
-                success = await train_and_save_climate_model()
+                success, snapshot = await train_and_save_climate_model()
                 climate_kb = os.path.getsize(CLIMATE_MODEL_FILE) / 1024 if os.path.exists(CLIMATE_MODEL_FILE) else 0
                 msg = "Automated weekly climate ML model retraining completed successfully" if success else "Automated weekly climate ML model retraining failed"
                 if success:
@@ -377,6 +389,12 @@ async def start_scheduler():
                             user_id=user.id,
                             text=msg,
                         ))
+                    if success and snapshot:
+                        session.execute(
+                            update(ModelTrainHistory)
+                            .where(ModelTrainHistory.climate_active.is_(True))
+                            .values(climate_active=False)
+                        )
                     session.add(ModelTrainHistory(
                         user_id=None,
                         model_type="climate",
@@ -385,6 +403,10 @@ async def start_scheduler():
                         crypto_size_kb=None,
                         climate_size_kb=climate_kb,
                         total_size_kb=climate_kb,
+                        crypto_model_path=None,
+                        climate_model_path=snapshot,
+                        crypto_active=False,
+                        climate_active=bool(success and snapshot),
                         message=msg,
                         trigger="scheduled",
                         started_at=started_at,
