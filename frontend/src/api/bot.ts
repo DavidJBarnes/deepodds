@@ -202,7 +202,7 @@ export async function updateCryptoConfig(updates: Partial<CryptoConfig>) {
   return data;
 }
 
-export async function getSignals(params: { statuses?: string; venue?: string; date?: string; tz_offset?: number; limit?: number; offset?: number }) {
+export async function getSignals(params: { statuses?: string; venue?: string; date?: string; date_from?: string; date_to?: string; tz_offset?: number; limit?: number; offset?: number }) {
   const { data } = await client.get<{ items: Signal[]; total: number }>("/signals", { params });
   return data;
 }

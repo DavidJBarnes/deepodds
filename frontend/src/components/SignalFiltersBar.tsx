@@ -1,4 +1,4 @@
-import { getTodayISO } from "@/utils/date";
+import { getDefaultDateRange } from "@/utils/date";
 
 const STATUS_OPTIONS = [
   { value: "signaled", label: "Signaled" },
@@ -21,41 +21,52 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface Props {
-  date: string;
+  dateFrom: string;
+  dateTo: string;
   statuses: string[];
-  onChange: (next: { date: string; statuses: string[] }) => void;
+  onChange: (next: { dateFrom: string; dateTo: string; statuses: string[] }) => void;
   totalShown?: number;
   totalMatching?: number;
 }
 
 export default function SignalFiltersBar({
-  date,
+  dateFrom,
+  dateTo,
   statuses,
   onChange,
   totalShown,
   totalMatching,
 }: Props) {
   const safeStatuses = statuses ?? [];
-  const hasActiveFilters = date !== getTodayISO() || safeStatuses.length > 0;
+  const defaults = getDefaultDateRange();
+  const hasActiveFilters =
+    dateFrom !== defaults.dateFrom || dateTo !== defaults.dateTo || safeStatuses.length > 0;
 
   function toggleStatus(value: string) {
     const next = safeStatuses.includes(value)
       ? safeStatuses.filter((s) => s !== value)
       : [...safeStatuses, value];
-    onChange({ date, statuses: next });
+    onChange({ dateFrom, dateTo, statuses: next });
   }
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3 flex-wrap">
-      <label className="flex items-center gap-2 text-xs text-slate-400">
+      <div className="flex items-center gap-2 text-xs text-slate-400">
         <span>Date</span>
         <input
           type="date"
-          value={date}
-          onChange={(e) => onChange({ date: e.target.value, statuses: safeStatuses })}
+          value={dateFrom}
+          onChange={(e) => onChange({ dateFrom: e.target.value, dateTo, statuses: safeStatuses })}
           className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-emerald-500"
         />
-      </label>
+        <span className="text-slate-500">to</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => onChange({ dateFrom, dateTo: e.target.value, statuses: safeStatuses })}
+          className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-emerald-500"
+        />
+      </div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="text-xs text-slate-400">Status</span>
@@ -79,7 +90,7 @@ export default function SignalFiltersBar({
 
       {hasActiveFilters && (
         <button
-          onClick={() => onChange({ date: getTodayISO(), statuses: [] })}
+          onClick={() => onChange({ ...defaults, statuses: [] })}
           className="text-xs text-slate-500 hover:text-white"
         >
           Clear
