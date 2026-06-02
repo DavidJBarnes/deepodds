@@ -30,6 +30,7 @@ from app.services.kalshi_utils import (
     market_spread_pct,
     read_balance_cache,
 )
+from app.services.market_data import TTL_MARKETS, get as cache_get
 from app.services.weather_client import (
     get_daily_extreme_history,
     get_daily_extreme_vol,
@@ -169,10 +170,17 @@ def scan_climate_entries(
     series = [s.strip() for s in config.series_tickers.split(",") if s.strip()]
     client = client or KalshiClient.public()
 
+    raw_data: dict[str, dict] = {}
+    for s in series:
+        cached = cache_get(f"kalshi_raw_{s}", TTL_MARKETS)
+        if cached is not None:
+            raw_data[s] = cached
+
     markets = discover_markets(
         client, series,
         config.min_volume_24h, config.min_price, config.max_price,
         config.min_hours_to_expiry, min_ask_size=1,
+        raw_data=raw_data,
     )
 
     forecast_cache: dict = {}

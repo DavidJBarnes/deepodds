@@ -40,6 +40,21 @@ def market_spread_pct(market: dict) -> float:
     return (ask - bid) / ask * 100 if ask > 0 else 0.0
 
 
+def fetch_raw_markets(client: KalshiClient, series_ticker: str) -> dict | None:
+    """Fetch raw Kalshi API response for one series ticker.
+
+    Returns the full JSON dict from GET /markets?series_ticker=… or None
+    on failure.  Callers populate the shared cache with the result so
+    subsequent discover_markets calls within the same scan cycle skip
+    redundant API round-trips.
+    """
+    try:
+        return run_async(client.get_markets(series_ticker=series_ticker, limit=200))
+    except Exception:
+        logger.warning("Failed to fetch raw markets for series %s", series_ticker)
+        return None
+
+
 def discover_markets(
     client: KalshiClient,
     series_tickers: list[str],
@@ -48,18 +63,28 @@ def discover_markets(
     max_price: float,
     min_hours_to_expiry: int,
     min_ask_size: int = 1,
+    raw_data: dict[str, dict] | None = None,
 ) -> list[dict]:
-    """Find markets where we could actually fill a buy order at a sensible price."""
+    """Find markets where we could actually fill a buy order at a sensible price.
+
+    If *raw_data* is supplied it is a ``{series_ticker: raw_api_json}``
+    mapping — the Kalshi API call is skipped for any series present in the
+    dict (the caller prepopulated it from the shared market_data cache or
+    a parallel pre-fetch).
+    """
+    raw_data = raw_data or {}
     now = datetime.now(timezone.utc)
     cutoff = now + timedelta(hours=min_hours_to_expiry)
     eligible = []
 
     for series in series_tickers:
-        try:
-            data = run_async(client.get_markets(series_ticker=series, limit=200))
-        except Exception:
-            logger.warning("Failed to fetch markets for series %s", series)
-            continue
+        data = raw_data.get(series)
+        if data is None:
+            try:
+                data = run_async(client.get_markets(series_ticker=series, limit=200))
+            except Exception:
+                logger.warning("Failed to fetch markets for series %s", series)
+                continue
 
         for m in data.get("markets", []):
             vol_24h = float(m.get("volume_24h_fp", 0) or 0)

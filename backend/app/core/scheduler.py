@@ -13,6 +13,7 @@ from app.models.climate_config import ClimateConfig
 from app.models.crypto_config import CryptoConfig
 from app.models.model_train_history import ModelTrainHistory
 from app.models.user import User
+from app.services.binance_client import get_crypto_prices, get_market_stats, get_realized_vol
 from app.services.climate_fair_value import (
     check_climate_exits,
     scan_climate_entries,
@@ -26,6 +27,8 @@ from app.services.kalshi_fair_value import (
     settle_expired_paper,
 )
 from app.services.kalshi_live_sync import sync_kalshi_live
+from app.services.market_data import set as cache_set
+from app.services.probability_model import series_to_underlying
 
 _BALANCE_CACHE_TTL = 60  # seconds; scheduler refreshes every 30s
 _SCAN_INTERVAL = 30  # seconds between entry scan cycles
@@ -194,6 +197,121 @@ def _write_scanner_health_climate(status: str, error: str | None = None) -> None
         logger.warning("Failed to write climate scanner health file")
 
 
+def _write_heartbeats() -> None:
+    """Refresh the timestamp in both scanner health files.
+
+    Called by a 30 s asyncio task so the dashboard never shows a stale
+    timestamp regardless of how long a scan cycle takes.  The scan loops
+    only update the ``status`` / ``error`` fields when they complete or
+    fail — they no longer touch the timestamp.
+    """
+    _write_scanner_health("online")
+    _write_scanner_health_climate("online")
+
+
+# ---------------------------------------------------------------------------
+#  Data-refresh helpers — run in a thread-pool worker via asyncio.to_thread
+# ---------------------------------------------------------------------------
+
+def _refresh_crypto_cache() -> None:
+    """Prefetch all shared crypto market data and populate the global cache."""
+    with Session(_sync_engine) as session:
+        configs = session.execute(
+            select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
+        ).scalars().all()
+
+    series_set: set[str] = set()
+    for cfg in configs:
+        for s in (cfg.series_tickers or "").split(","):
+            s = s.strip()
+            if s:
+                series_set.add(s)
+
+    symbols = {series_to_underlying(t) for t in series_set}
+    symbols.discard(None)
+    if not symbols:
+        return
+
+    async def _fetch_stats(s: str):
+        return s, await get_market_stats(s, hours=48, interval="1h")
+
+    async def _fetch_vol_baseline(s: str):
+        return s, await get_realized_vol(s, hours=168, interval="1h")
+
+    prices = run_async(get_crypto_prices(list(symbols)))
+    cache_set("crypto_prices", prices)
+
+    async def _gather_stats():
+        return await asyncio.gather(*[_fetch_stats(s) for s in symbols])
+
+    stats_results = run_async(_gather_stats())
+    for sym, stats in stats_results:
+        if stats:
+            cache_set(f"market_stats_{sym}", stats)
+
+    async def _gather_vols():
+        return await asyncio.gather(*[_fetch_vol_baseline(s) for s in symbols])
+
+    vol_results = run_async(_gather_vols())
+    for sym, vol in vol_results:
+        if vol is not None:
+            cache_set(f"realized_vol_{sym}_168_1h", vol)
+
+    client = KalshiClient.public()
+
+    async def _fetch_markets(s: str):
+        try:
+            data = await client.get_markets(series_ticker=s, limit=200)
+            return s, data
+        except Exception:
+            logger.warning("Refresh failed to fetch markets for series %s", s)
+            return s, None
+
+    async def _gather_markets():
+        return await asyncio.gather(*[_fetch_markets(s) for s in series_set])
+
+    market_results = run_async(_gather_markets())
+    for s, data in market_results:
+        if data is not None:
+            cache_set(f"kalshi_raw_{s}", data)
+
+
+def _refresh_climate_cache() -> None:
+    """Prefetch shared climate market listings into the global cache."""
+    with Session(_sync_engine) as session:
+        configs = session.execute(
+            select(ClimateConfig).where(ClimateConfig.enabled.is_(True))
+        ).scalars().all()
+
+    series_set: set[str] = set()
+    for cfg in configs:
+        for s in (cfg.series_tickers or "").split(","):
+            s = s.strip()
+            if s:
+                series_set.add(s)
+
+    if not series_set:
+        return
+
+    client = KalshiClient.public()
+
+    async def _fetch_markets(s: str):
+        try:
+            data = await client.get_markets(series_ticker=s, limit=200)
+            return s, data
+        except Exception:
+            logger.warning("Climate refresh failed to fetch markets for series %s", s)
+            return s, None
+
+    async def _gather_markets():
+        return await asyncio.gather(*[_fetch_markets(s) for s in series_set])
+
+    results = run_async(_gather_markets())
+    for s, data in results:
+        if data is not None:
+            cache_set(f"kalshi_raw_{s}", data)
+
+
 def _run_climate_scan():
     with Session(_sync_engine) as session:
         configs = session.execute(
@@ -260,7 +378,6 @@ async def start_scheduler():
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_kalshi_scan)
-                _write_scanner_health("online")
             except Exception as exc:
                 _write_scanner_health("error", str(exc)[:200])
                 logger.exception("Kalshi scan loop failed")
@@ -346,7 +463,6 @@ async def start_scheduler():
             t0 = time.monotonic()
             try:
                 await asyncio.to_thread(_run_climate_scan)
-                _write_scanner_health_climate("online")
             except Exception as exc:
                 _write_scanner_health_climate("error", str(exc)[:200])
                 logger.exception("Climate scan loop failed")
@@ -417,6 +533,30 @@ async def start_scheduler():
                 logger.exception("Climate ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)
 
+    async def heartbeat_loop():
+        while True:
+            try:
+                _write_heartbeats()
+            except Exception:
+                logger.exception("Heartbeat write failed")
+            await asyncio.sleep(30)
+
+    async def refresh_crypto_data_loop():
+        while True:
+            try:
+                await asyncio.to_thread(_refresh_crypto_cache)
+            except Exception:
+                logger.exception("Crypto data refresh failed")
+            await asyncio.sleep(30)
+
+    async def refresh_climate_data_loop():
+        while True:
+            try:
+                await asyncio.to_thread(_refresh_climate_cache)
+            except Exception:
+                logger.exception("Climate data refresh failed")
+            await asyncio.sleep(30)
+
     tasks = [
         asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
         asyncio.create_task(kalshi_exit_loop(), name="kalshi_exit"),
@@ -425,11 +565,15 @@ async def start_scheduler():
         asyncio.create_task(climate_scan_loop(), name="climate_scan"),
         asyncio.create_task(climate_exit_loop(), name="climate_exit"),
         asyncio.create_task(climate_retrain_loop(), name="climate_retrain"),
+        asyncio.create_task(heartbeat_loop(), name="heartbeat"),
+        asyncio.create_task(refresh_crypto_data_loop(), name="refresh_crypto"),
+        asyncio.create_task(refresh_climate_data_loop(), name="refresh_climate"),
     ]
 
     logger.info(
         "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), "
-        "climate_scan(%ds), climate_exit(%ds), retrain(7d)",
+        "climate_scan(%ds), climate_exit(%ds), retrain(7d), "
+        "heartbeat(30s), refresh_crypto(30s), refresh_climate(30s)",
         _SCAN_INTERVAL, _EXIT_INTERVAL, _SCAN_INTERVAL, _EXIT_INTERVAL,
     )
     return tasks

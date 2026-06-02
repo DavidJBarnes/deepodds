@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from app.services.kalshi_utils import (
     OPEN_STATUSES,
     check_spread_filter,
     discover_markets as _discover_markets,
+    fetch_raw_markets,
     kelly_count as _kelly_count,
     market_ask as _market_ask,
     market_ask_size as _market_ask_size,
@@ -25,6 +27,7 @@ from app.services.kalshi_utils import (
     market_spread_pct as _market_spread_pct,
     read_balance_cache as _read_balance_cache,
 )
+from app.services.market_data import TTL_MARKETS, TTL_PRICES, TTL_STATS, TTL_VOL_BASELINE, get as cache_get, set as cache_set
 from app.services.probability_model import (
     compute_edge,
     series_to_underlying,
@@ -119,12 +122,18 @@ def _compute_vol_scaling(symbol: str, current_vol: float) -> float:
       ratio > 2.5 → 0.0  (extreme — skip entirely)
 
     The 7-day baseline is fetched with 1h candles to avoid excessive API
-    calls while still capturing the medium-term vol regime.
+    calls while still capturing the medium-term vol regime.  Results are
+    cached for 5 minutes — the baseline changes slowly.
     """
-    try:
-        baseline = run_async(get_realized_vol(symbol, hours=168, interval="1h"))
-    except Exception:
-        return 1.0
+    cache_key = f"realized_vol_{symbol}_168_1h"
+    baseline = cache_get(cache_key, TTL_VOL_BASELINE)
+    if baseline is None:
+        try:
+            baseline = run_async(get_realized_vol(symbol, hours=168, interval="1h"))
+            if baseline is not None:
+                cache_set(cache_key, baseline)
+        except Exception:
+            return 1.0
 
     if baseline is None or baseline <= 0:
         return 1.0
@@ -153,13 +162,40 @@ def _fetch_underlying_data(series_tickers: list[str], vol_hours: int, vol_interv
     if not symbol_to_series:
         return {}
 
-    prices = run_async(get_crypto_prices(list(symbol_to_series.keys())))
+    symbols = list(symbol_to_series.keys())
+
+    prices = cache_get("crypto_prices", TTL_PRICES)
+    if prices is None:
+        prices = run_async(get_crypto_prices(symbols))
+        cache_set("crypto_prices", prices)
+
+    stats_map: dict[str, dict] = {}
+    uncached: list[str] = []
+    for sym in symbols:
+        key = f"market_stats_{sym}"
+        stats = cache_get(key, TTL_STATS)
+        if stats:
+            stats_map[sym] = stats
+        else:
+            uncached.append(sym)
+
+    if uncached:
+        async def _fetch_uncached():
+            tasks = [get_market_stats(s, hours=vol_hours, interval=vol_interval) for s in uncached]
+            return await asyncio.gather(*tasks)
+
+        results = run_async(_fetch_uncached())
+        for sym, stats in zip(uncached, results):
+            if stats:
+                cache_set(f"market_stats_{sym}", stats)
+                stats_map[sym] = stats
+
     result = {}
     for symbol, series_list in symbol_to_series.items():
         if symbol not in prices:
             logger.warning("No spot price available for %s (series %s)", symbol, series_list)
             continue
-        stats = run_async(get_market_stats(symbol, hours=vol_hours, interval=vol_interval))
+        stats = stats_map.get(symbol)
         if stats is None or stats["vol"] <= 0:
             logger.warning("No realized vol for %s (series %s)", symbol, series_list)
             continue
@@ -202,11 +238,19 @@ def scan_kalshi_entries(
     series = [s.strip() for s in config.series_tickers.split(",") if s.strip()]
 
     client = client or KalshiClient.public()
+
+    raw_data: dict[str, dict] = {}
+    for s in series:
+        cached = cache_get(f"kalshi_raw_{s}", TTL_MARKETS)
+        if cached is not None:
+            raw_data[s] = cached
+
     markets = _discover_markets(
         client, series,
         config.min_volume_24h, config.min_price, config.max_price,
         config.min_hours_to_expiry,
         min_ask_size=1,
+        raw_data=raw_data,
     )
 
     underlying = _fetch_underlying_data(series, 48, "1h")
