@@ -241,19 +241,24 @@ def _refresh_crypto_cache() -> None:
     prices = run_async(get_crypto_prices(list(symbols)))
     cache_set("crypto_prices", prices)
 
-    stats_tasks = [_fetch_stats(s) for s in symbols]
-    stats_results = run_async(asyncio.gather(*stats_tasks))
+    async def _gather_stats():
+        return await asyncio.gather(*[_fetch_stats(s) for s in symbols])
+
+    stats_results = run_async(_gather_stats())
     for sym, stats in stats_results:
         if stats:
             cache_set(f"market_stats_{sym}", stats)
 
-    vol_tasks = [_fetch_vol_baseline(s) for s in symbols]
-    vol_results = run_async(asyncio.gather(*vol_tasks))
+    async def _gather_vols():
+        return await asyncio.gather(*[_fetch_vol_baseline(s) for s in symbols])
+
+    vol_results = run_async(_gather_vols())
     for sym, vol in vol_results:
         if vol is not None:
             cache_set(f"realized_vol_{sym}_168_1h", vol)
 
     client = KalshiClient.public()
+
     async def _fetch_markets(s: str):
         try:
             data = await client.get_markets(series_ticker=s, limit=200)
@@ -262,8 +267,10 @@ def _refresh_crypto_cache() -> None:
             logger.warning("Refresh failed to fetch markets for series %s", s)
             return s, None
 
-    market_tasks = [_fetch_markets(s) for s in series_set]
-    market_results = run_async(asyncio.gather(*market_tasks))
+    async def _gather_markets():
+        return await asyncio.gather(*[_fetch_markets(s) for s in series_set])
+
+    market_results = run_async(_gather_markets())
     for s, data in market_results:
         if data is not None:
             cache_set(f"kalshi_raw_{s}", data)
@@ -287,6 +294,7 @@ def _refresh_climate_cache() -> None:
         return
 
     client = KalshiClient.public()
+
     async def _fetch_markets(s: str):
         try:
             data = await client.get_markets(series_ticker=s, limit=200)
@@ -295,8 +303,10 @@ def _refresh_climate_cache() -> None:
             logger.warning("Climate refresh failed to fetch markets for series %s", s)
             return s, None
 
-    tasks = [_fetch_markets(s) for s in series_set]
-    results = run_async(asyncio.gather(*tasks))
+    async def _gather_markets():
+        return await asyncio.gather(*[_fetch_markets(s) for s in series_set])
+
+    results = run_async(_gather_markets())
     for s, data in results:
         if data is not None:
             cache_set(f"kalshi_raw_{s}", data)
