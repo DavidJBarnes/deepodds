@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -16,6 +17,7 @@ from app.core.database import engine
 logger = logging.getLogger(__name__)
 
 _scheduler_tasks: list[asyncio.Task] = []
+_scheduler_executor: ThreadPoolExecutor | None = None
 
 
 @asynccontextmanager
@@ -23,14 +25,16 @@ async def lifespan(app: FastAPI):
     # Migrations are applied at deploy time via `make migrate` or `alembic upgrade head`.
     # Start the native asyncio scheduler (replaces Celery + Redis).
     from app.core.scheduler import start_scheduler
-    global _scheduler_tasks
-    _scheduler_tasks = await start_scheduler()
+    global _scheduler_tasks, _scheduler_executor
+    _scheduler_tasks, _scheduler_executor = await start_scheduler()
     yield
     # Shutdown: cancel all background tasks
     for task in _scheduler_tasks:
         task.cancel()
     if _scheduler_tasks:
         await asyncio.gather(*_scheduler_tasks, return_exceptions=True)
+    if _scheduler_executor:
+        _scheduler_executor.shutdown(wait=True)
     await engine.dispose()
 
 
