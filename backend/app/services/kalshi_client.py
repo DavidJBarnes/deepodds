@@ -1,6 +1,8 @@
+import asyncio
 import base64
 import json
 import logging
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -13,6 +15,12 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://external-api.kalshi.com/trade-api/v2"
 URL_PATH_PREFIX = urlparse(BASE_URL).path
 PUBLIC_ENDPOINTS = ("/markets", "/series/", "/events/")
+
+# Kalshi public API returns HTTP 429 when multiple requests hit
+# simultaneously.  This semaphore serialises all non-authenticated
+# requests across threads so we never fire >1 at a time.
+# Acquired via run_in_executor so the event loop stays free.
+KALSHI_PUBLIC_SEMAPHORE = threading.Semaphore(1)
 
 
 class KalshiClient:
@@ -63,28 +71,31 @@ class KalshiClient:
         params: dict | None = None,
         auth: bool = True,
     ) -> dict:
-        async with httpx.AsyncClient(timeout=15) as client:
-            url = f"{BASE_URL}{path}"
-            headers = self._headers(method, path) if auth else {
-                "Accept": "application/json",
-            }
-            resp = await client.request(
-                method, url, headers=headers,
-                content=body if body else None,
-                params=params,
-            )
-            if resp.status_code >= 400:
-                # Kalshi returns useful JSON error details in the response body
-                # (e.g. INSUFFICIENT_BALANCE, BAD_PRICE). Include in the
-                # exception so we can act on it instead of seeing a generic
-                # 400 Bad Request.
-                detail = resp.text[:300] if resp.text else ""
-                raise httpx.HTTPStatusError(
-                    f"{resp.status_code} {resp.reason_phrase}: {detail}",
-                    request=resp.request,
-                    response=resp,
+        if not auth:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, KALSHI_PUBLIC_SEMAPHORE.acquire)
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                url = f"{BASE_URL}{path}"
+                headers = self._headers(method, path) if auth else {
+                    "Accept": "application/json",
+                }
+                resp = await client.request(
+                    method, url, headers=headers,
+                    content=body if body else None,
+                    params=params,
                 )
-            return resp.json()
+                if resp.status_code >= 400:
+                    detail = resp.text[:300] if resp.text else ""
+                    raise httpx.HTTPStatusError(
+                        f"{resp.status_code} {resp.reason_phrase}: {detail}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                return resp.json()
+        finally:
+            if not auth:
+                KALSHI_PUBLIC_SEMAPHORE.release()
 
     async def validate(self) -> bool:
         try:
