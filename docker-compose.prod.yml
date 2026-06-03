@@ -1,0 +1,19 @@
+services:
+  scanner:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-scanner
+    command: python -m scanner.main
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+
+  api:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-api
+    command: uvicorn app.main:app --host 127.0.0.1 --port 8003 --proxy-headers --forwarded-allow-ips=*
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    depends_on:
+      scanner:
+        condition: service_started
