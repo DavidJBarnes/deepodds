@@ -12,7 +12,7 @@ import { getDefaultDateRange } from "@/utils/date";
 const REFRESH_INTERVAL = 30;
 
 export default function CryptoPage() {
-  const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
+  const { dashboard, scannerStatus, loading, refreshing, lastRefreshed, fetchDashboard, fetchScannerHealth } = useBotStore();
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [tab, setTab] = useState<"signals" | "kalshi">("signals");
   const [showFiltered, setShowFiltered] = useState(false);
@@ -28,7 +28,8 @@ export default function CryptoPage() {
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
     fetchDashboard("kalshi_crypto");
-  }, [fetchDashboard]);
+    fetchScannerHealth();
+  }, [fetchDashboard, fetchScannerHealth]);
 
   useEffect(() => {
     if (tab !== "signals") return;
@@ -104,6 +105,7 @@ export default function CryptoPage() {
         countdown={countdown}
         onRefresh={refresh}
         scannerHealth={dashboard.scanner_health}
+        scannerStatus={scannerStatus}
       />
 
       {kalshi && kalshi.mode === "paper" && (

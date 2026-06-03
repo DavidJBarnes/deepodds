@@ -141,6 +141,12 @@ export interface ScannerHealth {
   error?: string;
 }
 
+export interface ScannerStatus {
+  status: "online" | "offline" | "degraded" | "warming_up";
+  last_beat: string | null;
+  error: string | null;
+}
+
 export interface CryptoConfig {
   mode: string;
   enabled: boolean;
@@ -189,6 +195,18 @@ export async function getPnLChart(days = 30, venue = "all") {
 
 export async function getDashboard(venue = "all") {
   const { data } = await client.get<DashboardData>("/dashboard", { params: { venue, _t: Date.now() } });
+  return data;
+}
+
+export async function getMarketSnapshots(venue = "all") {
+  const { data } = await client.get<KalshiMarketSnapshot[]>(
+    "/market-snapshots", { params: { venue } }
+  );
+  return data;
+}
+
+export async function getScannerHealth() {
+  const { data } = await client.get<ScannerStatus>("/scanner-health");
   return data;
 }
 
