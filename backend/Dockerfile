@@ -21,6 +21,7 @@ RUN uv sync --no-dev --no-install-project
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
+COPY backend/scanner ./scanner
 RUN uv sync --no-dev
 
 EXPOSE 8000

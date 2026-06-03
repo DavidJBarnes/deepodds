@@ -8,13 +8,14 @@ import RefreshBar from "@/components/RefreshBar";
 const REFRESH_INTERVAL = 30;
 
 export default function DashboardPage() {
-  const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
+  const { dashboard, scannerStatus, loading, refreshing, lastRefreshed, fetchDashboard, fetchScannerHealth } = useBotStore();
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
 
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
     fetchDashboard();
-  }, [fetchDashboard]);
+    fetchScannerHealth();
+  }, [fetchDashboard, fetchScannerHealth]);
 
   useEffect(() => {
     const tick = setInterval(() => {
@@ -57,6 +58,7 @@ export default function DashboardPage() {
         countdown={countdown}
         onRefresh={refresh}
         scannerHealth={dashboard.scanner_health}
+        scannerStatus={scannerStatus}
       />
 
       <StatsCard stats={dashboard.stats} />

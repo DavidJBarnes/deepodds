@@ -1,4 +1,4 @@
-import type { ScannerHealth } from "@/api/bot";
+import type { ScannerHealth, ScannerStatus } from "@/api/bot";
 
 function formatTime(d: Date) {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -10,11 +10,14 @@ interface Props {
   countdown: number;
   onRefresh: () => void;
   scannerHealth: ScannerHealth | null;
+  scannerStatus?: ScannerStatus | null;
 }
 
-export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRefresh, scannerHealth }: Props) {
-  const scannerDead = !scannerHealth;
-  const scannerStale = scannerHealth && (Date.now() - new Date(scannerHealth.last_scan).getTime() > 120_000);
+export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRefresh, scannerHealth, scannerStatus }: Props) {
+  const scannerDead = scannerStatus?.status === "offline";
+  const scannerWarming = scannerStatus?.status === "warming_up";
+  const scannerDegraded = scannerStatus?.status === "degraded";
+  const scannerStale = scannerHealth && !scannerStatus && (Date.now() - new Date(scannerHealth.last_scan).getTime() > 120_000);
   const scannerError = scannerHealth?.error;
 
   return (
@@ -32,6 +35,12 @@ export default function RefreshBar({ refreshing, lastRefreshed, countdown, onRef
 
         {scannerDead && (
           <span className="text-red-400">Scanner offline</span>
+        )}
+        {scannerWarming && (
+          <span className="text-cyan-400">Scanner initializing...</span>
+        )}
+        {scannerDegraded && (
+          <span className="text-amber-400">Scanner degraded</span>
         )}
         {scannerStale && !scannerDead && (
           <span className="text-amber-400">Scanner stale</span>

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine, select
@@ -370,14 +371,30 @@ def _run_climate_housekeeping():
             logger.info("Settled %d expired climate paper signals", settled)
 
 
+_SCHEDULER_TIMEOUT = 120  # max seconds any single scan/refresh may occupy a thread
+
+
+async def _run_in_scheduler(executor: ThreadPoolExecutor, func, timeout: float = _SCHEDULER_TIMEOUT):
+    loop = asyncio.get_running_loop()
+    return await asyncio.wait_for(
+        loop.run_in_executor(executor, func),
+        timeout=timeout,
+    )
+
+
 async def start_scheduler():
     logger.info("Starting Kalshi scheduler")
+
+    scheduler_executor = ThreadPoolExecutor(
+        max_workers=8,
+        thread_name_prefix="scheduler",
+    )
 
     async def kalshi_scan_loop():
         while True:
             t0 = time.monotonic()
             try:
-                await asyncio.to_thread(_run_kalshi_scan)
+                await _run_in_scheduler(scheduler_executor, _run_kalshi_scan)
             except Exception as exc:
                 _write_scanner_health("error", str(exc)[:200])
                 logger.exception("Kalshi scan loop failed")
@@ -388,8 +405,8 @@ async def start_scheduler():
         while True:
             t0 = time.monotonic()
             try:
-                await asyncio.to_thread(_run_kalshi_check_exits)
-                await asyncio.to_thread(_run_kalshi_housekeeping)
+                await _run_in_scheduler(scheduler_executor, _run_kalshi_check_exits)
+                await _run_in_scheduler(scheduler_executor, _run_kalshi_housekeeping)
             except Exception:
                 logger.exception("Kalshi exit/housekeeping loop failed")
             elapsed = time.monotonic() - t0
@@ -399,7 +416,7 @@ async def start_scheduler():
         while True:
             t0 = time.monotonic()
             try:
-                await asyncio.to_thread(_run_kalshi_sync_live)
+                await _run_in_scheduler(scheduler_executor, _run_kalshi_sync_live)
             except Exception:
                 logger.exception("Kalshi live sync loop failed")
             elapsed = time.monotonic() - t0
@@ -462,7 +479,7 @@ async def start_scheduler():
         while True:
             t0 = time.monotonic()
             try:
-                await asyncio.to_thread(_run_climate_scan)
+                await _run_in_scheduler(scheduler_executor, _run_climate_scan)
             except Exception as exc:
                 _write_scanner_health_climate("error", str(exc)[:200])
                 logger.exception("Climate scan loop failed")
@@ -473,8 +490,8 @@ async def start_scheduler():
         while True:
             t0 = time.monotonic()
             try:
-                await asyncio.to_thread(_run_climate_check_exits)
-                await asyncio.to_thread(_run_climate_housekeeping)
+                await _run_in_scheduler(scheduler_executor, _run_climate_check_exits)
+                await _run_in_scheduler(scheduler_executor, _run_climate_housekeeping)
             except Exception:
                 logger.exception("Climate exit/housekeeping loop failed")
             elapsed = time.monotonic() - t0
@@ -544,7 +561,7 @@ async def start_scheduler():
     async def refresh_crypto_data_loop():
         while True:
             try:
-                await asyncio.to_thread(_refresh_crypto_cache)
+                await _run_in_scheduler(scheduler_executor, _refresh_crypto_cache)
             except Exception:
                 logger.exception("Crypto data refresh failed")
             await asyncio.sleep(30)
@@ -552,7 +569,7 @@ async def start_scheduler():
     async def refresh_climate_data_loop():
         while True:
             try:
-                await asyncio.to_thread(_refresh_climate_cache)
+                await _run_in_scheduler(scheduler_executor, _refresh_climate_cache)
             except Exception:
                 logger.exception("Climate data refresh failed")
             await asyncio.sleep(30)
@@ -576,4 +593,4 @@ async def start_scheduler():
         "heartbeat(30s), refresh_crypto(30s), refresh_climate(30s)",
         _SCAN_INTERVAL, _EXIT_INTERVAL, _SCAN_INTERVAL, _EXIT_INTERVAL,
     )
-    return tasks
+    return tasks, scheduler_executor

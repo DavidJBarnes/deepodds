@@ -3,15 +3,18 @@ import * as botApi from "@/api/bot";
 
 interface BotState {
   dashboard: botApi.DashboardData | null;
+  scannerStatus: botApi.ScannerStatus | null;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
   lastRefreshed: Date | null;
   fetchDashboard: (venue?: string) => Promise<void>;
+  fetchScannerHealth: () => Promise<void>;
 }
 
 export const useBotStore = create<BotState>((set, get) => ({
   dashboard: null,
+  scannerStatus: null,
   loading: false,
   refreshing: false,
   error: null,
@@ -25,6 +28,15 @@ export const useBotStore = create<BotState>((set, get) => ({
       set({ dashboard: data, loading: false, refreshing: false, lastRefreshed: new Date() });
     } catch {
       set({ error: "Failed to load dashboard", loading: false, refreshing: false });
+    }
+  },
+
+  fetchScannerHealth: async () => {
+    try {
+      const data = await botApi.getScannerHealth();
+      set({ scannerStatus: data });
+    } catch {
+      // Scanner health fetch is best-effort; don't set error state
     }
   },
 }));

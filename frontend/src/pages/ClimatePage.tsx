@@ -12,7 +12,7 @@ import { getDefaultDateRange } from "@/utils/date";
 const REFRESH_INTERVAL = 30;
 
 export default function ClimatePage() {
-  const { dashboard, loading, refreshing, lastRefreshed, fetchDashboard } = useBotStore();
+  const { dashboard, scannerStatus, loading, refreshing, lastRefreshed, fetchDashboard, fetchScannerHealth } = useBotStore();
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
   const [tab, setTab] = useState<"signals" | "markets">("signals");
   const [showFiltered, setShowFiltered] = useState(false);
@@ -28,7 +28,8 @@ export default function ClimatePage() {
   const refresh = useCallback(() => {
     setCountdown(REFRESH_INTERVAL);
     fetchDashboard("kalshi_climate");
-  }, [fetchDashboard]);
+    fetchScannerHealth();
+  }, [fetchDashboard, fetchScannerHealth]);
 
   useEffect(() => {
     if (tab !== "signals") return;
@@ -106,6 +107,7 @@ export default function ClimatePage() {
         countdown={countdown}
         onRefresh={refresh}
         scannerHealth={dashboard.climate_scanner_health}
+        scannerStatus={scannerStatus}
       />
 
       {climate && climate.mode === "paper" && (
