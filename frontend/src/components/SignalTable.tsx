@@ -82,7 +82,7 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   )}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  <CountdownCell target={s.expiry_time} status={s.status} />
+                  <CountdownCell target={s.expiry_time} status={s.status} resolvedAt={s.resolved_at} />
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300 tabular-nums">
                   ${(s.fill_price || s.entry_price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
