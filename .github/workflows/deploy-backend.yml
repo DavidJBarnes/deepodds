@@ -12,7 +12,6 @@ permissions:
 env:
   AWS_REGION: us-west-2
   ECR_BACKEND: deepodds-backend
-  CONTAINER_API: deepodds-api
   ENV_FILE: /opt/deepodds/.env
   API_PORT: "8003"
 
@@ -52,24 +51,33 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE="$ECR_REGISTRY/$ECR_BACKEND:$IMAGE_TAG"
+          ROLLBACK_IMAGE="$ECR_REGISTRY/$ECR_BACKEND:latest"
+          COMPOSE_B64=$(base64 -w0 docker-compose.prod.yml)
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 600 \
             --parameters commands='[
               "set -e",
+              "IMAGE='"$IMAGE"'",
+              "ROLLBACK_IMAGE='"$ROLLBACK_IMAGE"'",
+              "COMPOSE_B64='"$COMPOSE_B64"'",
+              "echo === Ensuring docker compose is available ===",
+              "mkdir -p /usr/local/lib/docker/cli-plugins",
+              "docker compose version &>/dev/null || (curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && echo compose installed)",
               "echo === Stopping old containers ===",
-              "docker stop '"$CONTAINER_API"' 2>/dev/null || echo No old API container",
-              "docker rm '"$CONTAINER_API"' 2>/dev/null || true",
+              "docker compose -f /opt/deepodds/docker-compose.yml down 2>/dev/null || echo No compose running",
               "echo === Freeing disk space ===",
               "docker system prune -af --volumes 2>/dev/null || true",
               "echo === Pulling image ===",
               "aws ecr get-login-password --region '"$AWS_REGION"' | docker login --username AWS --password-stdin '"$ECR_REGISTRY"'",
-              "docker pull '"$IMAGE"'",
+              "docker pull $IMAGE",
               "echo === Running migrations ===",
-              "docker run --rm --network host --env-file '"$ENV_FILE"' '"$IMAGE"' alembic upgrade head",
-              "echo === Starting API container (entrypoint starts scanner + uvicorn) ===",
-              "docker run -d --name '"$CONTAINER_API"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' '"$IMAGE"'",
+              "docker run --rm --network host --env-file '"$ENV_FILE"' $IMAGE alembic upgrade head",
+              "echo === Writing compose file ===",
+              "echo $COMPOSE_B64 | base64 -d | sed \"s|IMAGE_PLACEHOLDER|$IMAGE|g\" > /opt/deepodds/docker-compose.yml",
+              "echo === Starting services ===",
+              "docker compose -f /opt/deepodds/docker-compose.yml up -d",
               "echo === Health-checking API ===",
               "for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://127.0.0.1:'"$API_PORT"'/health && echo Health OK && break; echo Attempt $i, waiting 5s...; sleep 5; done",
               "if curl -sf http://127.0.0.1:'"$API_PORT"'/health; then",
@@ -77,9 +85,10 @@ jobs:
               "  docker system prune -af --volumes 2>/dev/null || true",
               "else",
               "  echo === FAILED: rolling back to previous image ===",
-              "  docker logs --tail 30 '"$CONTAINER_API"' 2>/dev/null",
-              "  docker rm -f '"$CONTAINER_API"'",
-              "  docker run -d --name '"$CONTAINER_API"' --restart unless-stopped --network host --env-file '"$ENV_FILE"' 791342033319.dkr.ecr.us-west-2.amazonaws.com/deepodds-backend:latest",
+              "  docker compose -f /opt/deepodds/docker-compose.yml logs --tail 30 2>/dev/null || true",
+              "  docker compose -f /opt/deepodds/docker-compose.yml down",
+              "  echo $COMPOSE_B64 | base64 -d | sed \"s|IMAGE_PLACEHOLDER|$ROLLBACK_IMAGE|g\" > /opt/deepodds/docker-compose.yml",
+              "  docker compose -f /opt/deepodds/docker-compose.yml up -d",
               "  echo === Rollback complete ===",
               "  exit 1",
               "fi",
