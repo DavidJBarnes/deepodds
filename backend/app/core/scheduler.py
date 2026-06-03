@@ -382,11 +382,20 @@ async def _run_in_scheduler(executor: ThreadPoolExecutor, func, timeout: float =
     )
 
 
-async def start_scheduler():
-    logger.info("Starting Kalshi scheduler")
+async def start_scheduler(standalone: bool = False):
+    """
+    Start the background scheduler.
+
+    When ``standalone=True`` (scanner runs as a separate service via
+    docker-compose), skip the loops that the scanner already handles
+    (kalshi_scan, climate_scan, heartbeat).  Keep the loops the
+    scanner does *not* handle: live order sync, retraining, cache
+    refresh, exit housekeeping, and balance-cache writing.
+    """
+    logger.info("Starting Kalshi scheduler (standalone=%s)", standalone)
 
     scheduler_executor = ThreadPoolExecutor(
-        max_workers=8,
+        max_workers=4 if standalone else 8,
         thread_name_prefix="scheduler",
     )
 
@@ -574,23 +583,66 @@ async def start_scheduler():
                 logger.exception("Climate data refresh failed")
             await asyncio.sleep(30)
 
+    async def balance_cache_loop():
+        """Refresh per-user Kalshi balance caches so the scanner can do
+        quarter-Kelly sizing even when kalshi_scan_loop is disabled."""
+        while True:
+            try:
+                with Session(_sync_engine) as session:
+                    configs = session.execute(
+                        select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
+                    ).scalars().all()
+                    for cfg in configs:
+                        user = session.execute(
+                            select(User).where(User.id == cfg.user_id)
+                        ).scalar_one_or_none()
+                        if not user:
+                            continue
+                        if cfg.mode == "paper":
+                            _write_balance_cache(str(cfg.user_id), {"balance": 0, "portfolio_value": 100000})
+                            continue
+                        if not (user.kalshi_api_key_id and user.kalshi_private_key):
+                            continue
+                        try:
+                            client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+                            bal = run_async(client.get_balance())
+                            _write_balance_cache(str(cfg.user_id), bal)
+                        except Exception:
+                            pass
+            except Exception:
+                logger.exception("Balance cache refresh failed")
+            await asyncio.sleep(60)
+
     tasks = [
-        asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
         asyncio.create_task(kalshi_exit_loop(), name="kalshi_exit"),
         asyncio.create_task(kalshi_sync_live_loop(), name="kalshi_sync_live"),
         asyncio.create_task(kalshi_retrain_loop(), name="kalshi_retrain"),
-        asyncio.create_task(climate_scan_loop(), name="climate_scan"),
         asyncio.create_task(climate_exit_loop(), name="climate_exit"),
         asyncio.create_task(climate_retrain_loop(), name="climate_retrain"),
-        asyncio.create_task(heartbeat_loop(), name="heartbeat"),
         asyncio.create_task(refresh_crypto_data_loop(), name="refresh_crypto"),
         asyncio.create_task(refresh_climate_data_loop(), name="refresh_climate"),
+        asyncio.create_task(balance_cache_loop(), name="balance_cache"),
     ]
 
-    logger.info(
-        "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), "
-        "climate_scan(%ds), climate_exit(%ds), retrain(7d), "
-        "heartbeat(30s), refresh_crypto(30s), refresh_climate(30s)",
-        _SCAN_INTERVAL, _EXIT_INTERVAL, _SCAN_INTERVAL, _EXIT_INTERVAL,
-    )
+    if not standalone:
+        tasks += [
+            asyncio.create_task(kalshi_scan_loop(), name="kalshi_scan"),
+            asyncio.create_task(climate_scan_loop(), name="climate_scan"),
+            asyncio.create_task(heartbeat_loop(), name="heartbeat"),
+        ]
+
+    if standalone:
+        logger.info(
+            "Scheduler running (standalone): kalshi_exit(%ds), kalshi_sync_live(30s), "
+            "retrain(7d), refresh_crypto(30s), refresh_climate(30s), "
+            "balance_cache(60s)",
+            _EXIT_INTERVAL,
+        )
+    else:
+        logger.info(
+            "Scheduler running: kalshi_scan(%ds), kalshi_exit(%ds), kalshi_live(30s), "
+            "climate_scan(%ds), climate_exit(%ds), retrain(7d), "
+            "heartbeat(30s), refresh_crypto(30s), refresh_climate(30s)",
+            _SCAN_INTERVAL, _EXIT_INTERVAL, _SCAN_INTERVAL, _EXIT_INTERVAL,
+        )
     return tasks, scheduler_executor
