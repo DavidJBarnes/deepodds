@@ -15,19 +15,6 @@ function formatTime(iso: string) {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function getPnlTooltip(s: Signal): string | undefined {
-  const cost = s.cost_usd;
-  if (s.pnl_usd != null) {
-    const returned = Math.max(0, cost + s.pnl_usd);
-    return `Realized: risked $${cost.toFixed(2)} to return $${returned.toFixed(2)}`;
-  }
-  if (s.unrealized_pnl_usd != null) {
-    const projected = Math.max(0, cost + s.unrealized_pnl_usd);
-    return `Unrealized: risked $${cost.toFixed(2)} to return $${projected.toFixed(2)}`;
-  }
-  return undefined;
-}
-
 function getStatusTooltip(s: Signal): string | undefined {
   const ts: string | null | undefined = (
     (s.status.startsWith("settled_") || s.status.startsWith("resolved"))
@@ -132,7 +119,6 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   {s.pnl_usd != null ? (
                     <span
                       className={s.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}
-                      title={getPnlTooltip(s)}
                     >
                       {s.pnl_usd >= 0 ? "+" : ""}${s.pnl_usd.toFixed(2)}
                       {s.pnl_pct != null && (
@@ -144,7 +130,6 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                   ) : s.unrealized_pnl_usd != null ? (
                     <span
                       className={`italic ${s.unrealized_pnl_usd >= 0 ? "text-emerald-400/60" : "text-red-400/60"}`}
-                      title={getPnlTooltip(s)}
                     >
                       {s.unrealized_pnl_usd >= 0 ? "+" : ""}${s.unrealized_pnl_usd.toFixed(2)}
                     </span>
