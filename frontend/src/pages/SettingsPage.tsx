@@ -405,7 +405,7 @@ export default function SettingsPage() {
                   value={cryptoConfig.contracts_per_signal}
                   onChange={(v) => setCryptoConfig({ ...cryptoConfig, contracts_per_signal: v })}
                   onBlur={() => saveCryptoConfig({ contracts_per_signal: cryptoConfig.contracts_per_signal })}
-                  step={5} min={1} max={500}
+                  step={5} min={1} max={1000}
                 />
                 <ConfigField
                   label="Max Cost per Signal"
@@ -811,7 +811,7 @@ export default function SettingsPage() {
                   value={climateConfig.contracts_per_signal}
                   onChange={(v) => setClimateConfig({ ...climateConfig, contracts_per_signal: v })}
                   onBlur={() => saveClimateConfig({ contracts_per_signal: climateConfig.contracts_per_signal })}
-                  step={5} min={1} max={500}
+                  step={5} min={1} max={1000}
                 />
                 <ConfigField
                   label="Max Cost per Signal"
