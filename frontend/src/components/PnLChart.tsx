@@ -6,11 +6,10 @@ import {
   CartesianGrid,
   ReferenceLine,
   ResponsiveContainer,
-  Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import type { DailyPnLPoint, PnLChartData } from "@/api/bot";
+import type { PnLChartData } from "@/api/bot";
 import { getPnLChart } from "@/api/bot";
 
 const PERIODS = [
@@ -22,30 +21,6 @@ const PERIODS = [
 function formatDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payload: DailyPnLPoint & { todayPctOfTotal?: number } }[] }) {
-  if (!active || !payload?.[0]) return null;
-  const d = payload[0].payload;
-  return (
-    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-      <p className="text-slate-300 font-medium mb-1">{formatDate(d.date)}</p>
-      <p className={d.pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
-        Day: {d.pnl_usd >= 0 ? "+" : ""}${d.pnl_usd.toFixed(2)}
-      </p>
-      <p className={d.cumulative_pnl_usd >= 0 ? "text-emerald-400" : "text-red-400"}>
-        Total: {d.cumulative_pnl_usd >= 0 ? "+" : ""}${d.cumulative_pnl_usd.toFixed(2)}
-      </p>
-      {d.todayPctOfTotal != null && (
-        <p className="text-amber-400 mt-1">
-          Today: {d.todayPctOfTotal.toFixed(1)}% of total
-        </p>
-      )}
-      <p className="text-slate-400 mt-1">
-        {d.signals_count} signals · {d.wins}W / {d.losses}L
-      </p>
-    </div>
-  );
 }
 
 export default function PnLChart({ refreshKey }: { refreshKey?: number }) {
@@ -139,7 +114,6 @@ export default function PnLChart({ refreshKey }: { refreshKey?: number }) {
               tickLine={false}
               width={50}
             />
-            <Tooltip content={<CustomTooltip />} contentStyle={{ backgroundColor: "transparent", border: "none" }} />
             <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" />
             <Bar dataKey="pnlDollars" fill="#475569" opacity={0.5} barSize={8} radius={[2, 2, 0, 0]} />
             <Bar dataKey="todayPnL" fill="#fbbf24" barSize={8} radius={[2, 2, 0, 0]} />
