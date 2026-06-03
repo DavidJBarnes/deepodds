@@ -14,5 +14,5 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 exec uvicorn app.main:app \
-    --host 0.0.0.0 --port 8000 \
+    --host 0.0.0.0 --port "${API_PORT:-8000}" \
     --proxy-headers --forwarded-allow-ips=*
