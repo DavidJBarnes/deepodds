@@ -11,6 +11,7 @@ from app.models.crypto_config import CryptoConfig
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
+    ClimateStatusResponse,
     DailyPnLPoint,
     DashboardResponse,
     KalshiFilteredMarket,
@@ -19,6 +20,8 @@ from app.schemas.dashboard import (
     PnLChartResponse,
     PnLStats,
 )
+from app.models.market_snapshot import MarketSnapshot
+from app.models.scanner_heartbeat import ScannerHeartbeat
 from app.schemas.signal import SignalResponse
 from app.services.binance_client import get_crypto_prices, get_realized_vol
 from app.services.climate_probability_model import compute_climate_edge
@@ -185,11 +188,16 @@ async def get_dashboard(
 
     scanner_health = None
     try:
-        import json as _json
-        from pathlib import Path
-
-        raw = Path("/tmp/scanner_health.json").read_text()
-        scanner_health = _json.loads(raw)
+        hb = (await db.execute(
+            select(ScannerHeartbeat).where(ScannerHeartbeat.id == 1)
+        )).scalar_one_or_none()
+        if hb:
+            scanner_health = {
+                "last_scan": hb.last_beat.isoformat(),
+                "status": hb.status,
+            }
+            if hb.error:
+                scanner_health["error"] = hb.error
     except Exception:
         pass
 
@@ -232,116 +240,42 @@ async def get_dashboard(
         )
 
         try:
-            kc = KalshiClient.public()
-            series_list = [s.strip() for s in kalshi_cfg.series_tickers.split(",") if s.strip()]
-            now = datetime.now(timezone.utc)
-            cutoff = now + timedelta(hours=kalshi_cfg.min_hours_to_expiry)
-            hours_to_years = 1 / (365.25 * 24)
+            snapshots = (
+                await db.execute(
+                    select(MarketSnapshot).where(
+                        MarketSnapshot.venue == "kalshi_crypto",
+                        MarketSnapshot.edge.is_not(None),
+                    ).order_by(MarketSnapshot.edge.desc()).limit(200)
+                )
+            ).scalars().all()
 
-            underlying_data: dict[str, dict] = {}
-            kalshi_symbols = [s for s in (series_to_underlying(x) for x in series_list) if s]
-            spot_prices = await get_crypto_prices(kalshi_symbols) if kalshi_symbols else {}
-            for series in series_list:
-                symbol = series_to_underlying(series)
-                if not symbol:
-                    continue
-                if symbol not in spot_prices:
-                    continue
-                try:
-                    vol = await get_realized_vol(symbol, hours=24, interval="15m")
-                    if vol and vol > 0:
-                        underlying_data[series] = {"spot": spot_prices[symbol], "vol": vol}
-                except Exception:
-                    pass
+            for s in snapshots:
+                kalshi_markets_list.append(KalshiMarketSnapshot(
+                    ticker=s.ticker,
+                    series=s.series,
+                    title=s.title or "",
+                    price=round(s.ask_price, 2),
+                    model_prob=round(s.model_prob, 4) if s.model_prob else 0.0,
+                    edge=round(s.edge, 4) if s.edge else 0.0,
+                    floor_strike=s.floor_strike,
+                    cap_strike=s.cap_strike,
+                    strike_type=s.strike_type or "between",
+                    underlying_price=round(s.underlying_price, 2) if s.underlying_price else 0.0,
+                    realized_vol=round(s.realized_vol, 4) if s.realized_vol else 0.0,
+                    volume_24h=s.volume_24h or 0,
+                    hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
+                    expiry_time=s.expiry_time,
+                    would_signal=(s.edge or 0) >= kalshi_cfg.min_edge and (s.edge or 0) > 0,
+                ))
 
-            for series in series_list:
-                try:
-                    data = await kc.get_markets(series_ticker=series, limit=200)
-                except Exception:
-                    continue
-
-                for m in data.get("markets", []):
-                    vol_24h = float(m.get("volume_24h_fp", 0) or 0)
-                    ask_price = float(m.get("yes_ask_dollars", 0) or 0)
-                    ask_size = float(m.get("yes_ask_size_fp", 0) or 0)
-                    ticker = m.get("ticker", "")
-                    title = m.get("title", "")
-
-                    close_time = m.get("close_time", "")
-                    try:
-                        ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                        hours_left = (ct - now).total_seconds() / 3600
-                    except (ValueError, AttributeError):
-                        ct = None
-                        hours_left = None
-
-                    filter_reason = None
-                    if ask_price <= 0:
-                        filter_reason = "no_ask"
-                    elif ask_size < 1:
-                        filter_reason = "no_ask_size"
-                    elif vol_24h < kalshi_cfg.min_volume_24h:
-                        filter_reason = "low_volume"
-                    elif ask_price < kalshi_cfg.min_price or ask_price > kalshi_cfg.max_price:
-                        filter_reason = "price_range"
-                    elif ct is None:
-                        filter_reason = "invalid_expiry"
-                    elif ct < cutoff:
-                        filter_reason = "expiry_too_soon"
-
-                    if filter_reason:
-                        kalshi_filtered_list.append(KalshiFilteredMarket(
-                            ticker=ticker, series=series, title=title,
-                            price=round(ask_price, 2), volume_24h=vol_24h,
-                            hours_to_expiry=round(hours_left, 1) if hours_left is not None else None,
-                            filter_reason=filter_reason,
-                        ))
-                        continue
-
-                    model_prob_val = 0.0
-                    edge_val = 0.0
-                    floor_strike = m.get("floor_strike")
-                    cap_strike = m.get("cap_strike")
-                    strike_type = m.get("strike_type", "between")
-                    spot_val = 0.0
-                    vol_val = 0.0
-
-                    if floor_strike is not None:
-                        floor_strike = float(floor_strike)
-                    if cap_strike is not None:
-                        cap_strike = float(cap_strike)
-
-                    if series in underlying_data and (floor_strike is not None or cap_strike is not None):
-                        spot_val = underlying_data[series]["spot"]
-                        vol_val = underlying_data[series]["vol"]
-                        t_years = (hours_left or 0) * hours_to_years
-                        if t_years > 0:
-                            result = compute_edge(
-                                spot_val, floor_strike, cap_strike, strike_type,
-                                t_years, vol_val, ask_price,
-                            )
-                            model_prob_val = result.model_prob
-                            edge_val = result.edge
-
-                    kalshi_markets_list.append(KalshiMarketSnapshot(
-                        ticker=ticker,
-                        series=series,
-                        title=title,
-                        price=round(ask_price, 2),
-                        model_prob=round(model_prob_val, 4),
-                        edge=round(edge_val, 4),
-                        floor_strike=floor_strike,
-                        cap_strike=cap_strike,
-                        strike_type=strike_type,
-                        underlying_price=round(spot_val, 2),
-                        realized_vol=round(vol_val, 4),
-                        volume_24h=vol_24h,
-                        hours_to_expiry=round(hours_left, 1),
-                        expiry_time=ct,
-                        would_signal=edge_val >= kalshi_cfg.min_edge and edge_val > 0,
+            for s in snapshots:
+                if s.filter_reason:
+                    kalshi_filtered_list.append(KalshiFilteredMarket(
+                        ticker=s.ticker, series=s.series, title=s.title or "",
+                        price=round(s.ask_price, 2), volume_24h=s.volume_24h or 0,
+                        hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
+                        filter_reason=s.filter_reason,
                     ))
-
-            kalshi_markets_list.sort(key=lambda x: x.edge, reverse=True)
         except Exception:
             pass
 
@@ -389,136 +323,57 @@ async def get_dashboard(
 
         if venue in ("all", "kalshi_climate"):
             try:
-                kc = KalshiClient.public()
-                climate_series = [s.strip() for s in climate_cfg.series_tickers.split(",") if s.strip()]
-                now = datetime.now(timezone.utc)
-                today_utc = now.date()
-                cutoff = now + timedelta(hours=climate_cfg.min_hours_to_expiry)
+                snapshots = (
+                    await db.execute(
+                        select(MarketSnapshot).where(
+                            MarketSnapshot.venue == "kalshi_climate",
+                            MarketSnapshot.edge.is_not(None),
+                        ).order_by(MarketSnapshot.edge.desc()).limit(200)
+                    )
+                ).scalars().all()
 
-                # Per-series sigma + per-date forecast caches
-                sigma_cache: dict[tuple[str, str], float | None] = {}
-                forecast_cache: dict[tuple[str, str, str], float | None] = {}
+                for s in snapshots:
+                    climate_markets_list.append(KalshiMarketSnapshot(
+                        ticker=s.ticker,
+                        series=s.series,
+                        title=s.title or "",
+                        price=round(s.ask_price, 2),
+                        model_prob=round(s.model_prob, 4) if s.model_prob else 0.0,
+                        edge=round(s.edge, 4) if s.edge else 0.0,
+                        floor_strike=s.floor_strike,
+                        cap_strike=s.cap_strike,
+                        strike_type=s.strike_type or "between",
+                        underlying_price=round(s.underlying_price, 2) if s.underlying_price else 0.0,
+                        realized_vol=round(s.realized_vol, 4) if s.realized_vol else 0.0,
+                        volume_24h=s.volume_24h or 0,
+                        hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
+                        expiry_time=s.expiry_time,
+                        would_signal=(s.edge or 0) >= climate_cfg.min_edge and (s.edge or 0) > 0,
+                    ))
 
-                async def resolve_forecast(series_ticker: str, event_ticker: str):
-                    mapping = series_to_city_kind(series_ticker)
-                    if not mapping:
-                        return None
-                    city, kind = mapping
-                    target_date = parse_event_date(event_ticker or series_ticker)
-                    if not target_date:
-                        return None
-                    sigma_k = (city, kind)
-                    if sigma_k not in sigma_cache:
-                        sigma_cache[sigma_k] = await get_daily_extreme_vol(city, kind, days=180)
-                    sigma = sigma_cache[sigma_k]
-                    if sigma is None or sigma <= 0:
-                        return None
-                    fc_k = (city, kind, target_date.isoformat())
-                    if fc_k not in forecast_cache:
-                        forecast_cache[fc_k] = await get_forecast_daily_value(city, kind, target_date)
-                    fc = forecast_cache[fc_k]
-                    if fc is None:
-                        return None
-                    days_ahead = max((target_date - today_utc).days, 1)
-                    return city, kind, target_date, fc, sigma, days_ahead
-
-                for series in climate_series:
-                    try:
-                        data = await kc.get_markets(series_ticker=series, limit=200)
-                    except Exception:
-                        continue
-
-                    for m in data.get("markets", []):
-                        vol_24h = float(m.get("volume_24h_fp", 0) or 0)
-                        ask_price = float(m.get("yes_ask_dollars", 0) or 0)
-                        ask_size = float(m.get("yes_ask_size_fp", 0) or 0)
-                        ticker = m.get("ticker", "")
-                        title = m.get("title", "")
-                        event_ticker = m.get("event_ticker", "")
-
-                        close_time = m.get("close_time", "")
-                        try:
-                            ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                            hours_left = (ct - now).total_seconds() / 3600
-                        except (ValueError, AttributeError):
-                            ct = None
-                            hours_left = None
-
-                        filter_reason = None
-                        if ask_price <= 0:
-                            filter_reason = "no_ask"
-                        elif ask_size < 1:
-                            filter_reason = "no_ask_size"
-                        elif vol_24h < climate_cfg.min_volume_24h:
-                            filter_reason = "low_volume"
-                        elif ask_price < climate_cfg.min_price or ask_price > climate_cfg.max_price:
-                            filter_reason = "price_range"
-                        elif ct is None:
-                            filter_reason = "invalid_expiry"
-                        elif ct < cutoff:
-                            filter_reason = "expiry_too_soon"
-
-                        if filter_reason:
-                            climate_filtered_list.append(KalshiFilteredMarket(
-                                ticker=ticker, series=series, title=title,
-                                price=round(ask_price, 2), volume_24h=vol_24h,
-                                hours_to_expiry=round(hours_left, 1) if hours_left is not None else None,
-                                filter_reason=filter_reason,
-                            ))
-                            continue
-
-                        model_prob_val = 0.0
-                        edge_val = 0.0
-                        floor_strike = m.get("floor_strike")
-                        cap_strike = m.get("cap_strike")
-                        strike_type = m.get("strike_type", "between")
-                        forecast_val = 0.0
-                        sigma_val = 0.0
-
-                        if floor_strike is not None:
-                            floor_strike = float(floor_strike)
-                        if cap_strike is not None:
-                            cap_strike = float(cap_strike)
-
-                        resolved = await resolve_forecast(series, event_ticker)
-                        if resolved and (floor_strike is not None or cap_strike is not None):
-                            _city, _kind, _date, forecast_val, sigma_val, days_ahead = resolved
-                            result = compute_climate_edge(
-                                forecast_val, floor_strike, cap_strike, strike_type,
-                                sigma_val, ask_price, city=_city, days_ahead=days_ahead,
-                            )
-                            model_prob_val = result.model_prob
-                            edge_val = result.edge
-
-                        climate_markets_list.append(KalshiMarketSnapshot(
-                            ticker=ticker,
-                            series=series,
-                            title=title,
-                            price=round(ask_price, 2),
-                            model_prob=round(model_prob_val, 4),
-                            edge=round(edge_val, 4),
-                            floor_strike=floor_strike,
-                            cap_strike=cap_strike,
-                            strike_type=strike_type,
-                            underlying_price=round(forecast_val, 2),
-                            realized_vol=round(sigma_val, 4),
-                            volume_24h=vol_24h,
-                            hours_to_expiry=round(hours_left, 1),
-                            expiry_time=ct,
-                            would_signal=edge_val >= climate_cfg.min_edge and edge_val > 0,
+                for s in snapshots:
+                    if s.filter_reason:
+                        climate_filtered_list.append(KalshiFilteredMarket(
+                            ticker=s.ticker, series=s.series, title=s.title or "",
+                            price=round(s.ask_price, 2), volume_24h=s.volume_24h or 0,
+                            hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
+                            filter_reason=s.filter_reason,
                         ))
-
-                climate_markets_list.sort(key=lambda x: x.edge, reverse=True)
             except Exception:
                 pass
 
     climate_scanner_health = None
     try:
-        import json as _json
-        from pathlib import Path
-
-        raw = Path("/tmp/scanner_health_climate.json").read_text()
-        climate_scanner_health = _json.loads(raw)
+        hb = (await db.execute(
+            select(ScannerHeartbeat).where(ScannerHeartbeat.id == 1)
+        )).scalar_one_or_none()
+        if hb:
+            climate_scanner_health = {
+                "last_scan": hb.last_beat.isoformat(),
+                "status": hb.status,
+            }
+            if hb.error:
+                climate_scanner_health["error"] = hb.error
     except Exception:
         pass
 
