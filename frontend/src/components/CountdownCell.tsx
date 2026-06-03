@@ -11,7 +11,25 @@ function formatCountdown(ms: number): string {
   return `${s}s`;
 }
 
-export default function CountdownCell({ target, status }: { target: string | null; status?: string }) {
+function formatSettledAt(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export default function CountdownCell({
+  target,
+  status,
+  resolvedAt,
+}: {
+  target: string | null;
+  status?: string;
+  resolvedAt?: string | null;
+}) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -21,6 +39,10 @@ export default function CountdownCell({ target, status }: { target: string | nul
   }, [target]);
 
   if (!target) return <span className="text-slate-600">—</span>;
+
+  if (status?.startsWith("settled_") && resolvedAt) {
+    return <span className="text-slate-400 text-xs">{formatSettledAt(resolvedAt)}</span>;
+  }
 
   if (status?.startsWith("settled_")) return null;
 
