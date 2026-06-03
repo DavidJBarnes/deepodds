@@ -75,12 +75,12 @@ async def _monitor_scanner():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Migrations are applied at deploy time via `make migrate` or `alembic upgrade head`.
-    # Start the native asyncio scheduler (replaces Celery + Redis).
-    # Start the standalone scanner subprocess.
+    # Start the native asyncio scheduler in standalone mode — the scanner runs
+    # as a separate docker-compose service and handles discovery/scoring/signaling.
     from app.core.scheduler import start_scheduler
-    global _scheduler_tasks, _scheduler_executor, _scanner_proc
+    global _scheduler_tasks, _scheduler_executor
 
-    _scheduler_tasks, _scheduler_executor = await start_scheduler()
+    _scheduler_tasks, _scheduler_executor = await start_scheduler(standalone=True)
 
     # The scanner runs as a separate OS process for full isolation.
     # Start it manually with:  python -m scanner.main
