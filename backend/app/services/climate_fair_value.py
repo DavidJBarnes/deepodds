@@ -274,6 +274,16 @@ def scan_climate_entries(
                 continue
 
             cost = market_price * count
+
+            if client and bankroll_cents is not None and bankroll_cents > 0:
+                needed_cents = int(cost * 100)
+                if needed_cents > bankroll_cents:
+                    logger.warning(
+                        "Skipping %s: need %d cents, have %d cents",
+                        ticker, needed_cents, bankroll_cents,
+                    )
+                    continue
+
             close_dt = market_data.get("_close_dt")
 
             signal = Signal(

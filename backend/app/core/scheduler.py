@@ -589,24 +589,41 @@ async def start_scheduler(standalone: bool = False):
         while True:
             try:
                 with Session(_sync_engine) as session:
-                    configs = session.execute(
+                    crypto_configs = session.execute(
                         select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
                     ).scalars().all()
-                    for cfg in configs:
+                    climate_configs = session.execute(
+                        select(ClimateConfig).where(ClimateConfig.enabled.is_(True))
+                    ).scalars().all()
+
+                    seen: set[str] = set()
+                    user_configs: list[tuple[str, str, str]] = []
+                    for cfg in crypto_configs:
+                        uid = str(cfg.user_id)
+                        if uid not in seen:
+                            seen.add(uid)
+                            user_configs.append((uid, cfg.mode, cfg.user_id))
+                    for cfg in climate_configs:
+                        uid = str(cfg.user_id)
+                        if uid not in seen:
+                            seen.add(uid)
+                            user_configs.append((uid, cfg.mode, cfg.user_id))
+
+                    for uid, mode, user_id_uuid in user_configs:
                         user = session.execute(
-                            select(User).where(User.id == cfg.user_id)
+                            select(User).where(User.id == user_id_uuid)
                         ).scalar_one_or_none()
                         if not user:
                             continue
-                        if cfg.mode == "paper":
-                            _write_balance_cache(str(cfg.user_id), {"balance": 0, "portfolio_value": 100000})
+                        if mode == "paper":
+                            _write_balance_cache(uid, {"balance": 0, "portfolio_value": 100000})
                             continue
                         if not (user.kalshi_api_key_id and user.kalshi_private_key):
                             continue
                         try:
                             client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
                             bal = run_async(client.get_balance())
-                            _write_balance_cache(str(cfg.user_id), bal)
+                            _write_balance_cache(uid, bal)
                         except Exception:
                             pass
             except Exception:

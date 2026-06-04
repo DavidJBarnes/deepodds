@@ -112,7 +112,7 @@ def run_signal_loop(session: Session) -> None:
                     select(Signal.id).where(
                         Signal.user_id == config.user_id,
                         Signal.market_ticker == ticker,
-                        Signal.status.in_(("signaled", "placed", "filled")),
+                        Signal.status.in_(("signaled", "placed", "filled", "cancelled")),
                     ).limit(1)
                 ).scalar_one_or_none()
                 if exists:
@@ -158,6 +158,15 @@ def run_signal_loop(session: Session) -> None:
                     continue
 
                 cost = market_price * count
+
+                if client and bankroll_cents is not None and bankroll_cents > 0:
+                    needed_cents = int(cost * 100)
+                    if needed_cents > bankroll_cents:
+                        logger.warning(
+                            "Skipping %s: need %d cents, have %d cents",
+                            ticker, needed_cents, bankroll_cents,
+                        )
+                        continue
 
                 signal = Signal(
                     user_id=config.user_id,
