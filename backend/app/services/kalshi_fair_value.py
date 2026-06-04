@@ -798,7 +798,7 @@ def cancel_stale_placed_orders(session: Session, max_age_minutes: int = 5) -> in
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
     stale = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi_crypto",
+            Signal.venue.in_(("kalshi_crypto", "kalshi_climate")),
             Signal.signal_type == "live",
             Signal.status == "placed",
             Signal.created_at < cutoff,

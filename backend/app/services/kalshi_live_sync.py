@@ -1,5 +1,7 @@
 """Reconcile Kalshi-side state with local Signal records.
 
+Handles both ``kalshi_crypto`` and ``kalshi_climate`` venues.
+
 Live Kalshi orders go through these external states:
 
     placed -> filled -> settled (yes/no/void)
@@ -54,7 +56,7 @@ def sync_kalshi_live(
 
     pending = session.execute(
         select(Signal).where(
-            Signal.venue == "kalshi_crypto",
+            Signal.venue.in_(("kalshi_crypto", "kalshi_climate")),
             Signal.signal_type == "live",
             Signal.status.in_(_PENDING_STATUSES),
         )
