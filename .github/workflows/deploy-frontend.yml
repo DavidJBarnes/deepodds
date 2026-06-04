@@ -31,18 +31,24 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push frontend
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend (multi-arch)
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build \
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             -f frontend/Dockerfile \
             -t $ECR_REGISTRY/$ECR_NGINX:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_NGINX:latest \
+            --push \
             .
-          docker push $ECR_REGISTRY/$ECR_NGINX:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_NGINX:latest
 
       - name: Deploy frontend via SSM
         id: ssm
