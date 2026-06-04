@@ -113,7 +113,7 @@ def _run_kalshi_scan():
                 # bankroll so Kelly sizing works identically to live mode.
                 # Default $1000 paper bankroll — change contracts_per_signal
                 # if you want a different fixed size regardless of Kelly.
-                _write_balance_cache(str(cfg.user_id), {"balance": 0, "portfolio_value": 100000})
+                _write_balance_cache(str(cfg.user_id), {"balance": 100000, "portfolio_value": 100000})
 
 
 def _run_kalshi_check_exits():

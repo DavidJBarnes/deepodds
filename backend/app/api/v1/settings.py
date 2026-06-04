@@ -39,6 +39,7 @@ _FIELD_LABELS: dict[str, str] = {
     "daily_loss_limit_usd": "Daily Loss Limit ($)",
     "max_signals_per_hour": "Max Signals per Hour",
     "min_hold_minutes": "Min Hold Minutes",
+    "low_balance_warning_threshold_usd": "Low Balance Warning Threshold ($)",
 }
 
 
@@ -93,6 +94,7 @@ def _crypto_config_response(config: CryptoConfig) -> CryptoConfigResponse:
         take_profit_pct=config.take_profit_pct,
         daily_loss_limit_usd=config.daily_loss_limit_usd,
         max_signals_per_hour=config.max_signals_per_hour,
+        low_balance_warning_threshold_usd=config.low_balance_warning_threshold_usd,
     )
 
 
@@ -198,6 +200,7 @@ def _climate_config_response(config: ClimateConfig) -> ClimateConfigResponse:
         take_profit_pct=config.take_profit_pct,
         daily_loss_limit_usd=config.daily_loss_limit_usd,
         max_signals_per_hour=config.max_signals_per_hour,
+        low_balance_warning_threshold_usd=config.low_balance_warning_threshold_usd,
     )
 
 
@@ -255,6 +258,7 @@ class KalshiBalanceResponse(BaseModel):
     cash_cents: int = 0
     portfolio_cents: int = 0
     error: str | None = None
+    low_balance_warning: str | None = None
 
 
 # Backtest endpoint removed as classical backtesting is deprecated.
@@ -278,29 +282,68 @@ def _read_cached_balance(user_id: str) -> dict | None:
         return None
 
 
+async def _get_low_balance_threshold(db: AsyncSession, user_id) -> float:
+    thresholds: list[float] = []
+
+    crypto = (
+        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user_id))
+    ).scalar_one_or_none()
+    if crypto and crypto.enabled and crypto.mode == "live":
+        thresholds.append(crypto.low_balance_warning_threshold_usd)
+
+    climate = (
+        await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user_id))
+    ).scalar_one_or_none()
+    if climate and climate.enabled and climate.mode == "live":
+        thresholds.append(climate.low_balance_warning_threshold_usd)
+
+    return min(thresholds) if thresholds else 0.0
+
+
 @router.get("/kalshi-balance", response_model=KalshiBalanceResponse)
-async def get_kalshi_balance(user: User = Depends(get_current_user)):
+async def get_kalshi_balance(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    warning: str | None = None
+    cash_cents = 0
+    portfolio_cents = 0
+
     if user.kalshi_api_key_id and user.kalshi_private_key:
         try:
             client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
             data = await client.get_balance()
-            return KalshiBalanceResponse(
-                cash_cents=int(data.get("balance", 0)),
-                portfolio_cents=int(data.get("portfolio_value", 0)),
-            )
+            cash_cents = int(data.get("balance", 0))
+            portfolio_cents = int(data.get("portfolio_value", 0))
         except Exception:
             logger.exception("Kalshi balance fetch failed, falling back to cache")
 
-    cached = _read_cached_balance(str(user.id))
-    if cached:
-        return KalshiBalanceResponse(
-            cash_cents=cached["cash_cents"],
-            portfolio_cents=cached["portfolio_cents"],
-        )
+    if cash_cents == 0:
+        cached = _read_cached_balance(str(user.id))
+        if cached:
+            cash_cents = cached.get("cash_cents", 0)
+            portfolio_cents = cached.get("portfolio_cents", portfolio_cents)
 
-    if not user.kalshi_api_key_id:
-        return KalshiBalanceResponse(error="no_keys")
-    return KalshiBalanceResponse(error="balance_unavailable")
+    if cash_cents > 0:
+        threshold = await _get_low_balance_threshold(db, user.id)
+        if threshold > 0:
+            cash_dollars = cash_cents / 100
+            if cash_dollars < threshold:
+                warning = (
+                    f"Low balance: ${cash_dollars:.2f}. "
+                    f"Orders below ${threshold:.2f} may not execute."
+                )
+
+    if cash_cents == 0 and not user.kalshi_api_key_id:
+        return KalshiBalanceResponse(error="no_keys", low_balance_warning=warning)
+    if cash_cents == 0 and not _read_cached_balance(str(user.id)):
+        return KalshiBalanceResponse(error="balance_unavailable", low_balance_warning=warning)
+
+    return KalshiBalanceResponse(
+        cash_cents=cash_cents,
+        portfolio_cents=portfolio_cents,
+        low_balance_warning=warning,
+    )
 
 
 @router.post("/reset-data")

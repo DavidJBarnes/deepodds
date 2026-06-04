@@ -28,6 +28,7 @@ export interface KalshiBalance {
   cash_cents: number;
   portfolio_cents: number;
   error: string | null;
+  low_balance_warning: string | null;
 }
 
 export async function getKalshiBalance() {

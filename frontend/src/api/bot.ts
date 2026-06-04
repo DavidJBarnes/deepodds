@@ -120,6 +120,7 @@ export interface ClimateConfig {
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;
   min_hold_minutes: number;
+  low_balance_warning_threshold_usd: number;
 }
 
 export interface DashboardData {
@@ -168,6 +169,7 @@ export interface CryptoConfig {
   daily_loss_limit_usd: number;
   max_signals_per_hour: number;
   min_hold_minutes: number;
+  low_balance_warning_threshold_usd: number;
 }
 
 export interface DailyPnLPoint {

@@ -20,6 +20,7 @@ class CryptoConfigResponse(BaseModel):
     daily_loss_limit_usd: float = 25.0
     max_signals_per_hour: int = 3
     min_hold_minutes: int = 15
+    low_balance_warning_threshold_usd: float = 20.0
 
 
 class CryptoConfigUpdate(BaseModel):
@@ -41,3 +42,4 @@ class CryptoConfigUpdate(BaseModel):
     daily_loss_limit_usd: float | None = Field(None, ge=0, le=10000.0)
     max_signals_per_hour: int | None = Field(None, ge=0, le=20)
     min_hold_minutes: int | None = Field(None, ge=0, le=480)
+    low_balance_warning_threshold_usd: float | None = Field(None, ge=0.0, le=10000.0)

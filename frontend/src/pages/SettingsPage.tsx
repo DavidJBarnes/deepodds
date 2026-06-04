@@ -476,6 +476,15 @@ export default function SettingsPage() {
                   suffix="min"
                   step={5} min={0} max={480}
                 />
+                <ConfigField
+                  label="Low Balance Warning ($)"
+                  description="Show a warning in the sidebar when account cash falls below this threshold."
+                  prefix="$"
+                  value={cryptoConfig.low_balance_warning_threshold_usd}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, low_balance_warning_threshold_usd: v })}
+                  onBlur={() => saveCryptoConfig({ low_balance_warning_threshold_usd: cryptoConfig.low_balance_warning_threshold_usd })}
+                  step={5} min={0} max={10000}
+                />
               </div>
             </div>
           </>
@@ -881,6 +890,15 @@ export default function SettingsPage() {
                   onBlur={() => saveClimateConfig({ min_hold_minutes: climateConfig.min_hold_minutes })}
                   suffix="min"
                   step={5} min={0} max={480}
+                />
+                <ConfigField
+                  label="Low Balance Warning ($)"
+                  description="Show a warning in the sidebar when account cash falls below this threshold."
+                  prefix="$"
+                  value={climateConfig.low_balance_warning_threshold_usd}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, low_balance_warning_threshold_usd: v })}
+                  onBlur={() => saveClimateConfig({ low_balance_warning_threshold_usd: climateConfig.low_balance_warning_threshold_usd })}
+                  step={5} min={0} max={10000}
                 />
               </div>
             </div>

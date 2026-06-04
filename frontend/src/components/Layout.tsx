@@ -56,6 +56,9 @@ export default function Layout() {
         {balance && (
           <div className="px-4 py-3 border-t border-slate-800 space-y-1">
             <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Account</p>
+            {balance.low_balance_warning && (
+              <p className="text-[10px] text-amber-400">{balance.low_balance_warning}</p>
+            )}
             {balance.error ? (
               <p className="text-[10px] text-amber-400 break-words">{balance.error}</p>
             ) : (
