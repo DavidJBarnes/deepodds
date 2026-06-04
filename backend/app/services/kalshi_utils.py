@@ -145,7 +145,7 @@ def read_balance_cache(user_id: str) -> float | None:
         if not path.exists():
             return None
         data = _json.loads(path.read_text())
-        return float(data.get("portfolio_cents", 0))
+        return float(data.get("cash_cents", 0))
     except Exception:
         return None
 
