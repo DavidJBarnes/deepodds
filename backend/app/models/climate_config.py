@@ -34,6 +34,7 @@ class ClimateConfig(Base):
     daily_loss_limit_usd: Mapped[float] = mapped_column(Float, default=15.0)
     max_signals_per_hour: Mapped[int] = mapped_column(Integer, default=3)
     min_hold_minutes: Mapped[int] = mapped_column(Integer, default=15)
+    low_balance_warning_threshold_usd: Mapped[float] = mapped_column(Float, default=20.0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
