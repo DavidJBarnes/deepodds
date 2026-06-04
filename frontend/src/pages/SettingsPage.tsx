@@ -961,18 +961,18 @@ export default function SettingsPage() {
           disabled={resetting}
           className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium rounded-lg transition-colors"
         >
-          {resetting ? "Clearing..." : "Clear All Signals"}
+          {resetting ? "Clearing..." : "Clear My Signals"}
         </button>
 
         <ConfirmModal
           open={dangerModal}
-          title="Clear All Signals"
-          confirmLabel="Clear All Signals"
+          title="Clear My Signals"
+          confirmLabel="Clear My Signals"
           confirmClass="bg-red-600 hover:bg-red-500"
           onConfirm={handleResetData}
           onCancel={() => setDangerModal(false)}
         >
-          <p>This will permanently delete <strong className="text-red-400">all signal records</strong> from the database.</p>
+          <p>This will permanently delete <strong className="text-red-400">your signal records</strong>.</p>
           <ul className="list-disc list-inside space-y-1 text-slate-400">
             <li>All P&L history will be lost</li>
             <li>Dashboard charts will reset to zero</li>

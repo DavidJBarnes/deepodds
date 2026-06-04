@@ -310,15 +310,19 @@ async def reset_data(
 ):
     from sqlalchemy import text
 
-    result = await db.execute(text("SELECT COUNT(*) FROM signals"))
+    result = await db.execute(
+        text("SELECT COUNT(*) FROM signals WHERE user_id = :uid"),
+        {"uid": str(user.id)},
+    )
     count = result.scalar() or 0
 
-    tables = ["signals"]
-    for t in tables:
-        await db.execute(text(f"DELETE FROM {t}"))
+    await db.execute(
+        text("DELETE FROM signals WHERE user_id = :uid"),
+        {"uid": str(user.id)},
+    )
     await db.commit()
 
-    db.add(History(user_id=user.id, text=f"Cleared all {count} signal records"))
+    db.add(History(user_id=user.id, text=f"Cleared {count} signal records"))
     await db.commit()
 
-    return {"status": "ok", "cleared": tables, "count": count}
+    return {"status": "ok", "cleared": ["signals"], "count": count}
