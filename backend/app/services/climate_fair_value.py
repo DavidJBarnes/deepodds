@@ -314,7 +314,7 @@ def scan_climate_entries(
 
                 try:
                     max_price_cents = int(round(config.max_price * 100))
-                    limit_price = round(mid * 100) if mid > 0 else round(ask * 100)
+                    limit_price = round(ask * 100) if ask > 0 else round(mid * 100)
                     yes_price_cents = min(int(limit_price), max_price_cents)
                     order_result = run_async(client.create_order(
                         ticker=ticker, side="yes", count=count,
