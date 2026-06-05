@@ -4,7 +4,7 @@ and creates signals (paper) or places orders (live)."""
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
@@ -252,6 +252,13 @@ def run_signal_loop(session: Session) -> None:
                     continue
 
                 if config.mode == "live" and client:
+                    # Stage with status='signaled' to claim the unique partial
+                    # index slot. The Kalshi call follows; whatever its result,
+                    # we transition the row to a final state. Using 'signaled'
+                    # (not 'placed') here means a transient rejection doesn't
+                    # leave behind a phantom 'placed' row if the status-update
+                    # commit fails — we'll see 'signaled' and can detect it.
+                    signal.status = "signaled"
                     session.add(signal)
                     try:
                         session.commit()
@@ -259,6 +266,7 @@ def run_signal_loop(session: Session) -> None:
                         session.rollback()
                         continue
 
+                    sig_id = signal.id
                     try:
                         max_price_cents = int(round(config.max_price * 100))
                         limit_price = round(market_price * 100)
@@ -267,18 +275,50 @@ def run_signal_loop(session: Session) -> None:
                             ticker=ticker, side="yes", count=count,
                             yes_price_cents=yes_price_cents,
                         ))
-                        order = order_result.get("order", order_result)
-                        signal.exchange_order_id = order.get("order_id")
+                        order = order_result.get("order", order_result) if isinstance(order_result, dict) else {}
+                        order_id = order.get("order_id") if isinstance(order, dict) else None
+                        if not order_id:
+                            # Kalshi returned 2xx but the response is malformed.
+                            # Treat as a failure so we don't end up with an
+                            # untrackable order on the exchange.
+                            raise ValueError(f"Kalshi response missing order_id: {order_result}")
+                        signal.exchange_order_id = order_id
                         signal.status = "placed"
                         session.commit()
                         logger.info("LIVE BUY %s: %d @ $%.2f", ticker, count, yes_price_cents / 100)
                     except Exception as e:
-                        signal.status = _classify_rejection(str(e))
-                        signal.error_message = str(e)[:200]
+                        # The Kalshi call (or our handling) raised. SQLAlchemy's
+                        # session may be in a 'rollback required' state after
+                        # a failed in-memory mutation + commit attempt, which
+                        # is what was leaving phantom 'signaled' rows. Roll
+                        # back explicitly, then UPDATE the row via SQL Core
+                        # so we bypass any lingering ORM dirty-tracking.
                         try:
-                            session.commit()
-                        except Exception:
                             session.rollback()
+                        except Exception:
+                            pass
+                        new_status = _classify_rejection(str(e))
+                        try:
+                            session.execute(
+                                update(Signal).where(Signal.id == sig_id).values(
+                                    status=new_status,
+                                    error_message=str(e)[:200],
+                                )
+                            )
+                            session.commit()
+                            logger.info(
+                                "LIVE BUY %s rejected: status=%s err=%s",
+                                ticker, new_status, str(e)[:120],
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to update signal %s to %s — row may be stuck at 'signaled'",
+                                sig_id, new_status,
+                            )
+                            try:
+                                session.rollback()
+                            except Exception:
+                                pass
                 else:
                     signal.fill_price = market_price
                     signal.fill_quantity = float(count)
