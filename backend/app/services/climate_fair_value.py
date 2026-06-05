@@ -5,6 +5,7 @@ date. Spot is the forecast for that date, not the current observation.
 """
 
 import logging
+import math
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -333,8 +334,14 @@ def scan_climate_entries(
 
                 try:
                     max_price_cents = int(round(config.max_price * 100))
-                    limit_price = round(ask * 100) if ask > 0 else round(mid * 100)
-                    yes_price_cents = min(int(limit_price), max_price_cents)
+                    # Cross the spread: ceil(ask) + 1 cent. Plain ask often
+                    # rounds below the real resting offer (banker's rounding)
+                    # or matches it exactly with no fill; the +1 guarantees we
+                    # match the next available seller at the cost of one cent
+                    # of spread.
+                    ref = ask if ask > 0 else mid
+                    ask_cents = math.ceil(ref * 100) if ref > 0 else 0
+                    yes_price_cents = min(ask_cents + 1, max_price_cents)
                     order_result = run_async(client.create_order(
                         ticker=ticker, side="yes", count=count,
                         yes_price_cents=yes_price_cents,
@@ -343,7 +350,7 @@ def scan_climate_entries(
                     signal.exchange_order_id = order.get("order_id")
                     signal.status = "placed"
                     session.commit()
-                    logger.info("LIVE CLIMATE BUY %s: %d @ $%.2f", ticker, count, yes_price_cents / 100)
+                    logger.info("LIVE CLIMATE BUY %s: %d @ $%.2f (ask=$%.2f)", ticker, count, yes_price_cents / 100, ask)
                     session.add(History(
                         user_id=user_id,
                         text=f"Climate signal: live purchase of {ticker}: {count} @ ${yes_price_cents / 100:.2f}",
