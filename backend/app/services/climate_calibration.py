@@ -224,9 +224,18 @@ def reset_cache() -> None:
     _cached = None
 
 
+def _platt_enabled() -> bool:
+    """Read PLATT_ENABLED env var. Default true (Platt on)."""
+    return os.environ.get("PLATT_ENABLED", "true").strip().lower() not in (
+        "false", "0", "no", "off",
+    )
+
+
 def apply_platt(raw_prob: float) -> float:
     """Apply the Platt scaler to a raw model probability. Pass-through if
-    no calibrator has been fitted."""
+    PLATT_ENABLED=false or no calibrator has been fitted."""
+    if not _platt_enabled():
+        return raw_prob
     cal = get_calibrator()
     if cal is None:
         return raw_prob

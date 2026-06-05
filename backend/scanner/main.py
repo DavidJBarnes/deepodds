@@ -196,6 +196,11 @@ def run_scanner(db_url: str) -> None:
         # process (not the api) so the calibrator file is written and read
         # in the same container — predict_climate_probability picks it up
         # on the next score cycle via the apply_platt cache.
+        if os.environ.get("PLATT_ENABLED", "true").strip().lower() in (
+            "false", "0", "no", "off",
+        ):
+            logger.info("Platt refit loop disabled by PLATT_ENABLED env var")
+            return
         await asyncio.sleep(_PLATT_STARTUP_DELAY)
         while True:
             try:
