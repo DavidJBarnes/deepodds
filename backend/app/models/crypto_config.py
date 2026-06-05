@@ -24,6 +24,9 @@ class CryptoConfig(Base):
 
     min_edge: Mapped[float] = mapped_column(Float, default=0.08)
     exit_edge: Mapped[float] = mapped_column(Float, default=-0.02)
+    # Gate signals by raw model_prob. See climate_config.py for rationale.
+    min_model_prob: Mapped[float] = mapped_column(Float, default=0.0)
+    max_model_prob: Mapped[float] = mapped_column(Float, default=0.80)
 
     contracts_per_signal: Mapped[int] = mapped_column(Integer, default=50)
     max_cost_per_signal: Mapped[float] = mapped_column(Float, default=25.0)

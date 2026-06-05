@@ -392,6 +392,24 @@ export default function SettingsPage() {
                   onBlur={() => saveCryptoConfig({ exit_edge: cryptoConfig.exit_edge })}
                   step={1} min={-50} max={0}
                 />
+                <ConfigField
+                  label="Min Model Probability"
+                  description="Skip signals where the model predicts BELOW this probability. 0% disables the floor. Use to gate out low-prob buckets the model has been wrong about."
+                  suffix="%"
+                  value={Math.round(cryptoConfig.min_model_prob * 100)}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, min_model_prob: v / 100 })}
+                  onBlur={() => saveCryptoConfig({ min_model_prob: cryptoConfig.min_model_prob })}
+                  step={5} min={0} max={100}
+                />
+                <ConfigField
+                  label="Max Model Probability"
+                  description="Skip signals where the model predicts ABOVE this probability. Caps overconfident bets. Default 80% gates the 80–100% bucket where the model has been systematically wrong on early data."
+                  suffix="%"
+                  value={Math.round(cryptoConfig.max_model_prob * 100)}
+                  onChange={(v) => setCryptoConfig({ ...cryptoConfig, max_model_prob: v / 100 })}
+                  onBlur={() => saveCryptoConfig({ max_model_prob: cryptoConfig.max_model_prob })}
+                  step={5} min={0} max={100}
+                />
               </div>
             </div>
 
@@ -806,6 +824,24 @@ export default function SettingsPage() {
                   onChange={(v) => setClimateConfig({ ...climateConfig, exit_edge: v / 100 })}
                   onBlur={() => saveClimateConfig({ exit_edge: climateConfig.exit_edge })}
                   step={1} min={-50} max={0}
+                />
+                <ConfigField
+                  label="Min Model Probability"
+                  description="Skip signals where the model predicts BELOW this probability. 0% disables the floor. Use to gate out low-prob buckets the model has been wrong about."
+                  suffix="%"
+                  value={Math.round(climateConfig.min_model_prob * 100)}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, min_model_prob: v / 100 })}
+                  onBlur={() => saveClimateConfig({ min_model_prob: climateConfig.min_model_prob })}
+                  step={5} min={0} max={100}
+                />
+                <ConfigField
+                  label="Max Model Probability"
+                  description="Skip signals where the model predicts ABOVE this probability. Default 80% gates the 80–100% bucket where the climate model has been 0/3 on settled signals so far."
+                  suffix="%"
+                  value={Math.round(climateConfig.max_model_prob * 100)}
+                  onChange={(v) => setClimateConfig({ ...climateConfig, max_model_prob: v / 100 })}
+                  onBlur={() => saveClimateConfig({ max_model_prob: climateConfig.max_model_prob })}
+                  step={5} min={0} max={100}
                 />
               </div>
             </div>

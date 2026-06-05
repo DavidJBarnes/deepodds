@@ -256,6 +256,14 @@ def scan_climate_entries(
             if result.edge < config.min_edge:
                 continue
 
+            if result.model_prob < config.min_model_prob or result.model_prob > config.max_model_prob:
+                logger.info(
+                    "CLIMATE %s skipped: model_prob=%.1f%% outside [%.0f%%, %.0f%%]",
+                    ticker, result.model_prob * 100,
+                    config.min_model_prob * 100, config.max_model_prob * 100,
+                )
+                continue
+
             if not check_spread_filter(result.edge, spread_pct, mid, bid, config.stop_loss_pct, ticker):
                 continue
 
