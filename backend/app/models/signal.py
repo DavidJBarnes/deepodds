@@ -17,7 +17,7 @@ class Signal(Base):
     pair: Mapped[str] = mapped_column(String(16), index=True)
     side: Mapped[str] = mapped_column(String(8))
     signal_type: Mapped[str] = mapped_column(String(8))
-    status: Mapped[str] = mapped_column(String(16), default="signaled", index=True)
+    status: Mapped[str] = mapped_column(String(48), default="signaled", index=True)
     market_ticker: Mapped[str | None] = mapped_column(String(64), nullable=True)
     event_ticker: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expiry_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
