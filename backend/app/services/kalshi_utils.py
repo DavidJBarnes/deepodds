@@ -40,52 +40,6 @@ def market_spread_pct(market: dict) -> float:
     return (ask - bid) / ask * 100 if ask > 0 else 0.0
 
 
-def kalshi_yes_settlement(market_ticker: str) -> bool | None:
-    """Return True if the Kalshi market settled YES, False if NO, None if not
-    yet settled or settlement can't be determined.
-
-    Source of truth for paper-mode settlement: Kalshi's actual exchange
-    outcome, not our internal forecast/spot check (which can disagree with
-    Kalshi's official settlement window or use stale archive data).
-
-    The public market endpoint exposes `status` ("settled"/"finalized") and
-    a `result` of "yes"/"no". We also accept a snapped `last_price`
-    (cents) as a fallback when status is settled but result isn't yet
-    populated.
-    """
-    if not market_ticker:
-        return None
-    try:
-        market = run_async(KalshiClient.public().get_market(market_ticker))
-    except Exception:
-        logger.warning("Kalshi settlement lookup failed for %s", market_ticker)
-        return None
-
-    status = (market.get("status") or "").lower()
-    if status not in ("settled", "finalized"):
-        return None
-
-    result = (market.get("result") or "").lower()
-    if result == "yes":
-        return True
-    if result == "no":
-        return False
-
-    # Status settled but no result yet — fall back to last_price snap.
-    last_price = market.get("last_price")
-    if isinstance(last_price, (int, float)):
-        if last_price >= 95:
-            return True
-        if last_price <= 5:
-            return False
-
-    logger.warning(
-        "Market %s settled but ambiguous (status=%s result=%s last_price=%s)",
-        market_ticker, status, result, last_price,
-    )
-    return None
-
-
 def fetch_raw_markets(client: KalshiClient, series_ticker: str) -> dict | None:
     """Fetch raw Kalshi API response for one series ticker.
 
