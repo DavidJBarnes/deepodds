@@ -19,6 +19,7 @@ from app.services.kalshi_utils import (
     check_spread_filter,
     discover_markets as _discover_markets,
     fetch_raw_markets,
+    kalshi_yes_settlement,
     kelly_count as _kelly_count,
     market_ask as _market_ask,
     market_ask_size as _market_ask_size,
@@ -717,11 +718,15 @@ def check_kalshi_exits(
 
 
 def settle_expired_paper(session: Session) -> int:
-    """Resolve paper 'filled' signals that have passed their expiry time.
+    """Resolve expired paper crypto positions against Kalshi's actual
+    exchange settlement.
 
-    For each expired paper signal, checks the current spot price against
-    the strike range and records the binary outcome (YES=$1, NO=$0).
-    Prevents zombie positions that inflate open-P&L indefinitely.
+    Previously this read the current Binance spot at settle-loop time and
+    did a strike check, which can disagree with Kalshi's official
+    settlement window (Kalshi snaps the spot at a specific moment, not
+    'whenever our scheduler runs'). Now the truth source is Kalshi —
+    when a market hasn't settled there yet, we leave the signal as
+    'filled' and retry on the next loop.
     """
     now = datetime.now(timezone.utc)
     expired = session.execute(
@@ -732,41 +737,23 @@ def settle_expired_paper(session: Session) -> int:
             Signal.expiry_time.isnot(None),
             Signal.expiry_time < now,
             Signal.fill_price.isnot(None),
-            Signal.underlying_price.isnot(None),
+            Signal.market_ticker.isnot(None),
         )
     ).scalars().all()
 
     if not expired:
         return 0
 
-    # Fetch current spot prices for all unique symbols needed
-    symbols = set()
-    for sig in expired:
-        sym = series_to_underlying(sig.pair) if sig.pair else None
-        if sym:
-            symbols.add(sym)
-
-    prices = run_async(get_crypto_prices(list(symbols))) if symbols else {}
-
     settled = 0
     for sig in expired:
         try:
-            sym = series_to_underlying(sig.pair) if sig.pair else ""
-            spot = prices.get(sym) or sig.underlying_price
+            yes_won = kalshi_yes_settlement(sig.market_ticker)
+            if yes_won is None:
+                # Kalshi hasn't settled yet — try again next loop.
+                continue
 
-            floor = sig.floor_strike
-            cap = sig.cap_strike
-            typ = sig.strike_type or "between"
-
-            if typ == "between":
-                won = (floor is not None and cap is not None and floor <= spot <= cap)
-            elif typ == "greater":
-                won = (floor is not None and spot > floor)
-            elif typ == "less":
-                won = (cap is not None and spot < cap)
-            else:
-                won = False
-
+            # We always buy yes-side contracts, so Kalshi YES = win.
+            won = bool(yes_won)
             exit_price = 1.0 if won else 0.0
             qty = sig.fill_quantity or sig.quantity or 0
             fill_price = sig.fill_price or 0
@@ -780,13 +767,13 @@ def settle_expired_paper(session: Session) -> int:
 
             settled += 1
             logger.info(
-                "PAPER SETTLE %s: spot=%.2f won=%s exit=$%.2f entry=$%.2f P&L=$%.2f",
-                sig.market_ticker, spot, won, exit_price, fill_price, pnl_usd,
+                "PAPER SETTLE %s: kalshi=%s won=%s exit=$%.2f entry=$%.2f P&L=$%.2f",
+                sig.market_ticker, "yes" if yes_won else "no", won, exit_price, fill_price, pnl_usd,
             )
             session.add(History(
                 user_id=sig.user_id,
                 text=f"Paper settlement for {sig.market_ticker}: {'won' if won else 'lost'} "
-                     f"(spot=${spot:.2f}, P&L=${pnl_usd:.2f})",
+                     f"(Kalshi={'YES' if yes_won else 'NO'}, P&L=${pnl_usd:.2f})",
             ))
         except Exception:
             logger.exception("Failed to settle paper signal %s", sig.market_ticker)
