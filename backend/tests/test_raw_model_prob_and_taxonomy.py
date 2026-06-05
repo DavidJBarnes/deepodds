@@ -76,6 +76,35 @@ def test_predict_calibrated_differs_from_raw_when_calibrator_active(monkeypatch)
     assert 0.10 < result.model_prob < 0.15
 
 
+def test_platt_disabled_env_flag_forces_passthrough(monkeypatch):
+    """PLATT_ENABLED=false must bypass the calibrator even when one is loaded.
+
+    Catches the prod incident on 2026-06-05 where a degenerate Platt fit
+    (range collapsed to 0.14–0.16) was distorting model_prob and flooding
+    the signal loop. The env flag is the kill switch.
+    """
+    reset_cache()
+    monkeypatch.setenv("PLATT_ENABLED", "false")
+    # Calibrator IS loaded — but the flag should make apply_platt ignore it.
+    monkeypatch.setattr(
+        "app.services.climate_calibration.get_calibrator",
+        lambda: {"a": 0.2, "b": -2.0, "n": 50, "wins": 6, "fitted_at": "x"},
+    )
+
+    result = predict_climate_probability(
+        forecast_value=72.0,
+        floor_strike=70.0,
+        cap_strike=75.0,
+        strike_type="between",
+        forecast_sigma=3.0,
+        market_price=0.20,
+        city="NYC",
+        days_ahead=1,
+    )
+
+    assert result.model_prob == pytest.approx(result.raw_model_prob, abs=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # _fetch_training_pairs: reads raw_model_prob, unions signal + snapshot
 # ---------------------------------------------------------------------------
