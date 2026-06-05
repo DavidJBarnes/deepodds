@@ -32,6 +32,10 @@ class Signal(Base):
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     model_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Pre-Platt model output. model_prob holds the calibrated value used by
+    # the edge gate; raw_model_prob is preserved for Platt refit training so
+    # we don't end up fitting on already-calibrated data.
+    raw_model_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     live_market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     edge: Mapped[float | None] = mapped_column(Float, nullable=True)

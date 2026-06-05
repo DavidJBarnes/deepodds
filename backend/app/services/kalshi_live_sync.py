@@ -155,7 +155,7 @@ def _sync_signal(
         if order_status == "executed":
             _apply_fill_from_order(sig, order, counts)
         elif order_status in _TERMINAL_ORDER_STATUSES:
-            sig.status = "cancelled"
+            sig.status = "expired_unfilled" if order_status == "expired" else "cancelled"
             sig.error_message = f"order_status: {order_status}"
             counts["cancelled"] += 1
 
@@ -251,12 +251,12 @@ def _apply_settlement(sig: Signal, settlement: dict, counts: dict) -> None:
     # cost_usd in our DB is the theoretical limit cost, not money actually
     # spent. We never lost it.
     if yes_count == 0 and no_count == 0 and yes_cost == 0 and no_cost == 0:
-        sig.status = "cancelled"
+        sig.status = "expired_unfilled"
         sig.error_message = "order_never_filled_before_settlement"
         sig.resolved_at = datetime.now(timezone.utc)
         counts["cancelled"] += 1
         logger.info(
-            "Kalshi sync cancelled %s: order never filled before settlement",
+            "Kalshi sync expired_unfilled %s: order never filled before settlement",
             sig.market_ticker,
         )
         return

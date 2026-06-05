@@ -460,7 +460,10 @@ class TestNeverFilledSettlement:
             counts,
         )
 
-        assert sig.status == "cancelled"
+        # Order never filled before settlement → expired_unfilled (status
+        # taxonomy split out from generic "cancelled" so the dashboard can
+        # show why this never traded).
+        assert sig.status == "expired_unfilled"
         assert sig.pnl_usd is None  # not a P&L event
         assert sig.exit_price is None
         assert sig.error_message and "never_filled" in sig.error_message
@@ -473,7 +476,7 @@ class TestNeverFilledSettlement:
 
         _apply_settlement(sig, self._zero_position_settlement("X", "no"), counts)
 
-        assert sig.status == "cancelled"
+        assert sig.status == "expired_unfilled"
         assert counts["cancelled"] == 1
 
     def test_nonzero_position_still_settles_normally(self):

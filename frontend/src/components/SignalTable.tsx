@@ -7,7 +7,17 @@ const STATUS_COLORS: Record<string, string> = {
   filled: "bg-purple-500/20 text-purple-400",
   settled_win: "bg-emerald-500/20 text-emerald-400",
   settled_loss: "bg-red-500/20 text-red-400",
+  settled_breakeven: "bg-slate-500/20 text-slate-400",
   cancelled: "bg-slate-500/20 text-slate-400",
+  rejected_insufficient_funds: "bg-amber-500/15 text-amber-300",
+  rejected_rate_limit: "bg-orange-500/15 text-orange-300",
+  expired_unfilled: "bg-zinc-500/20 text-zinc-400",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  rejected_insufficient_funds: "no funds",
+  rejected_rate_limit: "rate limited",
+  expired_unfilled: "unfilled",
 };
 
 function formatTime(iso: string) {
@@ -107,7 +117,7 @@ export default function SignalTable({ signals }: { signals: Signal[] }) {
                     className={`text-xs font-medium px-2 py-0.5 rounded ${STATUS_COLORS[s.status] || "bg-slate-700 text-slate-400"}`}
                     title={getStatusTooltip(s)}
                   >
-                    {s.status.replace("_", " ")}
+                    {STATUS_LABELS[s.status] || s.status.replace(/_/g, " ")}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right text-slate-300 tabular-nums">
