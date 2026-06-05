@@ -27,6 +27,8 @@ class MarketSnapshot(Base):
     underlying_price: Mapped[float | None] = mapped_column(Double)
     realized_vol: Mapped[float | None] = mapped_column(Double)
     model_prob: Mapped[float | None] = mapped_column(Double)
+    # Pre-Platt model output. See app/models/signal.py for rationale.
+    raw_model_prob: Mapped[float | None] = mapped_column(Double)
     edge: Mapped[float | None] = mapped_column(Double)
     filter_reason: Mapped[str | None] = mapped_column(Text)
     # Settlement state, populated by discover.py from the Kalshi market dict.

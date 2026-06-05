@@ -27,6 +27,7 @@ from scipy.special import expit
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.market_snapshot import MarketSnapshot
 from app.models.signal import Signal
 
 logger = logging.getLogger(__name__)
@@ -42,10 +43,31 @@ _cached: dict | None = None
 
 
 def _fetch_training_pairs(session: Session) -> list[tuple[float, int]]:
-    """Pull (model_prob, won) from cleanly Kalshi-settled climate signals."""
-    rows = session.execute(
+    """Pull (raw_model_prob, won) pairs for Platt fitting.
+
+    Two sources:
+
+    1. Settled Signal rows with a Kalshi-grade outcome (exit_price ∈ {0,1}
+       or held > 2h).
+    2. MarketSnapshot rows we scored that have since finalized on Kalshi
+       (raw_model_prob IS NOT NULL AND result IS NOT NULL). This includes
+       markets we never traded on — pure model prediction vs ground truth.
+
+    Reads raw_model_prob (pre-Platt) rather than model_prob (post-Platt)
+    to avoid the feedback loop where future fits would calibrate already-
+    calibrated data and degenerate toward identity.
+
+    Deduped by ticker — if both a Signal row and a snapshot exist for the
+    same market, the Signal row wins (we have a richer record of what
+    actually happened on that one).
+    """
+    pairs_by_ticker: dict[str, tuple[float, int]] = {}
+
+    # Source 1: settled signals.
+    sig_rows = session.execute(
         select(
-            Signal.model_prob,
+            Signal.market_ticker,
+            Signal.raw_model_prob,
             Signal.status,
             Signal.exit_price,
             Signal.filled_at,
@@ -53,18 +75,36 @@ def _fetch_training_pairs(session: Session) -> list[tuple[float, int]]:
         ).where(
             Signal.venue == VENUE,
             Signal.status.in_(SETTLED),
-            Signal.model_prob.isnot(None),
+            Signal.raw_model_prob.isnot(None),
         )
     ).all()
-    pairs: list[tuple[float, int]] = []
-    for mp, st, ex, f, r in rows:
+    for ticker, mp, st, ex, f, r in sig_rows:
         long_held = r and f and (r - f) > timedelta(hours=2)
         real = ex in (0.0, 1.0)
         if not (real or long_held):
             continue
         won = 1 if st == "settled_win" else 0
-        pairs.append((float(mp), won))
-    return pairs
+        pairs_by_ticker[ticker or ""] = (float(mp), won)
+
+    # Source 2: scored snapshots that have since finalized on Kalshi.
+    snap_rows = session.execute(
+        select(
+            MarketSnapshot.ticker,
+            MarketSnapshot.raw_model_prob,
+            MarketSnapshot.result,
+        ).where(
+            MarketSnapshot.venue == VENUE,
+            MarketSnapshot.raw_model_prob.isnot(None),
+            MarketSnapshot.result.isnot(None),
+        )
+    ).all()
+    for ticker, mp, result in snap_rows:
+        if (ticker or "") in pairs_by_ticker:
+            continue  # already covered by a Signal row
+        won = 1 if (result or "").lower() == "yes" else 0
+        pairs_by_ticker[ticker or ""] = (float(mp), won)
+
+    return list(pairs_by_ticker.values())
 
 
 def _nll(params: np.ndarray, x: np.ndarray, y: np.ndarray) -> float:

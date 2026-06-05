@@ -79,6 +79,7 @@ def score_crypto(session: Session) -> None:
                 underlying_price=spot,
                 realized_vol=vol,
                 model_prob=result.model_prob,
+                raw_model_prob=getattr(result, "raw_model_prob", result.model_prob),
                 edge=result.edge,
                 scored_at=datetime.now(timezone.utc),
             )
@@ -163,6 +164,7 @@ def score_climate(session: Session) -> None:
                     underlying_price=fc,
                     realized_vol=sigma,
                     model_prob=result.model_prob,
+                    raw_model_prob=getattr(result, "raw_model_prob", result.model_prob),
                     edge=result.edge,
                     scored_at=datetime.now(timezone.utc),
                 )

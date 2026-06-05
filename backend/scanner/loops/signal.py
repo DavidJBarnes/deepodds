@@ -26,6 +26,30 @@ from app.services.kalshi_utils import (
 
 logger = logging.getLogger("scanner.signal")
 
+# Statuses that block re-firing on the same (user, ticker). Includes the
+# granular rejection reasons so a transient/funded rejection doesn't spam
+# new attempts every 10s. A market we've already attempted is done — the
+# next scan cycle's snapshot is the same ticker, no new information.
+_NO_REFIRE_STATUSES = (
+    "signaled",
+    "placed",
+    "filled",
+    "cancelled",
+    "rejected_insufficient_funds",
+    "rejected_rate_limit",
+    "expired_unfilled",
+)
+
+
+def _classify_rejection(err_msg: str) -> str:
+    """Map a Kalshi/order-placement error into a granular Signal.status."""
+    msg = (err_msg or "").lower()
+    if "insufficient_balance" in msg or "insufficient balance" in msg:
+        return "rejected_insufficient_funds"
+    if "too_many_requests" in msg or "429" in msg or "rate" in msg:
+        return "rejected_rate_limit"
+    return "cancelled"
+
 
 def run_signal_loop(session: Session) -> None:
     """Check scored snapshots against each enabled user's config.
@@ -129,7 +153,7 @@ def run_signal_loop(session: Session) -> None:
                     select(Signal.id).where(
                         Signal.user_id == config.user_id,
                         Signal.market_ticker == ticker,
-                        Signal.status.in_(("signaled", "placed", "filled", "cancelled")),
+                        Signal.status.in_(_NO_REFIRE_STATUSES),
                     ).limit(1)
                 ).scalar_one_or_none()
                 if exists:
@@ -179,14 +203,19 @@ def run_signal_loop(session: Session) -> None:
 
                 cost = market_price * count
 
-                if client and bankroll_cents is not None and bankroll_cents > 0:
+                # Pre-flight balance check for live mode. We still create a
+                # Signal row so the (raw_model_prob, market_ticker) data is
+                # preserved for future Platt training even though no order
+                # gets placed.
+                preflight_status: str | None = None
+                if config.mode == "live" and client and bankroll_cents is not None and bankroll_cents > 0:
                     needed_cents = int(cost * 100)
                     if needed_cents > bankroll_cents:
-                        logger.warning(
-                            "Skipping %s: need %d cents, have %d cents",
+                        preflight_status = "rejected_insufficient_funds"
+                        logger.info(
+                            "Pre-flight reject %s: need %d cents, have %d cents",
                             ticker, needed_cents, bankroll_cents,
                         )
-                        continue
 
                 signal = Signal(
                     user_id=config.user_id,
@@ -194,11 +223,12 @@ def run_signal_loop(session: Session) -> None:
                     pair=snapshot.series,
                     side="buy",
                     signal_type=config.mode,
-                    status="placed" if client else "filled",
+                    status=preflight_status or ("placed" if client else "filled"),
                     entry_price=market_price,
                     quantity=float(count),
                     cost_usd=cost,
                     model_prob=snapshot.model_prob,
+                    raw_model_prob=snapshot.raw_model_prob,
                     market_prob=market_price,
                     edge=snapshot.edge,
                     floor_strike=snapshot.floor_strike,
@@ -210,6 +240,16 @@ def run_signal_loop(session: Session) -> None:
                     event_ticker=event_ticker,
                     expiry_time=snapshot.expiry_time,
                 )
+
+                if preflight_status is not None:
+                    # Persist the rejection and move on — no Kalshi call.
+                    signal.error_message = f"pre-flight: need {needed_cents}c have {bankroll_cents}c"
+                    session.add(signal)
+                    try:
+                        session.commit()
+                    except Exception:
+                        session.rollback()
+                    continue
 
                 if config.mode == "live" and client:
                     session.add(signal)
@@ -233,7 +273,7 @@ def run_signal_loop(session: Session) -> None:
                         session.commit()
                         logger.info("LIVE BUY %s: %d @ $%.2f", ticker, count, yes_price_cents / 100)
                     except Exception as e:
-                        signal.status = "cancelled"
+                        signal.status = _classify_rejection(str(e))
                         signal.error_message = str(e)[:200]
                         try:
                             session.commit()
