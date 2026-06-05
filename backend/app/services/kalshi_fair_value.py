@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -445,10 +446,13 @@ def scan_kalshi_entries(
 
                 try:
                     max_price_cents = int(round(config.max_price * 100))
-                    # Place limit at mid-price rounded to nearest cent, capped
-                    # at max_price. This avoids crossing the spread.
-                    limit_price = round(mid * 100) if mid > 0 else round(ask * 100)
-                    yes_price_cents = min(int(limit_price), max_price_cents)
+                    # Cross the spread: ceil(ask) + 1 cent. Posting at mid or
+                    # at the displayed ask often leaves orders resting while
+                    # the market drifts up, especially in thin books. The +1
+                    # buys a reliable fill at the cost of one cent of spread.
+                    ref = ask if ask > 0 else mid
+                    ask_cents = math.ceil(ref * 100) if ref > 0 else 0
+                    yes_price_cents = min(ask_cents + 1, max_price_cents)
                     order_result = run_async(client.create_order(
                         ticker=ticker, side="yes", count=count,
                         yes_price_cents=yes_price_cents,
