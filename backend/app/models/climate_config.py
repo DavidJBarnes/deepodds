@@ -24,6 +24,12 @@ class ClimateConfig(Base):
 
     min_edge: Mapped[float] = mapped_column(Float, default=0.08)
     exit_edge: Mapped[float] = mapped_column(Float, default=-0.02)
+    # Gate signals by raw model_prob. Defaults skip the 80-100% bucket where
+    # the climate model has shown systematic overconfidence (0/3 wins at n=17
+    # → n=34). min_model_prob=0 keeps the underconfident low-prob bucket
+    # (10-20%) which has been +EV.
+    min_model_prob: Mapped[float] = mapped_column(Float, default=0.0)
+    max_model_prob: Mapped[float] = mapped_column(Float, default=0.80)
 
     contracts_per_signal: Mapped[int] = mapped_column(Integer, default=25)
     max_cost_per_signal: Mapped[float] = mapped_column(Float, default=15.0)

@@ -11,6 +11,8 @@ class CryptoConfigResponse(BaseModel):
     min_hours_to_expiry: int = 2
     min_edge: float = 0.08
     exit_edge: float = -0.02
+    min_model_prob: float = 0.0
+    max_model_prob: float = 0.80
     contracts_per_signal: int = 50
     max_cost_per_signal: float = 25.0
     max_open_positions: int = 5
@@ -33,6 +35,8 @@ class CryptoConfigUpdate(BaseModel):
     min_hours_to_expiry: int | None = Field(None, ge=0, le=48)
     min_edge: float | None = Field(None, ge=0.01, le=0.50)
     exit_edge: float | None = Field(None, ge=-0.50, le=0.0)
+    min_model_prob: float | None = Field(None, ge=0.0, le=1.0)
+    max_model_prob: float | None = Field(None, ge=0.0, le=1.0)
     contracts_per_signal: int | None = Field(None, ge=1, le=10000)
     max_cost_per_signal: float | None = Field(None, ge=1.0, le=1000.0)
     max_open_positions: int | None = Field(None, ge=1, le=100)

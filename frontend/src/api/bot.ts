@@ -111,6 +111,8 @@ export interface ClimateConfig {
   min_hours_to_expiry: number;
   min_edge: number;
   exit_edge: number;
+  min_model_prob: number;
+  max_model_prob: number;
   contracts_per_signal: number;
   max_cost_per_signal: number;
   max_open_positions: number;
@@ -160,6 +162,8 @@ export interface CryptoConfig {
   vol_lookback_hours: number;
   vol_interval: string;
   exit_edge: number;
+  min_model_prob: number;
+  max_model_prob: number;
   contracts_per_signal: number;
   max_cost_per_signal: number;
   max_open_positions: number;
