@@ -3,9 +3,9 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, desc, select
 from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
@@ -34,6 +34,34 @@ from app.services.probability_model import series_to_underlying
 _BALANCE_CACHE_TTL = 60  # seconds; scheduler refreshes every 30s
 _SCAN_INTERVAL = 30  # seconds between entry scan cycles
 _EXIT_INTERVAL = 15  # seconds between exit check cycles
+_RETRAIN_INTERVAL = timedelta(days=7)
+# Skip the iteration's retrain if a successful active run exists within this
+# window. Prevents container restarts from triggering off-cycle retraining.
+_RETRAIN_THROTTLE = timedelta(days=6)
+
+
+def _last_active_retrain(session: Session, venue: str) -> ModelTrainHistory | None:
+    """Return the most recent successful active retrain for the venue, if any."""
+    col = (
+        ModelTrainHistory.crypto_active if venue == "crypto"
+        else ModelTrainHistory.climate_active
+    )
+    return session.execute(
+        select(ModelTrainHistory)
+        .where(col.is_(True))
+        .order_by(desc(ModelTrainHistory.completed_at))
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _retrain_skip_age(session: Session, venue: str) -> timedelta | None:
+    """If the most recent active retrain is within the throttle window, return
+    its age. Otherwise None (i.e., a fresh retrain should proceed)."""
+    last = _last_active_retrain(session, venue)
+    if last is None:
+        return None
+    age = datetime.now(timezone.utc) - last.completed_at
+    return age if age < _RETRAIN_THROTTLE else None
 
 logger = logging.getLogger(__name__)
 
@@ -436,6 +464,17 @@ async def start_scheduler(standalone: bool = False):
         await asyncio.sleep(3600)
         while True:
             try:
+                with Session(_sync_engine) as session:
+                    skip_age = _retrain_skip_age(session, "crypto")
+                if skip_age is not None:
+                    logger.info(
+                        "Skipping crypto retrain — last successful run was %.1fh ago (throttle %dh)",
+                        skip_age.total_seconds() / 3600,
+                        _RETRAIN_THROTTLE.total_seconds() / 3600,
+                    )
+                    await asyncio.sleep(_RETRAIN_INTERVAL.total_seconds())
+                    continue
+
                 logger.info("Triggering weekly SOTA ML auto-retraining...")
                 from sqlalchemy import update
                 from app.models.history import History
@@ -510,6 +549,17 @@ async def start_scheduler(standalone: bool = False):
         await asyncio.sleep(3600)
         while True:
             try:
+                with Session(_sync_engine) as session:
+                    skip_age = _retrain_skip_age(session, "climate")
+                if skip_age is not None:
+                    logger.info(
+                        "Skipping climate retrain — last successful run was %.1fh ago (throttle %dh)",
+                        skip_age.total_seconds() / 3600,
+                        _RETRAIN_THROTTLE.total_seconds() / 3600,
+                    )
+                    await asyncio.sleep(_RETRAIN_INTERVAL.total_seconds())
+                    continue
+
                 logger.info("Triggering weekly climate ML auto-retraining...")
                 from sqlalchemy import update
                 from app.models.history import History
