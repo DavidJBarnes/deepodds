@@ -22,6 +22,7 @@ from app.services.kalshi_utils import (
     OPEN_STATUSES,
     check_spread_filter,
     discover_markets,
+    kalshi_yes_settlement,
     kelly_count,
     market_ask,
     market_ask_size,
@@ -555,7 +556,15 @@ def check_climate_exits(
 
 
 def settle_expired_climate_paper(session: Session) -> int:
-    """Resolve expired paper climate positions using the actual daily extreme."""
+    """Resolve expired paper climate positions against Kalshi's actual
+    exchange settlement.
+
+    Previously this read Open-Meteo's archive with a fallback to the
+    stored forecast, which silently turned the model's own input into
+    "ground truth" and inflated paper win rate. Now the truth source is
+    Kalshi (same as live mode) — when a market hasn't settled there yet,
+    we leave the signal as 'filled' and retry on the next loop.
+    """
     now = datetime.now(timezone.utc)
     expired = session.execute(
         select(Signal).where(
@@ -565,6 +574,7 @@ def settle_expired_climate_paper(session: Session) -> int:
             Signal.expiry_time.isnot(None),
             Signal.expiry_time < now,
             Signal.fill_price.isnot(None),
+            Signal.market_ticker.isnot(None),
         )
     ).scalars().all()
 
@@ -572,44 +582,16 @@ def settle_expired_climate_paper(session: Session) -> int:
         return 0
 
     settled = 0
-    history_cache: dict = {}
     for sig in expired:
         try:
-            mapping = series_to_city_kind(sig.pair or "")
-            target_date = parse_event_date(sig.event_ticker or "")
-            actual_value = None
-            if mapping and target_date:
-                city, kind = mapping
-                cache_key = (city, kind)
-                if cache_key not in history_cache:
-                    history_cache[cache_key] = run_async(
-                        get_daily_extreme_history(city, kind, days=30)
-                    )
-                values = history_cache[cache_key]
-                if values:
-                    # archive returns values ending yesterday; index by date
-                    today = datetime.now(timezone.utc).date()
-                    days_back = (today - target_date).days
-                    if 1 <= days_back <= len(values):
-                        actual_value = values[-days_back]
+            yes_won = kalshi_yes_settlement(sig.market_ticker)
+            if yes_won is None:
+                # Kalshi hasn't settled this market yet — retry next loop.
+                continue
 
-            if actual_value is None:
-                # Fall back to the stored forecast value (best available)
-                actual_value = sig.underlying_price
-
-            floor_val = sig.floor_strike
-            cap_val = sig.cap_strike
-            typ = sig.strike_type or "between"
-
-            if typ == "between":
-                won = (floor_val is not None and cap_val is not None and floor_val <= actual_value <= cap_val)
-            elif typ == "greater":
-                won = (floor_val is not None and actual_value > floor_val)
-            elif typ == "less":
-                won = (cap_val is not None and actual_value < cap_val)
-            else:
-                won = False
-
+            # We always buy yes-side contracts (side='yes' in scan_climate_entries),
+            # so the Kalshi market resolving YES is a win.
+            won = bool(yes_won)
             exit_price = 1.0 if won else 0.0
             qty = sig.fill_quantity or sig.quantity or 0
             fill_price = sig.fill_price or 0
@@ -623,12 +605,12 @@ def settle_expired_climate_paper(session: Session) -> int:
 
             settled += 1
             logger.info(
-                "CLIMATE PAPER SETTLE %s: actual=%.1f won=%s P&L=$%.2f",
-                sig.market_ticker, actual_value, won, pnl_usd,
+                "CLIMATE PAPER SETTLE %s: kalshi=%s won=%s P&L=$%.2f",
+                sig.market_ticker, "yes" if yes_won else "no", won, pnl_usd,
             )
             session.add(History(
                 user_id=sig.user_id,
-                text=f"Climate paper settlement for {sig.market_ticker}: {'won' if won else 'lost'} (actual={actual_value:.1f}, P&L=${pnl_usd:.2f})",
+                text=f"Climate paper settlement for {sig.market_ticker}: {'won' if won else 'lost'} (Kalshi={'YES' if yes_won else 'NO'}, P&L=${pnl_usd:.2f})",
             ))
         except Exception:
             logger.exception("Failed to settle climate paper signal %s", sig.market_ticker)
