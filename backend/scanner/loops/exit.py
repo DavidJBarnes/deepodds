@@ -1,10 +1,16 @@
 """Exit loop — checks filled positions for exit conditions.
 
-For signals whose Kalshi market has reached final settlement (status
-'settled' or 'finalized'), the exchange result is the authoritative
-outcome and trumps any intraday heuristic (stop-loss, take-profit,
-approaching-expiry, etc.). The heuristic exits only run for markets
-that are still open or in pre-settlement state.
+Reads current market state from MarketSnapshot (refreshed every ~30-60s
+by the discover loop) instead of hitting the per-ticker Kalshi endpoint
+on every cycle. discover.py runs two passes per series (open + settled),
+so a Kalshi settlement transition shows up in the snapshot within one
+discover cycle.
+
+For signals whose Kalshi market has reached final settlement
+(status 'settled' or 'finalized'), the exchange result is the
+authoritative outcome and trumps any intraday heuristic (stop-loss,
+take-profit, approaching-expiry, etc.). The heuristic exits only run
+for markets that are still open or in pre-settlement state.
 """
 
 import logging
@@ -17,6 +23,7 @@ from app.core.async_util import run_async
 from app.models.climate_config import ClimateConfig
 from app.models.crypto_config import CryptoConfig
 from app.models.history import History
+from app.models.market_snapshot import MarketSnapshot
 from app.models.signal import Signal
 from app.services.kalshi_client import KalshiClient
 
@@ -41,8 +48,19 @@ def _settled_yes_won(market_data: dict) -> bool | None:
             return False
     return None
 
+
 _VENUE_CRYPTO = "kalshi_crypto"
 _VENUE_CLIMATE = "kalshi_climate"
+
+
+def _snapshot_to_market_data(snap: MarketSnapshot) -> dict:
+    """Project the fields _settled_yes_won + heuristic price logic read."""
+    return {
+        "status": snap.status,
+        "result": snap.result,
+        "last_price": snap.last_price,
+        "yes_bid_dollars": snap.bid_price or 0,
+    }
 
 
 def run_exit_loop(session: Session, engine: Engine) -> None:
@@ -59,6 +77,15 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
     if not filled:
         return
 
+    # Bulk-load the snapshot rows that correspond to filled positions.
+    tickers = [s.market_ticker for s in filled if s.market_ticker]
+    snapshots: dict[str, MarketSnapshot] = {}
+    if tickers:
+        rows = session.execute(
+            select(MarketSnapshot).where(MarketSnapshot.ticker.in_(tickers))
+        ).scalars().all()
+        snapshots = {r.ticker: r for r in rows}
+
     user_ids = {s.user_id for s in filled}
     configs: dict = {}
     for uid in user_ids:
@@ -74,6 +101,7 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
         if ccfg:
             configs[uid] = ("climate", ccfg)
 
+    # Per-user authed Kalshi clients are only needed for the live-sell path.
     clients: dict[str, KalshiClient] = {}
     now = datetime.now(timezone.utc)
     exited = 0
@@ -84,39 +112,21 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
             continue
         _, cfg = cfg_tuple
 
-        if cfg.mode == "live":
-            client = clients.get(str(sig.user_id))
-            if client is None:
-                try:
-                    from app.models.user import User
-                    user = session.execute(
-                        select(User).where(User.id == sig.user_id)
-                    ).scalar_one_or_none()
-                    if user and user.kalshi_api_key_id and user.kalshi_private_key:
-                        client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
-                        clients[str(sig.user_id)] = client
-                except Exception:
-                    pass
-
         if not sig.market_ticker:
             continue
 
-        try:
-            market_data = run_async(
-                (client or KalshiClient.public()).get_market(sig.market_ticker)
-            )
-        except Exception:
-            logger.warning("Exit: failed to get market data for %s", sig.market_ticker)
+        snap = snapshots.get(sig.market_ticker)
+        if snap is None:
+            # Race: signal placed before next discover cycle ran. Will be
+            # picked up next loop.
             continue
 
+        market_data = _snapshot_to_market_data(snap)
         fill_price = sig.fill_price or 0
         qty = sig.fill_quantity or sig.quantity or 0
 
         # PRIORITY: if Kalshi has finalized this market, the exchange result
         # is the authoritative outcome regardless of any intraday signal.
-        # This is the same source of truth live mode pays out against, and
-        # it replaces the older paper-side check that fell back to forecast
-        # data when the underlying archive lagged.
         yes_won = _settled_yes_won(market_data)
         if yes_won is not None:
             exit_price = 1.0 if yes_won else 0.0
@@ -150,10 +160,7 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
 
         # Heuristic exits (stops, take-profit, approaching/post-expiry) only
         # apply when the market is still live or pre-settlement.
-        price = float(
-            market_data.get("yes_bid_dollars")
-            or market_data.get("last_price_dollars", 0)
-        )
+        price = float(market_data.get("yes_bid_dollars") or 0)
         if price <= 0:
             continue
 
@@ -193,7 +200,23 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
         if not should_exit:
             continue
 
-        if cfg.mode == "live" and client:
+        # Live-sell path needs an authed client; construct lazily once per user.
+        if cfg.mode == "live":
+            client = clients.get(str(sig.user_id))
+            if client is None:
+                try:
+                    from app.models.user import User
+                    user = session.execute(
+                        select(User).where(User.id == sig.user_id)
+                    ).scalar_one_or_none()
+                    if user and user.kalshi_api_key_id and user.kalshi_private_key:
+                        client = KalshiClient(user.kalshi_api_key_id, user.kalshi_private_key)
+                        clients[str(sig.user_id)] = client
+                except Exception:
+                    pass
+            if client is None:
+                logger.warning("Exit: no live client for user %s; skipping sell", sig.user_id)
+                continue
             try:
                 yes_price_cents = int(round(price * 100))
                 run_async(client.create_order(
@@ -210,6 +233,7 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
                 logger.exception("Exit: failed to sell %s", sig.market_ticker)
             continue
 
+        # Paper-mode heuristic exit.
         sig.exit_price = price
         paper_fee = round((fill_price + price) * qty * 0.0007, 4)
         sig.pnl_usd = round(pnl_usd - paper_fee, 4)

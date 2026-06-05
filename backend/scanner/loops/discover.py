@@ -29,9 +29,16 @@ def _fetch_and_upsert(
     max_price: float = 0.99,
     min_hours_to_expiry: int = 0,
 ) -> int:
-    """Fetch markets for a list of series and upsert into market_snapshots.
+    """Fetch open + settled markets for a list of series and upsert into
+    market_snapshots.
 
-    Returns the number of markets upserted.
+    Open markets get the usual filter_reason logic (no_ask / low_volume /
+    etc). Settled markets are upserted with filter_reason='settled' so the
+    signal-creation loop ignores them, but the exit loop can still read
+    their status/result for finalized payouts without making per-ticker
+    Kalshi calls.
+
+    Returns the total number of markets upserted across both passes.
     """
     from app.core.async_util import run_async
 
@@ -43,43 +50,92 @@ def _fetch_and_upsert(
 
     count = 0
     for series in series_list:
+        # Pass 1: open markets — full filter logic, normal flow.
         try:
-            data = run_async(client.get_markets(series_ticker=series, limit=200))
-        except Exception:
-            logger.warning("Discover: failed to fetch markets for series %s", series)
+            data = run_async(client.get_markets(series_ticker=series, limit=200, status="open"))
+        except Exception as e:
+            logger.warning("Discover: failed to fetch open markets for %s: %r", series, e)
+        else:
+            count += _upsert_markets(
+                session, data.get("markets", []), series, venue, now, cutoff,
+                min_volume, min_price, max_price, kalshi_status="open",
+            )
+
+        # Pass 2: settled markets — bypass open-only filters, carry result.
+        try:
+            data = run_async(client.get_markets(series_ticker=series, limit=200, status="settled"))
+        except Exception as e:
+            logger.warning("Discover: failed to fetch settled markets for %s: %r", series, e)
+        else:
+            count += _upsert_markets(
+                session, data.get("markets", []), series, venue, now, cutoff,
+                min_volume, min_price, max_price, kalshi_status="settled",
+            )
+
+        session.commit()
+    return count
+
+
+def _upsert_markets(
+    session: Session,
+    markets: list[dict],
+    series: str,
+    venue: str,
+    now: datetime,
+    cutoff: datetime,
+    min_volume: int,
+    min_price: float,
+    max_price: float,
+    kalshi_status: str,
+) -> int:
+    """Upsert one page of markets from Kalshi into market_snapshots.
+
+    kalshi_status='open' applies normal entry filters; kalshi_status='settled'
+    forces filter_reason='settled' so the row is preserved with its result
+    but excluded from signal candidates.
+    """
+    count = 0
+    for m in markets:
+        ticker = m.get("ticker", "")
+        if not ticker:
             continue
 
-        for m in data.get("markets", []):
-            ticker = m.get("ticker", "")
-            if not ticker:
-                continue
-
-            ask_price = market_ask(m)
-            ask_size = market_ask_size(m)
-            bid_price = market_bid(m)
-            mid_price = market_mid(m)
-            spread_pct = market_spread_pct(m)
-            vol_24h = float(m.get("volume_24h_fp", 0) or 0)
-            title = m.get("title", "")
-            event_ticker = m.get("event_ticker", "")
-            floor_strike = m.get("floor_strike")
-            cap_strike = m.get("cap_strike")
-            strike_type = m.get("strike_type", "between")
-
-            if floor_strike is not None:
-                floor_strike = float(floor_strike)
-            if cap_strike is not None:
-                cap_strike = float(cap_strike)
-
-            close_time = m.get("close_time", "")
-            ct = None
-            hours_left = None
+        ask_price = market_ask(m)
+        ask_size = market_ask_size(m)
+        bid_price = market_bid(m)
+        mid_price = market_mid(m)
+        spread_pct = market_spread_pct(m)
+        vol_24h = float(m.get("volume_24h_fp", 0) or 0)
+        title = m.get("title", "")
+        floor_strike = m.get("floor_strike")
+        cap_strike = m.get("cap_strike")
+        strike_type = m.get("strike_type", "between")
+        status = (m.get("status") or "").lower() or None
+        result = (m.get("result") or "").lower() or None
+        last_price = m.get("last_price")
+        if last_price is not None:
             try:
-                ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
-                hours_left = (ct - now).total_seconds() / 3600
-            except (ValueError, AttributeError):
-                pass
+                last_price = float(last_price)
+            except (TypeError, ValueError):
+                last_price = None
 
+        if floor_strike is not None:
+            floor_strike = float(floor_strike)
+        if cap_strike is not None:
+            cap_strike = float(cap_strike)
+
+        close_time = m.get("close_time", "")
+        ct = None
+        hours_left = None
+        try:
+            ct = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+            hours_left = (ct - now).total_seconds() / 3600
+        except (ValueError, AttributeError):
+            pass
+
+        if kalshi_status == "settled":
+            filter_reason = "settled"
+        else:
             filter_reason = None
             if ask_price <= 0:
                 filter_reason = "no_ask"
@@ -94,79 +150,58 @@ def _fetch_and_upsert(
             elif ct < cutoff:
                 filter_reason = "expiry_too_soon"
 
-            existing = session.execute(
-                select(MarketSnapshot.filter_reason, MarketSnapshot.edge)
-                .where(MarketSnapshot.ticker == ticker)
-            ).one_or_none()
+        existing = session.execute(
+            select(MarketSnapshot.filter_reason, MarketSnapshot.edge)
+            .where(MarketSnapshot.ticker == ticker)
+        ).one_or_none()
 
-            old_reason = existing[0] if existing else None
-            old_edge = existing[1] if existing else None
+        old_reason = existing[0] if existing else None
+        old_edge = existing[1] if existing else None
 
-            new_edge = old_edge
+        new_edge = old_edge
+        new_model_prob = None
+        new_scored_at = None
+
+        if filter_reason is not None:
+            new_edge = None
+            new_model_prob = None
+            new_scored_at = None
+        elif old_reason is not None:
+            new_edge = None
             new_model_prob = None
             new_scored_at = None
 
-            if filter_reason is not None:
-                new_edge = None
-                new_model_prob = None
-                new_scored_at = None
-            elif old_reason is not None:
-                new_edge = None
-                new_model_prob = None
-                new_scored_at = None
-
-            stmt = insert(MarketSnapshot).values(
-                ticker=ticker,
-                series=series,
-                venue=venue,
-                title=title,
-                ask_price=ask_price,
-                ask_size=ask_size,
-                bid_price=bid_price,
-                mid_price=mid_price,
-                spread_pct=spread_pct,
-                volume_24h=vol_24h,
-                hours_to_expiry=hours_left,
-                expiry_time=ct,
-                floor_strike=floor_strike,
-                cap_strike=cap_strike,
-                strike_type=strike_type,
-                filter_reason=filter_reason,
-                edge=new_edge,
-                model_prob=new_model_prob,
-                scored_at=new_scored_at,
-                discovered_at=now,
-                price_updated_at=now,
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["ticker"],
-                set_={
-                    "series": series,
-                    "venue": venue,
-                    "title": title,
-                    "ask_price": ask_price,
-                    "ask_size": ask_size,
-                    "bid_price": bid_price,
-                    "mid_price": mid_price,
-                    "spread_pct": spread_pct,
-                    "volume_24h": vol_24h,
-                    "hours_to_expiry": hours_left,
-                    "expiry_time": ct,
-                    "floor_strike": floor_strike,
-                    "cap_strike": cap_strike,
-                    "strike_type": strike_type,
-                    "filter_reason": filter_reason,
-                    "edge": new_edge,
-                    "model_prob": new_model_prob,
-                    "scored_at": new_scored_at,
-                    "discovered_at": now,
-                    "price_updated_at": now,
-                },
-            )
-            session.execute(stmt)
-            count += 1
-
-        session.commit()
+        values = {
+            "ticker": ticker,
+            "series": series,
+            "venue": venue,
+            "title": title,
+            "ask_price": ask_price,
+            "ask_size": ask_size,
+            "bid_price": bid_price,
+            "mid_price": mid_price,
+            "spread_pct": spread_pct,
+            "volume_24h": vol_24h,
+            "hours_to_expiry": hours_left,
+            "expiry_time": ct,
+            "floor_strike": floor_strike,
+            "cap_strike": cap_strike,
+            "strike_type": strike_type,
+            "filter_reason": filter_reason,
+            "edge": new_edge,
+            "model_prob": new_model_prob,
+            "scored_at": new_scored_at,
+            "status": status,
+            "result": result,
+            "last_price": last_price,
+            "discovered_at": now,
+            "price_updated_at": now,
+        }
+        stmt = insert(MarketSnapshot).values(**values)
+        update_set = {k: v for k, v in values.items() if k != "ticker"}
+        stmt = stmt.on_conflict_do_update(index_elements=["ticker"], set_=update_set)
+        session.execute(stmt)
+        count += 1
     return count
 
 

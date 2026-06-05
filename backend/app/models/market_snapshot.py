@@ -29,6 +29,13 @@ class MarketSnapshot(Base):
     model_prob: Mapped[float | None] = mapped_column(Double)
     edge: Mapped[float | None] = mapped_column(Double)
     filter_reason: Mapped[str | None] = mapped_column(Text)
+    # Settlement state, populated by discover.py from the Kalshi market dict.
+    # Lets the exit loop decide a position's final outcome without a per-ticker
+    # API call. status is "open"/"closed"/"settled"/"finalized"; result is
+    # "yes"/"no"/None.
+    status: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[str | None] = mapped_column(Text)
+    last_price: Mapped[float | None] = mapped_column(Double)
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

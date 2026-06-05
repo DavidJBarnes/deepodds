@@ -157,7 +157,10 @@ def run_signal_loop(session: Session) -> None:
                             continue
                         market_price = (fresh_ask + fresh_bid) / 2 if fresh_bid > 0 else fresh_ask
                         ask_price = fresh_ask
-                    except Exception:
+                    except Exception as e:
+                        logger.warning(
+                            "Signal: get_market for fresh ask failed on %s: %r", ticker, e,
+                        )
                         continue
 
                 bankroll_cents = read_balance_cache(str(config.user_id))
