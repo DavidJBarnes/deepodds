@@ -108,6 +108,23 @@ def run_signal_loop(session: Session) -> None:
                 if snapshot.edge is None or snapshot.edge < config.min_edge:
                     continue
 
+                # Band filter: gate by raw model_prob. Default ceiling of 0.80
+                # blocks the bucket where the climate model has been measured
+                # systematically overconfident; floor of 0.0 leaves the
+                # underconfident low-prob bucket firing.
+                if snapshot.model_prob is None:
+                    continue
+                if (
+                    snapshot.model_prob < config.min_model_prob
+                    or snapshot.model_prob > config.max_model_prob
+                ):
+                    logger.info(
+                        "Signal %s skipped: model_prob=%.3f outside [%.2f, %.2f]",
+                        ticker, snapshot.model_prob,
+                        config.min_model_prob, config.max_model_prob,
+                    )
+                    continue
+
                 exists = session.execute(
                     select(Signal.id).where(
                         Signal.user_id == config.user_id,

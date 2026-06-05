@@ -27,6 +27,8 @@ _SIGNAL_INTERVAL = 10
 _EXIT_INTERVAL = 15
 _HEARTBEAT_INTERVAL = 30
 _MODEL_CHECK_INTERVAL = 60
+_PLATT_REFIT_INTERVAL = 24 * 3600
+_PLATT_STARTUP_DELAY = 60
 _SCHEDULER_TIMEOUT = 120
 
 
@@ -97,6 +99,12 @@ def run_scanner(db_url: str) -> None:
         with Session(engine) as s:
             crypto_reload(s)
             climate_reload(s)
+
+    def _platt_refit_sync():
+        from app.services.climate_calibration import fit_and_save, reset_cache
+        with Session(engine) as s:
+            fit_and_save(s)
+        reset_cache()
 
     async def discover_crypto_loop():
         while True:
@@ -182,6 +190,20 @@ def run_scanner(db_url: str) -> None:
                 logger.exception("Model version check failed")
             await asyncio.sleep(_MODEL_CHECK_INTERVAL)
 
+    async def platt_refit_loop():
+        # Wait briefly so the scanner finishes initializing before we burn
+        # CPU on the logistic fit, then refit daily. Lives in the scanner
+        # process (not the api) so the calibrator file is written and read
+        # in the same container — predict_climate_probability picks it up
+        # on the next score cycle via the apply_platt cache.
+        await asyncio.sleep(_PLATT_STARTUP_DELAY)
+        while True:
+            try:
+                await run_in_executor(_platt_refit_sync, 60)
+            except Exception:
+                logger.exception("Platt refit failed")
+            await asyncio.sleep(_PLATT_REFIT_INTERVAL)
+
     async def main():
         await asyncio.gather(
             heartbeat_loop(),
@@ -192,6 +214,7 @@ def run_scanner(db_url: str) -> None:
             signal_loop(),
             exit_loop(),
             model_check_loop(),
+            platt_refit_loop(),
         )
 
     loop = asyncio.new_event_loop()

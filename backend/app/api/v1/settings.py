@@ -30,6 +30,8 @@ _FIELD_LABELS: dict[str, str] = {
     "min_hours_to_expiry": "Min Hours to Expiry",
     "min_edge": "Min Edge",
     "exit_edge": "Exit Edge",
+    "min_model_prob": "Min Model Probability",
+    "max_model_prob": "Max Model Probability",
     "contracts_per_signal": "Contracts per Signal",
     "max_cost_per_signal": "Max Cost per Signal",
     "max_open_positions": "Max Open Positions",

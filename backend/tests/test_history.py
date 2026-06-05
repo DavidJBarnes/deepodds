@@ -111,12 +111,12 @@ class TestLogConfigChanges:
         assert _FIELD_LABELS["min_hold_minutes"] == "Min Hold Minutes"
         assert _FIELD_LABELS["min_hours_to_expiry"] == "Min Hours to Expiry"
 
-    def test_field_labels_cover_all_kalshi_config_fields(self):
+    def test_field_labels_cover_all_crypto_config_fields(self):
         from app.api.v1.settings import _FIELD_LABELS
-        from app.models.kalshi_config import KalshiConfig
+        from app.models.crypto_config import CryptoConfig
 
         table_cols = {
-            c.name for c in KalshiConfig.__table__.columns
+            c.name for c in CryptoConfig.__table__.columns
             if c.name not in ("id", "user_id", "created_at", "updated_at")
         }
         labeled = set(_FIELD_LABELS)
