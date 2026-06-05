@@ -199,6 +199,13 @@ def _upsert_markets(
         }
         stmt = insert(MarketSnapshot).values(**values)
         update_set = {k: v for k, v in values.items() if k != "ticker"}
+        # Settled-pass must NOT overwrite the score that was recorded while
+        # this market was open — that's the data point we want to feed
+        # Platt. score.py writes both model_prob and raw_model_prob; only
+        # the open-pass should clear them here on filter transitions.
+        if kalshi_status == "settled":
+            for k in ("model_prob", "edge", "scored_at"):
+                update_set.pop(k, None)
         stmt = stmt.on_conflict_do_update(index_elements=["ticker"], set_=update_set)
         session.execute(stmt)
         count += 1
