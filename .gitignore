@@ -25,3 +25,6 @@ frontend/.vite/
 # Runtime model snapshots (versioned by ModelTrainHistory rows).
 # The .gitkeep stays so the dir exists; per-retrain v_*.json files are local artifacts.
 backend/app/core/models/**/v_*.json
+
+# Platt scaler coefficients — refitted at runtime from settled signals.
+backend/app/core/climate_platt.json
