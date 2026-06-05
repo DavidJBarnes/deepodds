@@ -37,13 +37,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push frontend (multi-arch)
+      - name: Build and push frontend (arm64)
         env:
           ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker buildx build \
-            --platform linux/amd64,linux/arm64 \
+            --platform linux/arm64 \
             -f frontend/Dockerfile \
             -t $ECR_REGISTRY/$ECR_NGINX:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_NGINX:latest \
