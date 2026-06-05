@@ -217,13 +217,8 @@ async def _run_in_scheduler(executor: ThreadPoolExecutor, func, timeout: float =
     )
 
 
-async def start_scheduler(standalone: bool = False):
-    """Start the api-side background scheduler.
-
-    The ``standalone`` flag is kept for back-compat but is now informational
-    only — the api scheduler never runs scan/exit/heartbeat (those live in
-    the scanner process regardless).
-    """
+async def start_scheduler():
+    """Start the api-side background scheduler."""
     logger.info("Starting api scheduler (live sync, retrains, caches)")
 
     scheduler_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="scheduler")
