@@ -609,6 +609,20 @@ async def start_scheduler(standalone: bool = False):
                 logger.exception("Climate ML auto-retraining loop encountered an error")
             await asyncio.sleep(7 * 24 * 3600)
 
+    async def climate_platt_refit_loop():
+        # Fit once on startup (after a brief warm-up) so a fresh container
+        # picks up the latest settled-signal data, then refit daily.
+        await asyncio.sleep(60)
+        while True:
+            try:
+                from app.services.climate_calibration import fit_and_save, reset_cache
+                with Session(_sync_engine) as session:
+                    fit_and_save(session)
+                reset_cache()
+            except Exception:
+                logger.exception("Climate Platt refit loop failed")
+            await asyncio.sleep(24 * 3600)
+
     async def heartbeat_loop():
         while True:
             try:
@@ -686,6 +700,7 @@ async def start_scheduler(standalone: bool = False):
         asyncio.create_task(kalshi_retrain_loop(), name="kalshi_retrain"),
         asyncio.create_task(climate_exit_loop(), name="climate_exit"),
         asyncio.create_task(climate_retrain_loop(), name="climate_retrain"),
+        asyncio.create_task(climate_platt_refit_loop(), name="climate_platt_refit"),
         asyncio.create_task(refresh_crypto_data_loop(), name="refresh_crypto"),
         asyncio.create_task(refresh_climate_data_loop(), name="refresh_climate"),
         asyncio.create_task(balance_cache_loop(), name="balance_cache"),

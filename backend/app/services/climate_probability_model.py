@@ -156,6 +156,15 @@ def predict_climate_probability(
             )
 
     model_prob = max(0.01, min(0.99, model_prob))
+
+    # Apply Platt calibration on top of the raw model. Pass-through when no
+    # calibrator has been fitted yet (n < MIN_FIT_N at the last refit).
+    from app.services.climate_calibration import apply_platt
+    calibrated = apply_platt(model_prob)
+    if calibrated != model_prob:
+        logger.debug("Platt: %.3f -> %.3f (%s)", model_prob, calibrated, city)
+    model_prob = max(0.01, min(0.99, calibrated))
+
     return ClimateFairValueResult(
         model_prob=model_prob,
         market_prob=market_price,
