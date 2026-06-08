@@ -155,3 +155,51 @@ jobs:
             esac
           done
           echo "Timed out waiting for SSM command"; exit 1
+
+      - name: Diagnostic — check external reachability
+        if: always()
+        env:
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          echo "=== EC2 public IP ==="
+          PUBLIC_IP=$(aws ec2 describe-instances --instance-ids "$EC2_INSTANCE_ID" --region "$AWS_REGION" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text 2>/dev/null || echo "NO_PUBLIC_IP")
+          echo "Public IP: $PUBLIC_IP"
+          echo "=== DNS resolution ==="
+          DOMAIN="deepodds.davidjbarnes.com"
+          RESOLVED=$(dig +short "$DOMAIN" 2>/dev/null || nslookup "$DOMAIN" 2>/dev/null | grep -A1 Name | tail -1 | awk '{print $2}' || echo "DNS_FAIL")
+          echo "DNS resolves $DOMAIN to: $RESOLVED"
+          echo "=== EC2 instance diagnostics via SSM ==="
+          aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --timeout-seconds 30 \
+            --parameters commands='[
+              "echo === nginx status ===",
+              "systemctl is-active nginx 2>/dev/null || echo NOT ACTIVE",
+              "echo === nginx listening ports ===",
+              "ss -tlnp | grep nginx || netstat -tlnp 2>/dev/null | grep nginx || echo no nginx listeners found",
+              "echo === nginx config test ===",
+              "nginx -t 2>&1 || true",
+              "echo === curl external domain ===",
+              "curl -sI --max-time 5 https://deepodds.davidjbarnes.com/ 2>&1 || echo external curl failed",
+              "echo === curl localhost:443 ===",
+              "curl -skI --max-time 5 https://127.0.0.1/ 2>&1 || echo localhost:443 failed",
+              "echo === frontend container ===",
+              "docker ps --filter name=deepodds-nginx --format '{{.Status}}' 2>/dev/null || echo no container"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text > /tmp/ssm_diag_cmd.txt
+          CMD_ID=$(cat /tmp/ssm_diag_cmd.txt)
+          echo "SSM diagnostic command: $CMD_ID"
+          echo "Waiting for result..."
+          for i in $(seq 1 12); do
+            sleep 5
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo "Pending")
+            case "$STATUS" in
+              Success) echo "--- DIAGNOSTIC OUTPUT ---"; aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID" --query 'StandardOutputContent' --output text; exit 0 ;;
+              Failed|TimedOut|Cancelled) echo "--- DIAGNOSTIC STDERR ---"; aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID" --query 'StandardErrorContent' --output text; exit 0 ;;
+              *) echo "  diagnostic: $STATUS..." ;;
+            esac
+          done
+          echo "Diagnostic timed out"
