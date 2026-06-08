@@ -200,7 +200,7 @@ jobs:
               "echo === instance public IP ===",
               "curl -s --max-time 3 http://checkip.amazonaws.com 2>/dev/null || echo no public IP",
               "echo === frontend container ===",
-              "docker ps --filter name=deepodds-nginx --format '{{.ID}} {{.Status}} {{.Ports}}' 2>/dev/null || echo no container"
+              "docker ps --filter name=deepodds-nginx 2>/dev/null || echo no container"
             ]' \
             --query 'Command.CommandId' \
             --output text > /tmp/ssm_diag_cmd.txt
