@@ -156,6 +156,49 @@ jobs:
           done
           echo "Timed out waiting for SSM command"; exit 1
 
+      - name: Deploy nginx gateway config
+        env:
+          EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          echo "=== Encoding nginx gateway config ==="
+          NGINX_CONF_B64=$(base64 -w0 nginx/nginx-gateway.conf)
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --timeout-seconds 60 \
+            --parameters commands='[
+              "set -e",
+              "NGINX_CONF_B64='"$NGINX_CONF_B64"'",
+              "echo === Removing default nginx server blocks ===",
+              "if [ -f /etc/nginx/conf.d/default.conf ]; then mv /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.bak 2>/dev/null; echo default.conf disabled; fi",
+              "rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true",
+              "echo === Writing deepodds nginx config ===",
+              "echo $NGINX_CONF_B64 | base64 -d > /etc/nginx/conf.d/deepodds.conf",
+              "echo === Ensuring letsencrypt webroot ===",
+              "mkdir -p /var/www/letsencrypt",
+              "echo === Testing nginx config ===",
+              "nginx -t",
+              "echo === Reloading nginx ===",
+              "systemctl reload nginx",
+              "echo === Verifying port 443 ===",
+              "ss -tlnp 2>/dev/null | grep :443 || netstat -tlnp 2>/dev/null | grep :443 || echo WARNING: nginx not listening on 443",
+              "echo === nginx gateway deployed ==="
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+          echo "SSM nginx config command: $COMMAND_ID"
+          for i in $(seq 1 12); do
+            sleep 5
+            STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$EC2_INSTANCE_ID" --query 'Status' --output text 2>/dev/null || echo "Pending")
+            case "$STATUS" in
+              Success) echo "--- NGINX DEPLOY OUTPUT ---"; aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$EC2_INSTANCE_ID" --query 'StandardOutputContent' --output text; exit 0 ;;
+              Failed|TimedOut|Cancelled) echo "--- NGINX DEPLOY STDERR ---"; aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$EC2_INSTANCE_ID" --query 'StandardErrorContent' --output text; exit 1 ;;
+              *) echo "  nginx deploy: $STATUS..." ;;
+            esac
+          done
+          echo "Nginx deploy timed out"; exit 1
+
       - name: Diagnostic — check external reachability
         if: always()
         env:
