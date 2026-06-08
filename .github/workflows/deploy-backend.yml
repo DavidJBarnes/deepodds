@@ -84,7 +84,7 @@ jobs:
               "docker run --rm --network host --env-file '"$ENV_FILE"' $IMAGE alembic upgrade head",
               "echo === Writing compose file ===",
               "echo $COMPOSE_B64 | base64 -d | sed \"s|IMAGE_PLACEHOLDER|$IMAGE|g\" > /opt/deepodds/docker-compose.yml",
-              "echo === Preserving frontend image (if running) ===",
+              "echo === Preserving frontend image if running ===",
               "CURRENT_NGINX_IMAGE=$(docker inspect --format='"'{{.Config.Image}}'"' deepodds-nginx 2>/dev/null || echo '"''"')",
               "if [ -n \"$CURRENT_NGINX_IMAGE\" ]; then sed -i \"s|NGINX_IMAGE_PLACEHOLDER|$CURRENT_NGINX_IMAGE|\" /opt/deepodds/docker-compose.yml; echo \"  preserved: $CURRENT_NGINX_IMAGE\"; else echo \"  no frontend running, placeholder left intact\"; fi",
               "echo === Starting services ===",
