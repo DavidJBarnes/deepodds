@@ -31,6 +31,19 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build React app (native, no QEMU)
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -44,7 +57,7 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/arm64 \
-            -f frontend/Dockerfile \
+            -f frontend/Dockerfile.prod \
             -t $ECR_REGISTRY/$ECR_NGINX:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_NGINX:latest \
             --push \
