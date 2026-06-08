@@ -57,32 +57,40 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           IMAGE="$ECR_REGISTRY/$ECR_NGINX:$IMAGE_TAG"
+          COMPOSE_FILE="/opt/deepodds/docker-compose.yml"
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
             --timeout-seconds 600 \
             --parameters commands='[
               "set -e",
-              "echo === Stopping old container ===",
-              "docker stop '"$CONTAINER_NGINX"' 2>/dev/null || echo No old container",
-              "docker rm '"$CONTAINER_NGINX"' 2>/dev/null || true",
-              "echo === Freeing disk space ===",
-              "docker system prune -af --volumes 2>/dev/null || true",
-              "echo === Pulling image ===",
+              "COMPOSE_FILE='"$COMPOSE_FILE"'",
+              "echo === Logging into ECR ===",
               "aws ecr get-login-password --region '"$AWS_REGION"' | docker login --username AWS --password-stdin '"$ECR_REGISTRY"'",
+              "echo === Saving current image for rollback ===",
+              "ROLLBACK_IMAGE=$(docker inspect --format='"'{{.Config.Image}}'"' '"$CONTAINER_NGINX"' 2>/dev/null || echo '"''"')",
+              "echo rollback image: $ROLLBACK_IMAGE",
+              "echo === Pulling new image ===",
               "docker pull '"$IMAGE"'",
-              "echo === Starting new container ===",
-              "docker run -d --name '"$CONTAINER_NGINX"' --restart unless-stopped -p 127.0.0.1:'"$FRONTEND_PORT"':80 '"$IMAGE"'",
+              "echo === Updating compose file ===",
+              "if [ -f $COMPOSE_FILE ]; then sed -i \"/frontend:/{n;s|image:.*|image: \\\"'"$IMAGE"'\\\"|;}\" $COMPOSE_FILE; else echo WARNING: $COMPOSE_FILE not found, creating; printf '"'"'services:\n  frontend:\n    image: \"'"$IMAGE"'\"\n    container_name: '"$CONTAINER_NGINX"'\n    restart: unless-stopped\n    network_mode: host\n    ports:\n      - \"127.0.0.1:'"$FRONTEND_PORT"':80\"'"'"' > $COMPOSE_FILE; fi",
+              "echo === Redeploying frontend ===",
+              "docker compose -f $COMPOSE_FILE up -d frontend",
               "echo === Health-checking ===",
               "for i in 1 2 3 4 5 6; do curl -sf http://127.0.0.1:'"$FRONTEND_PORT"'/ && echo Health OK && break; echo Attempt $i, waiting 5s...; sleep 5; done",
               "if curl -sf http://127.0.0.1:'"$FRONTEND_PORT"'/; then",
-              "  echo === Deploy successful, cleaning up old images ===",
-              "  docker system prune -af --volumes 2>/dev/null || true",
+              "  echo === Deploy successful, pruning dangling images ===",
+              "  docker image prune -f 2>/dev/null || true",
               "else",
               "  echo === FAILED: rolling back ===",
-              "  docker rm -f '"$CONTAINER_NGINX"'",
-              "  docker run -d --name '"$CONTAINER_NGINX"' --restart unless-stopped -p 127.0.0.1:'"$FRONTEND_PORT"':80 791342033319.dkr.ecr.us-west-2.amazonaws.com/deepodds-nginx:latest",
-              "  echo === Rollback complete ===",
+              "  if [ -n \"$ROLLBACK_IMAGE\" ] && [ -f $COMPOSE_FILE ]; then",
+              "    sed -i \"/frontend:/{n;s|image:.*|image: \\\"$ROLLBACK_IMAGE\\\"|;}\" $COMPOSE_FILE",
+              "    docker compose -f $COMPOSE_FILE up -d frontend",
+              "    echo === Rollback complete ===",
+              "  else",
+              "    echo No previous image or compose file to roll back to",
+              "    docker compose -f $COMPOSE_FILE down frontend 2>/dev/null || true",
+              "  fi",
               "  exit 1",
               "fi",
               "echo === Deploy complete ==="
