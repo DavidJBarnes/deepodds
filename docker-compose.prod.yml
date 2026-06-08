@@ -22,6 +22,5 @@ services:
     image: "NGINX_IMAGE_PLACEHOLDER"
     container_name: deepodds-nginx
     restart: unless-stopped
-    network_mode: host
     ports:
       - "127.0.0.1:8084:80"
