@@ -101,6 +101,10 @@ jobs:
               "  fi",
               "  exit 1",
               "fi",
+               "echo === Ensuring host nginx gateway is running ===",
+              "if ! command -v nginx &>/dev/null; then apt-get update -qq && apt-get install -y -qq nginx; echo nginx installed; fi",
+              "if ! systemctl is-active --quiet nginx; then systemctl start nginx && echo nginx started; fi",
+              "systemctl enable nginx 2>/dev/null && echo nginx enabled on boot || true",
               "echo === Deploy complete ==="
             ]' \
             --query 'Command.CommandId' \
