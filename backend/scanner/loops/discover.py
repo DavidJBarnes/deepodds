@@ -151,16 +151,31 @@ def _upsert_markets(
                 filter_reason = "expiry_too_soon"
 
         existing = session.execute(
-            select(MarketSnapshot.filter_reason, MarketSnapshot.edge)
+            select(
+                MarketSnapshot.filter_reason,
+                MarketSnapshot.edge,
+                MarketSnapshot.model_prob,
+                MarketSnapshot.scored_at,
+            )
             .where(MarketSnapshot.ticker == ticker)
         ).one_or_none()
 
         old_reason = existing[0] if existing else None
         old_edge = existing[1] if existing else None
+        old_model_prob = existing[2] if existing else None
+        old_scored_at = existing[3] if existing else None
 
+        # Preserve prior scoring fields by default — score.py only rescores
+        # rows where edge IS NULL, so clearing model_prob / scored_at here
+        # leaves the row permanently un-scorable while edge keeps satisfying
+        # the signal-loop pool query. Result: signal loop sees the market in
+        # its candidate pool but skips on `if model_prob is None` and never
+        # fires. The original intent was to clear scoring on filter-state
+        # transitions (the conditionals below); the default must mirror
+        # new_edge and preserve.
         new_edge = old_edge
-        new_model_prob = None
-        new_scored_at = None
+        new_model_prob = old_model_prob
+        new_scored_at = old_scored_at
 
         if filter_reason is not None:
             new_edge = None

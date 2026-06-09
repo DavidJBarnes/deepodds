@@ -289,3 +289,38 @@ def test_signal_loop_climate_direction_filter_is_b_only():
     assert 'direction != "B"' in src, (
         "Signal loop must filter direction != 'B' for kalshi_climate firings."
     )
+
+
+# ---------------------------------------------------------------------------
+# Discover loop preserves prior model_prob / scored_at instead of nuking them.
+# Pins the fix for the prod bug observed 2026-06-09 where discover defaulted
+# new_model_prob=None, score.py only rescored where edge IS NULL, and the
+# signal loop's `if model_prob is None: continue` then short-circuited
+# every climate firing. Net effect: pool of candidates with edge populated
+# but model_prob NULL — bot was firing only in the lucky window where
+# score ran after discover and before the next discover poll.
+# ---------------------------------------------------------------------------
+
+
+def test_discover_preserves_old_model_prob_default():
+    """discover.py must default new_model_prob to old_model_prob, not None.
+
+    The default-None behavior interacted with score.py's `WHERE edge IS NULL`
+    selector to leave climate snapshots permanently un-scorable after the
+    second discover poll. Default must mirror new_edge=old_edge.
+    """
+    import inspect
+    import scanner.loops.discover as discover_module
+
+    src = inspect.getsource(discover_module)
+    # The default assignment (outside any conditional) must use old_model_prob.
+    assert "new_model_prob = old_model_prob" in src, (
+        "discover.py must default new_model_prob to old_model_prob; "
+        "defaulting to None nukes scoring on every discover pass and "
+        "blocks the signal loop from firing."
+    )
+    # And we must actually be fetching old_model_prob from the DB.
+    assert "MarketSnapshot.model_prob" in src and "old_model_prob = existing" in src, (
+        "discover.py must SELECT MarketSnapshot.model_prob and unpack it "
+        "into old_model_prob for the default to be meaningful."
+    )
