@@ -75,20 +75,21 @@ def _compute_calibration(settled_signals: list[tuple[float, int]]) -> Calibratio
 @router.get("/calibration", response_model=CalibrationResponse)
 async def get_calibration(
     venue: str = Query("kalshi_crypto", pattern="^(kalshi_crypto|kalshi_climate)$"),
-    user: User = Depends(get_current_user),
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Calibration is a property of the model, not the viewer. Pool settled
+    # signals across all users so a fresh account doesn't see an empty chart
+    # while the model itself has plenty of resolved data. Still gated on
+    # get_current_user for auth.
+    #
     # Filter to signals that reached a genuine resolution: either the exit
     # price snapped to a binary outcome (0 / 1, indicating settle-at-expiry)
     # or the position was held longer than 2 hours (excludes stop-loss
-    # noise where positions exit on bid-ask spread movement). Without this
-    # filter, calibration is dominated by exit prices like $0.32 from
-    # short-held stop-outs, which doesn't tell us anything about the
-    # model's actual predictive accuracy.
+    # noise where positions exit on bid-ask spread movement).
     rows = await db.execute(
         select(Signal.model_prob, Signal.status)
         .where(
-            Signal.user_id == user.id,
             Signal.venue == venue,
             Signal.status.in_(SETTLED_STATUSES),
             Signal.model_prob.isnot(None),
