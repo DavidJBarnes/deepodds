@@ -302,6 +302,45 @@ def test_signal_loop_climate_direction_filter_is_b_only():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Exit loop is hold-to-resolution: no stop-loss, no take-profit, no
+# approaching-expiry forced exit. The strategy needs to collect full
+# winners to justify the losing OTM bets; bailing on intraday bid-ask
+# noise pays spread both ways and guarantees we never see the payouts.
+# Only exits: real Kalshi settlement, plus a 24h-after-expiry janitor.
+# ---------------------------------------------------------------------------
+
+
+def test_exit_loop_has_no_stop_loss_or_take_profit():
+    """exit.py must not reference any stop-loss / take-profit heuristic.
+
+    These were ripped 2026-06-09 because (a) binary options cap loss
+    at entry price already, so stop-loss adds no risk protection, and
+    (b) the strategy thesis requires holding to resolution to collect
+    full winners. Source inspection guards against a future refactor
+    quietly re-adding them.
+    """
+    import inspect
+    import scanner.loops.exit as exit_module
+
+    src = inspect.getsource(exit_module)
+    forbidden = [
+        "catastrophic_stop",
+        "stops_enabled",
+        "cfg.stop_loss_pct",
+        "cfg.take_profit_pct",
+        "approaching_expiry",
+    ]
+    for needle in forbidden:
+        assert needle not in src, (
+            f"exit.py must not contain {needle!r} — that's a heuristic exit "
+            f"the strategy has explicitly removed (2026-06-09)."
+        )
+    # The Kalshi-settlement and 24h-janitor paths must both still exist.
+    assert "_settled_yes_won" in src
+    assert "post_expiry_orphan" in src
+
+
 def test_discover_preserves_old_model_prob_default():
     """discover.py must default new_model_prob to old_model_prob, not None.
 

@@ -1,4 +1,10 @@
-"""Exit loop — checks filled positions for exit conditions.
+"""Exit loop — resolves filled positions on Kalshi settlement only.
+
+Strategy is hold-to-resolution: every filled position rides to the
+Kalshi-published outcome ($0 or $1). No stop-loss, no take-profit, no
+near-expiry forced exit. The model's edge requires collecting full
+winners; bailing on intraday bid-ask noise pays spread both ways and
+guarantees we never see the payouts that justify the strategy.
 
 Reads current market state from MarketSnapshot (refreshed every ~30-60s
 by the discover loop) instead of hitting the per-ticker Kalshi endpoint
@@ -6,11 +12,10 @@ on every cycle. discover.py runs two passes per series (open + settled),
 so a Kalshi settlement transition shows up in the snapshot within one
 discover cycle.
 
-For signals whose Kalshi market has reached final settlement
-(status 'settled' or 'finalized'), the exchange result is the
-authoritative outcome and trumps any intraday heuristic (stop-loss,
-take-profit, approaching-expiry, etc.). The heuristic exits only run
-for markets that are still open or in pre-settlement state.
+The only non-settlement exit kept here is `post_expiry_orphan`: a
+24h-after-recorded-expiry janitor that exits at the current bid if
+Kalshi never published a settlement (broken/disputed market). Without
+it, an unresolved market would sit as 'filled' forever.
 """
 
 import logging
@@ -64,7 +69,7 @@ def _snapshot_to_market_data(snap: MarketSnapshot) -> dict:
 
 
 def run_exit_loop(session: Session, engine: Engine) -> None:
-    """Check filled positions for stop-loss, take-profit, edge-lost, expiry."""
+    """Resolve filled positions on Kalshi settlement (or post-expiry janitor)."""
 
     filled = session.execute(
         select(Signal).where(
@@ -158,47 +163,19 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
             ))
             continue
 
-        # Heuristic exits (stops, take-profit, approaching/post-expiry) only
-        # apply when the market is still live or pre-settlement.
+        # Hold-to-resolution: the ONLY non-Kalshi-settlement exit is the
+        # post-expiry janitor. If Kalshi hasn't published a settlement
+        # 24h after our recorded expiry, exit at the current bid so the
+        # row doesn't sit as 'filled' forever.
+        if not (sig.expiry_time and now > sig.expiry_time + timedelta(hours=24)):
+            continue
+
         price = float(market_data.get("yes_bid_dollars") or 0)
         if price <= 0:
             continue
 
-        pnl_pct = (price - fill_price) / fill_price * 100 if fill_price > 0 else 0
         pnl_usd = (price - fill_price) * qty
-        hold_minutes = (now - sig.filled_at).total_seconds() / 60 if sig.filled_at else 999
-        min_hold = getattr(cfg, "min_hold_minutes", 0)
-        fee_estimate_pct = 0.07
-        adjusted_pnl_pct = pnl_pct - fee_estimate_pct
-        stops_enabled = cfg.stop_loss_pct > 0
-
-        should_exit = False
-        exit_reason = ""
-
-        if stops_enabled and adjusted_pnl_pct <= -cfg.stop_loss_pct * 2:
-            should_exit = True
-            exit_reason = f"catastrophic_stop ({pnl_pct:.1f}%)"
-        elif stops_enabled and adjusted_pnl_pct <= -cfg.stop_loss_pct and hold_minutes >= min_hold:
-            should_exit = True
-            exit_reason = f"stop_loss ({pnl_pct:.1f}%)"
-        elif stops_enabled and sig.expiry_time and (sig.expiry_time - now) < timedelta(hours=getattr(cfg, "min_hours_to_expiry", 2) / 2):
-            # Only force an early exit before expiry when stops are enabled.
-            # In hold-to-resolution mode (stop_loss_pct=0), the position
-            # rides to Kalshi settlement above instead of bailing on bid.
-            should_exit = True
-            exit_reason = "approaching_expiry"
-        elif sig.expiry_time and now > sig.expiry_time + timedelta(hours=24):
-            # Last-resort cleanup if Kalshi hasn't published a settlement
-            # 24h after our recorded expiry — exit at the current bid so
-            # the row doesn't sit as 'filled' forever.
-            should_exit = True
-            exit_reason = "post_expiry_orphan"
-        elif getattr(cfg, "take_profit_pct", 0) > 0 and pnl_pct >= cfg.take_profit_pct and hold_minutes >= min_hold:
-            should_exit = True
-            exit_reason = f"take_profit ({pnl_pct:.1f}%)"
-
-        if not should_exit:
-            continue
+        exit_reason = "post_expiry_orphan"
 
         # Live-sell path needs an authed client; construct lazily once per user.
         if cfg.mode == "live":
@@ -233,7 +210,7 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
                 logger.exception("Exit: failed to sell %s", sig.market_ticker)
             continue
 
-        # Paper-mode heuristic exit.
+        # Paper-mode post-expiry janitor exit.
         sig.exit_price = price
         paper_fee = round((fill_price + price) * qty * 0.0007, 4)
         sig.pnl_usd = round(pnl_usd - paper_fee, 4)
