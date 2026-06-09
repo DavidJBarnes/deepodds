@@ -26,15 +26,10 @@ from app.services.kalshi_utils import (
 
 logger = logging.getLogger("scanner.signal")
 
-# Statuses that block re-firing on the same (user, ticker). Includes the
-# granular rejection reasons so a transient/funded rejection doesn't spam
-# new attempts every 10s. A market we've already attempted is done — the
-# next scan cycle's snapshot is the same ticker, no new information.
-_NO_REFIRE_STATUSES = (
-    "signaled",
-    "placed",
-    "filled",
-    "cancelled",
+# Granular rejection reasons we recognize. Kept for documentation /
+# downstream filtering; the signal-refire check is one-shot-per-ticker
+# regardless of how the prior signal ended (see the dedup query below).
+_REJECTION_STATUSES = (
     "rejected_insufficient_funds",
     "rejected_rate_limit",
     "expired_unfilled",
@@ -149,11 +144,20 @@ def run_signal_loop(session: Session) -> None:
                     )
                     continue
 
+                # One-shot per (user, ticker). If any prior signal exists for
+                # this market — settled win/loss, stopped out, rejected,
+                # expired, or still open — do not refire. The previous design
+                # only blocked the open/rejected states, which let a stop-out
+                # transition (filled -> settled_loss) immediately reopen the
+                # ticker for refire. The scanner then re-entered the same
+                # idea within ~10 seconds, stacking losses on identical
+                # entries. Climate markets resolve same-day; the model output
+                # on a touched ticker is the same idea repeating, not new
+                # information.
                 exists = session.execute(
                     select(Signal.id).where(
                         Signal.user_id == config.user_id,
                         Signal.market_ticker == ticker,
-                        Signal.status.in_(_NO_REFIRE_STATUSES),
                     ).limit(1)
                 ).scalar_one_or_none()
                 if exists:

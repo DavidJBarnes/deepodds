@@ -17,7 +17,7 @@ import pytest
 
 from app.services.climate_probability_model import predict_climate_probability
 from app.services.climate_calibration import _fetch_training_pairs, reset_cache
-from scanner.loops.signal import _classify_rejection, _NO_REFIRE_STATUSES
+from scanner.loops.signal import _classify_rejection
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +218,33 @@ def test_classify_rejection_handles_empty():
 
 
 # ---------------------------------------------------------------------------
-# No-refire dedup list covers the new statuses
+# Signal-loop dedup: one-shot per (user, ticker), regardless of prior status.
+# Pins the fix for the refire-after-stop-out bug observed 2026-06-09 where
+# a stop-loss exit on KXHIGHTATL-26JUN09-B80.5 flipped the row to
+# 'settled_loss', dropping it out of the no-refire set; the scanner then
+# refired on the same ticker 4 more times within 50 seconds at identical
+# entries, stacking losses on a single bad idea.
 # ---------------------------------------------------------------------------
 
 
-def test_no_refire_statuses_includes_all_rejected_variants():
-    required = {
-        "signaled", "placed", "filled", "cancelled",
-        "rejected_insufficient_funds", "rejected_rate_limit", "expired_unfilled",
-    }
-    assert required.issubset(set(_NO_REFIRE_STATUSES))
+def test_signal_loop_dedup_source_does_not_filter_by_status():
+    """The dedup query in signal.py must not constrain on Signal.status.
+
+    Any status filter (the old _NO_REFIRE_STATUSES tuple) leaves settled
+    states out and reopens the refire window. Read the source directly
+    so this guards the actual loop, not a re-implementation in the test.
+    """
+    import inspect
+    import scanner.loops.signal as signal_module
+
+    src = inspect.getsource(signal_module)
+
+    # Locate the dedup existence query block. It's the only `Signal.market_ticker == ticker` query.
+    needle_start = src.index("Signal.market_ticker == ticker")
+    # Walk forward to the closing paren of the .where(...) clause containing it.
+    # Pull a generous window so any sibling Signal.status reference would land in it.
+    window = src[max(0, needle_start - 400): needle_start + 400]
+    assert "Signal.status" not in window, (
+        "Refire dedup must not filter by Signal.status — that lets settled_loss "
+        "(stop-out) immediately reopen the ticker for refire. Window:\n" + window
+    )
