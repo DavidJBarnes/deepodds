@@ -2,6 +2,7 @@
 and creates signals (paper) or places orders (live)."""
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
@@ -44,6 +45,19 @@ def _classify_rejection(err_msg: str) -> str:
     if "too_many_requests" in msg or "429" in msg or "rate" in msg:
         return "rejected_rate_limit"
     return "cancelled"
+
+
+# Kalshi climate ticker shape: KX{HIGHT|LOWT}{CITY}-{DATE}-{T|B}{strike}.
+# T = above-strike (bet temp WILL exceed); B = below-strike (bet temp WON'T).
+_CLIMATE_TICKER_RE = re.compile(r"^KX(?:HIGHT|LOWT)[A-Z]+-[A-Z0-9]+-([TB])[\d.]+$")
+
+
+def _climate_ticker_direction(ticker: str | None) -> str | None:
+    """Return 'T', 'B', or None if the ticker doesn't match the climate shape."""
+    if not ticker:
+        return None
+    m = _CLIMATE_TICKER_RE.match(ticker)
+    return m.group(1) if m else None
 
 
 def run_signal_loop(session: Session) -> None:
@@ -143,6 +157,21 @@ def run_signal_loop(session: Session) -> None:
                         config.min_model_prob, config.max_model_prob,
                     )
                     continue
+
+                # Climate direction filter: B-side only. Edge-hunt analysis
+                # 2026-06-09 across 53 settled climate pairs showed T-direction
+                # (above-strike) bets net -37% ROI vs B-direction's +62% on
+                # similar n; the bot's losses are concentrated in T markets
+                # while the edge sits cleanly on the B side. Filter out T
+                # firings until/unless future data justifies reopening.
+                if venue == "kalshi_climate":
+                    direction = _climate_ticker_direction(ticker)
+                    if direction != "B":
+                        logger.info(
+                            "Signal %s skipped: climate direction=%s (B-only filter active)",
+                            ticker, direction,
+                        )
+                        continue
 
                 # One-shot per (user, ticker). If any prior signal exists for
                 # this market — settled win/loss, stopped out, rejected,
