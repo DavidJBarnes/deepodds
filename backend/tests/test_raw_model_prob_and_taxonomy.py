@@ -17,7 +17,7 @@ import pytest
 
 from app.services.climate_probability_model import predict_climate_probability
 from app.services.climate_calibration import _fetch_training_pairs, reset_cache
-from scanner.loops.signal import _classify_rejection
+from scanner.loops.signal import _classify_rejection, _climate_ticker_direction
 
 
 # ---------------------------------------------------------------------------
@@ -247,4 +247,45 @@ def test_signal_loop_dedup_source_does_not_filter_by_status():
     assert "Signal.status" not in window, (
         "Refire dedup must not filter by Signal.status — that lets settled_loss "
         "(stop-out) immediately reopen the ticker for refire. Window:\n" + window
+    )
+
+
+# ---------------------------------------------------------------------------
+# Climate ticker direction parsing + B-side-only filter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ticker,expected", [
+    ("KXHIGHTNYC-26JUN09-T80",      "T"),
+    ("KXLOWTSEA-26JUN10-B63.5",     "B"),
+    ("KXHIGHTATL-26JUN08-B91.5",    "B"),
+    ("KXHIGHTPHX-26JUN10-T105",     "T"),
+    ("KXLOWTNYC-26JUN08-T60",       "T"),
+    (None,                          None),
+    ("",                            None),
+    ("KXBTCD-26JUN-something",      None),   # not climate format
+    ("KXHIGHTNYC-26JUN09",          None),   # missing direction segment
+])
+def test_climate_ticker_direction(ticker, expected):
+    assert _climate_ticker_direction(ticker) == expected
+
+
+def test_signal_loop_climate_direction_filter_is_b_only():
+    """signal.py must skip kalshi_climate tickers whose direction is not 'B'.
+
+    Edge-hunt 2026-06-09 showed T-direction climate markets net -37% ROI
+    vs B-direction's +62% on similar n. The filter pins that finding so a
+    future refactor can't accidentally re-enable T firing without a test
+    update + (one hopes) fresh evidence.
+    """
+    import inspect
+    import scanner.loops.signal as signal_module
+
+    src = inspect.getsource(signal_module)
+    # The filter must reference both the direction helper and a B comparison.
+    assert "_climate_ticker_direction" in src, (
+        "Signal loop must call _climate_ticker_direction to gate climate firings."
+    )
+    assert 'direction != "B"' in src, (
+        "Signal loop must filter direction != 'B' for kalshi_climate firings."
     )
