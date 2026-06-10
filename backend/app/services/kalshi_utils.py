@@ -1,4 +1,4 @@
-"""Shared utilities for Kalshi market scanning (crypto + climate)."""
+"""Shared utilities for Kalshi climate market scanning."""
 
 import logging
 from datetime import datetime, timedelta, timezone

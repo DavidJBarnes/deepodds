@@ -16,14 +16,14 @@ from app.core.deps import get_current_user
 from app.models.market_snapshot import MarketSnapshot
 from app.models.scanner_heartbeat import ScannerHeartbeat
 from app.models.user import User
-from app.schemas.dashboard import KalshiFilteredMarket, KalshiMarketSnapshot
+from app.schemas.dashboard import KalshiMarketSnapshot
 
 router = APIRouter(tags=["market-data"])
 
 
 @router.get("/market-snapshots")
 async def get_market_snapshots(
-    venue: str = Query("all", pattern="^(all|kalshi_crypto|kalshi_climate)$"),
+    venue: str = Query("all", pattern="^(all|kalshi_climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

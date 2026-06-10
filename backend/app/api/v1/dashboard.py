@@ -7,7 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.climate_config import ClimateConfig
-from app.models.crypto_config import CryptoConfig
+from app.models.market_snapshot import MarketSnapshot
+from app.models.scanner_heartbeat import ScannerHeartbeat
 from app.models.signal import Signal
 from app.models.user import User
 from app.schemas.dashboard import (
@@ -16,23 +17,10 @@ from app.schemas.dashboard import (
     DashboardResponse,
     KalshiFilteredMarket,
     KalshiMarketSnapshot,
-    KalshiStatusResponse,
     PnLChartResponse,
     PnLStats,
 )
-from app.models.market_snapshot import MarketSnapshot
-from app.models.scanner_heartbeat import ScannerHeartbeat
 from app.schemas.signal import SignalResponse
-from app.services.binance_client import get_crypto_prices, get_realized_vol
-from app.services.climate_probability_model import compute_climate_edge
-from app.services.kalshi_client import KalshiClient
-from app.services.probability_model import compute_edge, series_to_underlying
-from app.services.weather_client import (
-    get_daily_extreme_vol,
-    get_forecast_daily_value,
-    parse_event_date,
-    series_to_city_kind,
-)
 
 router = APIRouter(tags=["dashboard"])
 
@@ -41,14 +29,12 @@ OPEN_STATUSES = ("signaled", "placed", "filled")
 
 @router.get("/dashboard", response_model=DashboardResponse)
 async def get_dashboard(
-    venue: str = Query("all", pattern="^(all|kalshi_crypto|kalshi_climate)$"),
+    venue: str = Query("all", pattern="^(all|kalshi_climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     venue_filter = []
-    if venue == "kalshi_crypto":
-        venue_filter = [Signal.venue == "kalshi_crypto"]
-    elif venue == "kalshi_climate":
+    if venue == "kalshi_climate":
         venue_filter = [Signal.venue == "kalshi_climate"]
 
     recent_q = select(Signal).where(Signal.user_id == user.id, *venue_filter).order_by(Signal.created_at.desc()).limit(50)
@@ -66,7 +52,7 @@ async def get_dashboard(
         recent_signals.append(
             SignalResponse(
                 id=s.id,
-                venue=s.venue or "kalshi_crypto",
+                venue=s.venue or "kalshi_climate",
                 pair=s.pair,
                 side=s.side,
                 signal_type=s.signal_type,
@@ -186,101 +172,7 @@ async def get_dashboard(
         open_positions=open_positions_count,
     )
 
-    scanner_health = None
-    try:
-        hb = (await db.execute(
-            select(ScannerHeartbeat).where(ScannerHeartbeat.id == 1)
-        )).scalar_one_or_none()
-        if hb:
-            scanner_health = {
-                "last_scan": hb.last_beat.isoformat(),
-                "status": hb.status,
-            }
-            if hb.error:
-                scanner_health["error"] = hb.error
-    except Exception:
-        pass
-
-    kalshi_cfg = (
-        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
-    ).scalar_one_or_none()
-
-    kalshi_status = None
-    kalshi_markets_list: list[KalshiMarketSnapshot] = []
-    kalshi_filtered_list: list[KalshiFilteredMarket] = []
-    if kalshi_cfg:
-        kalshi_open_stats = (
-            await db.execute(
-                select(
-                    func.count(),
-                    func.coalesce(func.sum(Signal.cost_usd), 0.0),
-                    func.coalesce(func.sum(Signal.quantity), 0.0),
-                )
-                .select_from(Signal)
-                .where(
-                    Signal.user_id == user.id,
-                    Signal.venue == "kalshi_crypto",
-                    Signal.signal_type == kalshi_cfg.mode,
-                    Signal.status.in_(OPEN_STATUSES)
-                )
-            )
-        ).one()
-        kalshi_open, kalshi_exposure, kalshi_payout = kalshi_open_stats
-        kalshi_status = KalshiStatusResponse(
-            mode=kalshi_cfg.mode,
-            enabled=kalshi_cfg.enabled,
-            has_keys=bool(user.kalshi_api_key_id),
-            series_tickers=kalshi_cfg.series_tickers,
-            open_positions=kalshi_open,
-            max_open_positions=kalshi_cfg.max_open_positions,
-            min_edge=kalshi_cfg.min_edge,
-            exit_edge=kalshi_cfg.exit_edge,
-            current_exposure_usd=round(float(kalshi_exposure), 2),
-            max_payout_usd=round(float(kalshi_payout), 2),
-        )
-
-        try:
-            snapshots = (
-                await db.execute(
-                    select(MarketSnapshot).where(
-                        MarketSnapshot.venue == "kalshi_crypto",
-                        MarketSnapshot.edge.is_not(None),
-                    ).order_by(MarketSnapshot.edge.desc()).limit(200)
-                )
-            ).scalars().all()
-
-            for s in snapshots:
-                kalshi_markets_list.append(KalshiMarketSnapshot(
-                    ticker=s.ticker,
-                    series=s.series,
-                    title=s.title or "",
-                    price=round(s.ask_price, 2),
-                    model_prob=round(s.model_prob, 4) if s.model_prob else 0.0,
-                    edge=round(s.edge, 4) if s.edge else 0.0,
-                    floor_strike=s.floor_strike,
-                    cap_strike=s.cap_strike,
-                    strike_type=s.strike_type or "between",
-                    underlying_price=round(s.underlying_price, 2) if s.underlying_price else 0.0,
-                    realized_vol=round(s.realized_vol, 4) if s.realized_vol else 0.0,
-                    volume_24h=s.volume_24h or 0,
-                    hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
-                    expiry_time=s.expiry_time,
-                    would_signal=(s.edge or 0) >= kalshi_cfg.min_edge and (s.edge or 0) > 0,
-                ))
-
-            for s in snapshots:
-                if s.filter_reason:
-                    kalshi_filtered_list.append(KalshiFilteredMarket(
-                        ticker=s.ticker, series=s.series, title=s.title or "",
-                        price=round(s.ask_price, 2), volume_24h=s.volume_24h or 0,
-                        hours_to_expiry=round(s.hours_to_expiry, 1) if s.hours_to_expiry else 0,
-                        filter_reason=s.filter_reason,
-                    ))
-        except Exception:
-            pass
-
     # Climate status + market scanning
-    from app.schemas.dashboard import ClimateStatusResponse
 
     climate_cfg = (
         await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user.id))
@@ -378,15 +270,11 @@ async def get_dashboard(
         pass
 
     return DashboardResponse(
-        kalshi_status=kalshi_status,
         climate_status=climate_status,
         recent_signals=recent_signals,
-        kalshi_markets=kalshi_markets_list,
-        kalshi_filtered=kalshi_filtered_list,
         climate_markets=climate_markets_list,
         climate_filtered=climate_filtered_list,
         stats=stats,
-        scanner_health=scanner_health,
         climate_scanner_health=climate_scanner_health,
     )
 
@@ -394,16 +282,14 @@ async def get_dashboard(
 @router.get("/dashboard/pnl-chart", response_model=PnLChartResponse)
 async def get_pnl_chart(
     days: int = Query(30, ge=7, le=365),
-    venue: str = Query("all", pattern="^(all|kalshi_crypto|kalshi_climate)$"),
+    venue: str = Query("all", pattern="^(all|kalshi_climate)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
 
     pnl_venue_filter = []
-    if venue == "kalshi_crypto":
-        pnl_venue_filter = [Signal.venue == "kalshi_crypto"]
-    elif venue == "kalshi_climate":
+    if venue == "kalshi_climate":
         pnl_venue_filter = [Signal.venue == "kalshi_climate"]
 
     day_col = func.date(

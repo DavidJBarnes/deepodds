@@ -10,18 +10,13 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.models.climate_config import ClimateConfig
-from app.models.crypto_config import CryptoConfig
 from app.models.market_snapshot import MarketSnapshot
 from app.models.signal import Signal
 from app.models.user import User
 from app.services.kalshi_client import KalshiClient
 from app.services.kalshi_utils import (
     OPEN_STATUSES,
-    check_spread_filter,
     kelly_count,
-    market_ask,
-    market_bid,
-    market_mid,
     read_balance_cache,
 )
 
@@ -88,26 +83,18 @@ def run_signal_loop(session: Session) -> None:
     a signal (paper) or places an order (live).
     """
 
-    crypto_cfgs = session.execute(
-        select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
-    ).scalars().all()
     climate_cfgs = session.execute(
         select(ClimateConfig).where(ClimateConfig.enabled.is_(True))
     ).scalars().all()
 
-    all_configs = [
-        (cfg, "kalshi_crypto") for cfg in crypto_cfgs
-    ] + [
-        (cfg, "kalshi_climate") for cfg in climate_cfgs
-    ]
+    all_configs = [(cfg, "kalshi_climate") for cfg in climate_cfgs]
 
     if not all_configs:
         return
 
-    _VENUES = {"kalshi_crypto", "kalshi_climate"}
     snapshots = session.execute(
         select(MarketSnapshot).where(
-            MarketSnapshot.venue.in_(_VENUES),
+            MarketSnapshot.venue == "kalshi_climate",
             MarketSnapshot.edge.is_not(None),
             MarketSnapshot.filter_reason.is_(None),
         ).order_by(MarketSnapshot.edge.desc()).limit(500)

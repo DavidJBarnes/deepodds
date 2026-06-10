@@ -57,16 +57,13 @@ export default function DashboardPage() {
         lastRefreshed={lastRefreshed}
         countdown={countdown}
         onRefresh={refresh}
-        scannerHealth={dashboard.scanner_health}
+        scannerHealth={dashboard.climate_scanner_health}
         scannerStatus={scannerStatus}
       />
 
       <StatsCard stats={dashboard.stats} />
       <PnLChart refreshKey={lastRefreshed?.getTime() ?? undefined} />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CalibrationChart venue="kalshi_crypto" refreshKey={lastRefreshed?.getTime() ?? undefined} />
-        <CalibrationChart venue="kalshi_climate" refreshKey={lastRefreshed?.getTime() ?? undefined} />
-      </div>
+      <CalibrationChart venue="kalshi_climate" refreshKey={lastRefreshed?.getTime() ?? undefined} />
     </div>
   );
 }

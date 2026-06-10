@@ -26,7 +26,6 @@ from sqlalchemy.orm import Session
 
 from app.core.async_util import run_async
 from app.models.climate_config import ClimateConfig
-from app.models.crypto_config import CryptoConfig
 from app.models.history import History
 from app.models.market_snapshot import MarketSnapshot
 from app.models.signal import Signal
@@ -65,7 +64,6 @@ def _settled_yes_won(market_data: dict) -> bool | None:
     return None
 
 
-_VENUE_CRYPTO = "kalshi_crypto"
 _VENUE_CLIMATE = "kalshi_climate"
 
 
@@ -84,7 +82,7 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
 
     filled = session.execute(
         select(Signal).where(
-            Signal.venue.in_([_VENUE_CRYPTO, _VENUE_CLIMATE]),
+            Signal.venue == _VENUE_CLIMATE,
             Signal.status == "filled",
             Signal.fill_price.isnot(None),
         )
@@ -105,12 +103,6 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
     user_ids = {s.user_id for s in filled}
     configs: dict = {}
     for uid in user_ids:
-        cfg = session.execute(
-            select(CryptoConfig).where(CryptoConfig.user_id == uid)
-        ).scalar_one_or_none()
-        if cfg:
-            configs[uid] = ("crypto", cfg)
-            continue
         ccfg = session.execute(
             select(ClimateConfig).where(ClimateConfig.user_id == uid)
         ).scalar_one_or_none()

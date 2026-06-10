@@ -1,18 +1,5 @@
 import client from "./client";
 
-export interface KalshiStatus {
-  mode: string;
-  enabled: boolean;
-  has_keys: boolean;
-  series_tickers: string;
-  open_positions: number;
-  max_open_positions: number;
-  min_edge: number;
-  exit_edge: number;
-  current_exposure_usd: number;
-  max_payout_usd: number;
-}
-
 export interface PnLStats {
   total_signals: number;
   settled_count: number;
@@ -126,15 +113,11 @@ export interface ClimateConfig {
 }
 
 export interface DashboardData {
-  kalshi_status: KalshiStatus | null;
   climate_status: ClimateStatus | null;
   recent_signals: Signal[];
-  kalshi_markets: KalshiMarketSnapshot[];
-  kalshi_filtered: KalshiFilteredMarket[];
   climate_markets: KalshiMarketSnapshot[];
   climate_filtered: KalshiFilteredMarket[];
   stats: PnLStats;
-  scanner_health: ScannerHealth | null;
   climate_scanner_health: ScannerHealth | null;
 }
 
@@ -148,32 +131,6 @@ export interface ScannerStatus {
   status: "online" | "offline" | "degraded" | "warming_up";
   last_beat: string | null;
   error: string | null;
-}
-
-export interface CryptoConfig {
-  mode: string;
-  enabled: boolean;
-  series_tickers: string;
-  min_volume_24h: number;
-  min_price: number;
-  max_price: number;
-  min_hours_to_expiry: number;
-  min_edge: number;
-  vol_lookback_hours: number;
-  vol_interval: string;
-  exit_edge: number;
-  min_model_prob: number;
-  max_model_prob: number;
-  contracts_per_signal: number;
-  max_cost_per_signal: number;
-  max_open_positions: number;
-  max_positions_per_event: number;
-  stop_loss_pct: number;
-  take_profit_pct: number;
-  daily_loss_limit_usd: number;
-  max_signals_per_hour: number;
-  min_hold_minutes: number;
-  low_balance_warning_threshold_usd: number;
 }
 
 export interface DailyPnLPoint {
@@ -213,16 +170,6 @@ export async function getMarketSnapshots(venue = "all") {
 
 export async function getScannerHealth() {
   const { data } = await client.get<ScannerStatus>("/scanner-health");
-  return data;
-}
-
-export async function getCryptoConfig() {
-  const { data } = await client.get<CryptoConfig>("/settings/crypto-config");
-  return data;
-}
-
-export async function updateCryptoConfig(updates: Partial<CryptoConfig>) {
-  const { data } = await client.put<CryptoConfig>("/settings/crypto-config", updates);
   return data;
 }
 
@@ -275,21 +222,21 @@ export interface RetrainResult {
   message: string;
   model_file_size_kb: number;
 }
-export async function getCalibration(venue: "kalshi_crypto" | "kalshi_climate" = "kalshi_crypto") {
+export async function getCalibration(venue: "kalshi_climate" = "kalshi_climate") {
   const { data } = await client.get<CalibrationData>("/calibration", { params: { venue, _t: Date.now() } });
   return data;
 }
 
-export type RetrainVenue = "kalshi_crypto" | "kalshi_climate" | "both";
+export type RetrainVenue = "kalshi_climate";
 
-export async function triggerRetrain(venue: RetrainVenue = "both") {
+export async function triggerRetrain(venue: RetrainVenue = "kalshi_climate") {
   const { data } = await client.post<RetrainResult>("/calibration/retrain", null, {
     params: { venue },
   });
   return data;
 }
 
-export async function rollbackModel(historyId: string, venue: "kalshi_crypto" | "kalshi_climate") {
+export async function rollbackModel(historyId: string, venue: "kalshi_climate" = "kalshi_climate") {
   const { data } = await client.post<RetrainResult>("/calibration/rollback", null, {
     params: { history_id: historyId, venue },
   });

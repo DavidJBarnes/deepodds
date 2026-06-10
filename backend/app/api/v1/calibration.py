@@ -18,18 +18,14 @@ from app.services.climate_probability_model import (
     MODEL_FILE as CLIMATE_MODEL_FILE,
     reload_booster as reload_climate_booster,
 )
-from app.services.probability_model import MODEL_FILE, reload_booster
 from app.services.train_climate_model import train_and_save_climate_model
-from app.services.train_model import train_and_save_model
 
 router = APIRouter(tags=["calibration"])
 
 SETTLED_STATUSES = ("settled_win", "settled_loss", "settled_breakeven")
 BIN_COUNT = 10
 
-VENUE_CRYPTO = "kalshi_crypto"
 VENUE_CLIMATE = "kalshi_climate"
-VENUE_BOTH = "both"
 
 
 def _compute_calibration(settled_signals: list[tuple[float, int]]) -> CalibrationResponse:
@@ -74,7 +70,7 @@ def _compute_calibration(settled_signals: list[tuple[float, int]]) -> Calibratio
 
 @router.get("/calibration", response_model=CalibrationResponse)
 async def get_calibration(
-    venue: str = Query("kalshi_crypto", pattern="^(kalshi_crypto|kalshi_climate)$"),
+    venue: str = Query("kalshi_climate", pattern="^(kalshi_climate)$"),
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -113,59 +109,25 @@ def _kb(path: str) -> float:
 @router.post("/calibration/retrain", response_model=RetrainResponse)
 async def trigger_retrain(
     venue: str = Query(
-        "both",
-        pattern="^(kalshi_crypto|kalshi_climate|both)$",
-        description="Which model to retrain. Default 'both' retrains both for back-compat.",
+        "kalshi_climate",
+        pattern="^(kalshi_climate)$",
+        description="Which model to retrain (climate only).",
     ),
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrain crypto and/or climate models, snapshot the new file, and mark
-    that snapshot active in model_train_history. Per-venue calls leave the
-    other venue's active snapshot untouched."""
+    """Retrain the climate model, snapshot the new file, and mark that
+    snapshot active in model_train_history."""
     started_at = datetime.now(timezone.utc)
 
-    train_crypto = venue in (VENUE_CRYPTO, VENUE_BOTH)
-    train_climate = venue in (VENUE_CLIMATE, VENUE_BOTH)
+    climate_ok, climate_snapshot = await train_and_save_climate_model()
+    if climate_ok:
+        reload_climate_booster()
 
-    crypto_ok: bool | None = None
-    crypto_snapshot: str | None = None
-    climate_ok: bool | None = None
-    climate_snapshot: str | None = None
+    climate_kb = _kb(CLIMATE_MODEL_FILE)
+    msg = f"Retrain: {'climate OK' if climate_ok else 'climate FAILED'} ({climate_kb:.0f} KB)."
 
-    if train_crypto:
-        crypto_ok, crypto_snapshot = await train_and_save_model()
-        if crypto_ok:
-            reload_booster()
-
-    if train_climate:
-        climate_ok, climate_snapshot = await train_and_save_climate_model()
-        if climate_ok:
-            reload_climate_booster()
-
-    crypto_kb = _kb(MODEL_FILE) if train_crypto else None
-    climate_kb = _kb(CLIMATE_MODEL_FILE) if train_climate else None
-    total_kb = round((crypto_kb or 0) + (climate_kb or 0), 1)
-
-    parts: list[str] = []
-    if train_crypto:
-        parts.append(
-            f"crypto OK ({crypto_kb:.0f} KB)" if crypto_ok else "crypto FAILED"
-        )
-    if train_climate:
-        parts.append(
-            f"climate OK ({climate_kb:.0f} KB)" if climate_ok else "climate FAILED"
-        )
-    msg = "Retrain: " + ", ".join(parts) + "."
-
-    # Mark prior active rows inactive only for venues we actually retrained.
-    if train_crypto and crypto_ok and crypto_snapshot:
-        await db.execute(
-            update(ModelTrainHistory)
-            .where(ModelTrainHistory.crypto_active.is_(True))
-            .values(crypto_active=False)
-        )
-    if train_climate and climate_ok and climate_snapshot:
+    if climate_ok and climate_snapshot:
         await db.execute(
             update(ModelTrainHistory)
             .where(ModelTrainHistory.climate_active.is_(True))
@@ -176,15 +138,11 @@ async def trigger_retrain(
     db.add(
         ModelTrainHistory(
             user_id=_user.id,
-            model_type=venue if venue != VENUE_BOTH else "both",
-            crypto_ok=crypto_ok,
+            model_type="climate",
             climate_ok=climate_ok,
-            crypto_size_kb=crypto_kb,
             climate_size_kb=climate_kb,
-            total_size_kb=total_kb,
-            crypto_model_path=crypto_snapshot,
+            total_size_kb=round(climate_kb, 1),
             climate_model_path=climate_snapshot,
-            crypto_active=bool(crypto_ok and crypto_snapshot),
             climate_active=bool(climate_ok and climate_snapshot),
             message=msg,
             trigger="manual",
@@ -193,38 +151,31 @@ async def trigger_retrain(
     )
     await db.commit()
 
-    any_ok = bool((train_crypto and crypto_ok) or (train_climate and climate_ok))
     return RetrainResponse(
-        success=any_ok,
+        success=bool(climate_ok),
         message=msg,
-        model_file_size_kb=total_kb,
+        model_file_size_kb=round(climate_kb, 1),
     )
 
 
 @router.post("/calibration/rollback", response_model=RetrainResponse)
 async def rollback_model(
     history_id: UUID = Query(..., description="model_train_history row to restore"),
-    venue: str = Query(..., pattern="^(kalshi_crypto|kalshi_climate)$"),
+    venue: str = Query("kalshi_climate", pattern="^(kalshi_climate)$"),
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Roll a venue back to a prior snapshot. Copies the snapshot file over
-    the canonical model path, reloads the in-process booster, and flips
-    active flags so the target row becomes the active one."""
+    """Roll the climate model back to a prior snapshot. Copies the snapshot
+    file over the canonical model path, reloads the in-process booster, and
+    flips active flags so the target row becomes the active one."""
     row = await db.get(ModelTrainHistory, history_id)
     if row is None:
         raise HTTPException(status_code=404, detail="History row not found")
 
-    if venue == VENUE_CRYPTO:
-        snapshot = row.crypto_model_path
-        canonical = MODEL_FILE
-        active_col = ModelTrainHistory.crypto_active
-        reload = reload_booster
-    else:
-        snapshot = row.climate_model_path
-        canonical = CLIMATE_MODEL_FILE
-        active_col = ModelTrainHistory.climate_active
-        reload = reload_climate_booster
+    snapshot = row.climate_model_path
+    canonical = CLIMATE_MODEL_FILE
+    active_col = ModelTrainHistory.climate_active
+    reload = reload_climate_booster
 
     if not snapshot or not os.path.exists(snapshot):
         raise HTTPException(

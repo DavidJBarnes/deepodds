@@ -44,15 +44,14 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: { payl
   );
 }
 
-type CalibrationVenue = "kalshi_crypto" | "kalshi_climate";
+type CalibrationVenue = "kalshi_climate";
 
 const VENUE_TITLE: Record<CalibrationVenue, string> = {
-  kalshi_crypto: "Crypto Model Calibration",
   kalshi_climate: "Climate Model Calibration",
 };
 
 export default function CalibrationChart({
-  venue = "kalshi_crypto",
+  venue = "kalshi_climate",
   refreshKey,
 }: {
   venue?: CalibrationVenue;

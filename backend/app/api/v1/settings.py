@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,10 +9,8 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.history import History
 from app.models.climate_config import ClimateConfig
-from app.models.crypto_config import CryptoConfig
 from app.models.user import User
 from app.schemas.climate_config import ClimateConfigResponse, ClimateConfigUpdate
-from app.schemas.crypto_config import CryptoConfigResponse, CryptoConfigUpdate
 from app.schemas.kalshi_keys import KalshiKeysStatus, KalshiKeysUpdate
 from app.services.kalshi_client import KalshiClient
 
@@ -58,82 +56,6 @@ async def _log_config_changes(db: AsyncSession, user_id, section: str, old_value
         db.add(History(user_id=user_id, text=text))
     if new_values:
         await db.commit()
-
-
-@router.get("/crypto-config", response_model=CryptoConfigResponse)
-async def get_crypto_config(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    config = (
-        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
-    ).scalar_one_or_none()
-    if not config:
-        config = CryptoConfig(user_id=user.id)
-        db.add(config)
-        await db.commit()
-        await db.refresh(config)
-    return _crypto_config_response(config)
-
-
-def _crypto_config_response(config: CryptoConfig) -> CryptoConfigResponse:
-    return CryptoConfigResponse(
-        mode=config.mode,
-        enabled=config.enabled,
-        series_tickers=config.series_tickers,
-        min_volume_24h=config.min_volume_24h,
-        min_price=config.min_price,
-        max_price=config.max_price,
-        min_hours_to_expiry=config.min_hours_to_expiry,
-        min_edge=config.min_edge,
-        exit_edge=config.exit_edge,
-        min_model_prob=config.min_model_prob,
-        max_model_prob=config.max_model_prob,
-        contracts_per_signal=config.contracts_per_signal,
-        max_cost_per_signal=config.max_cost_per_signal,
-        max_open_positions=config.max_open_positions,
-        max_positions_per_event=config.max_positions_per_event,
-        min_hold_minutes=config.min_hold_minutes,
-        stop_loss_pct=config.stop_loss_pct,
-        take_profit_pct=config.take_profit_pct,
-        daily_loss_limit_usd=config.daily_loss_limit_usd,
-        max_signals_per_hour=config.max_signals_per_hour,
-        low_balance_warning_threshold_usd=config.low_balance_warning_threshold_usd,
-    )
-
-
-@router.put("/crypto-config", response_model=CryptoConfigResponse)
-async def update_crypto_config(
-    body: CryptoConfigUpdate,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    config = (
-        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user.id))
-    ).scalar_one_or_none()
-    if not config:
-        config = CryptoConfig(user_id=user.id)
-        db.add(config)
-        await db.commit()
-        await db.refresh(config)
-
-    updates = body.model_dump(exclude_unset=True)
-    if "mode" in updates and updates["mode"] not in ("paper", "live"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Mode must be 'paper' or 'live'",
-        )
-
-    old_values = {key: getattr(config, key, None) for key in updates}
-
-    for key, value in updates.items():
-        setattr(config, key, value)
-    await db.commit()
-    await db.refresh(config)
-
-    await _log_config_changes(db, user.id, "Crypto", old_values, updates)
-
-    return _crypto_config_response(config)
 
 
 @router.put("/kalshi-keys", response_model=KalshiKeysStatus)
@@ -290,12 +212,6 @@ def _read_cached_balance(user_id: str) -> dict | None:
 
 async def _get_low_balance_threshold(db: AsyncSession, user_id) -> float:
     thresholds: list[float] = []
-
-    crypto = (
-        await db.execute(select(CryptoConfig).where(CryptoConfig.user_id == user_id))
-    ).scalar_one_or_none()
-    if crypto and crypto.enabled and crypto.mode == "live":
-        thresholds.append(crypto.low_balance_warning_threshold_usd)
 
     climate = (
         await db.execute(select(ClimateConfig).where(ClimateConfig.user_id == user_id))

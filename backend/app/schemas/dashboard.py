@@ -64,19 +64,6 @@ class KalshiFilteredMarket(BaseModel):
     filter_reason: str
 
 
-class KalshiStatusResponse(BaseModel):
-    mode: str
-    enabled: bool
-    has_keys: bool
-    series_tickers: str
-    open_positions: int
-    max_open_positions: int
-    min_edge: float
-    exit_edge: float
-    current_exposure_usd: float = 0.0
-    max_payout_usd: float = 0.0
-
-
 class ClimateStatusResponse(BaseModel):
     mode: str
     enabled: bool
@@ -91,13 +78,9 @@ class ClimateStatusResponse(BaseModel):
 
 
 class DashboardResponse(BaseModel):
-    kalshi_status: KalshiStatusResponse | None = None
     climate_status: ClimateStatusResponse | None = None
     recent_signals: list[SignalResponse]
-    kalshi_markets: list[KalshiMarketSnapshot] = []
-    kalshi_filtered: list[KalshiFilteredMarket] = []
     climate_markets: list[KalshiMarketSnapshot] = []
     climate_filtered: list[KalshiFilteredMarket] = []
     stats: PnLStats
-    scanner_health: dict | None = None
     climate_scanner_health: dict | None = None
