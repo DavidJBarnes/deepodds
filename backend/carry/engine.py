@@ -9,6 +9,40 @@ logger = logging.getLogger("carry.engine")
 PERIODS_PER_YEAR = 24 * 365
 
 
+def build_snapshot(pf: PaperPortfolio, ctx: dict[str, dict],
+                   trailing: dict[str, float | None], cfg: CarryConfig) -> dict:
+    """Structured, auditable view of portfolio + per-symbol state after a tick.
+
+    Used by both the one-shot runner and the loop's history record so the
+    numbers we print and the numbers we persist are identical.
+    """
+    marks = {s: c["mark"] for s, c in ctx.items() if c.get("mark")}
+    syms = {}
+    for s in cfg.symbols:
+        c = ctx.get(s, {})
+        tr = trailing.get(s)
+        pos = pf.positions.get(s)
+        mark = marks.get(s, pos.entry_perp if pos else None)
+        syms[s] = {
+            "funding_ann": (c.get("funding") or 0.0) * PERIODS_PER_YEAR,
+            "trailing_ann": tr,
+            "target": target_notional(tr, cfg),
+            "notional": pos.notional(mark) if (pos and mark) else 0.0,
+            "margin_ratio": pos.margin_ratio(mark) if (pos and mark) else None,
+            "accrued_funding": pos.accrued_funding if pos else 0.0,
+        }
+    return {
+        "ts": pf.last_tick_ts,
+        "cash": pf.cash_usd,
+        "equity": pf.equity(marks),
+        "accrued_funding_total": pf.accrued_funding_total,
+        "realized_pnl": pf.realized_pnl,
+        "fees_total": pf.fees_total,
+        "killed": pf.killed,
+        "symbols": syms,
+    }
+
+
 def target_notional(trailing_ann: float | None, cfg: CarryConfig) -> float:
     """Funding-gated target notional for one symbol.
 

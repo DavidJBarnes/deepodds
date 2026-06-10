@@ -84,3 +84,43 @@ def test_open_close_round_trip_conserves_capital():
     # cash back to ~100k + funding - fees; equity preserved
     assert abs(pf.cash_usd - (100000 + 50.0 - pf.fees_total)) < 1.0
     assert abs(pf.realized_pnl - (50.0 - pf.fees_total)) < 1.0
+
+
+# ---- multi-tick: accrual matches rate*notional*hours; equity conserved ----
+def test_multi_tick_accrual_and_equity_conservation():
+    pf = PaperPortfolio(cash_usd=100000)
+    rate, mark = 0.00002, 60000.0           # +0.002%/hr funding
+    rich = {"BTC": 0.25}                     # rich -> opens full max_notional
+    # tick 0: opens (hours=0, no accrual)
+    tick(pf, {"BTC": _ctx(rate, mark)}, rich, CFG, now_ts=3600)
+    notional = pf.positions["BTC"].notional(mark)
+    assert abs(notional - CFG.max_notional_per_symbol) < 1e-6
+    # 10 hourly ticks at constant mark -> accrual = 10 * rate * notional
+    for k in range(1, 11):
+        tick(pf, {"BTC": _ctx(rate, mark)}, rich, CFG, now_ts=3600 * (k + 1))
+    expected = 10 * rate * notional
+    assert abs(pf.accrued_funding_total - expected) < 1e-6
+    # equity == initial - fees + accrued (capital conservation, price flat)
+    eq = pf.equity({"BTC": mark})
+    assert abs(eq - (100000 - pf.fees_total + pf.accrued_funding_total)) < 1e-6
+
+
+def test_equity_price_invariant_delta_neutral():
+    pf = PaperPortfolio(cash_usd=100000)
+    tick(pf, {"BTC": _ctx(0.0, 60000.0)}, {"BTC": 0.25}, CFG, now_ts=3600)
+    eq_flat = pf.equity({"BTC": 60000.0})
+    # price +25% with zero funding: spot gain == perp loss -> equity unchanged
+    tick(pf, {"BTC": _ctx(0.0, 75000.0)}, {"BTC": 0.25}, CFG, now_ts=7200)
+    eq_up = pf.equity({"BTC": 75000.0})
+    assert abs(eq_up - eq_flat) < 1e-6
+
+
+def test_build_snapshot_shape():
+    pf = PaperPortfolio(cash_usd=100000)
+    tick(pf, {"BTC": _ctx(0.00002, 60000.0)}, {"BTC": 0.25, "ETH": 0.01}, CFG, now_ts=3600)
+    from carry.engine import build_snapshot
+    snap = build_snapshot(pf, {"BTC": _ctx(0.00002, 60000.0), "ETH": _ctx(0.0000001, 3000.0)},
+                          {"BTC": 0.25, "ETH": 0.01}, CFG)
+    assert snap["symbols"]["BTC"]["notional"] > 0      # opened (rich)
+    assert snap["symbols"]["ETH"]["target"] == 0.0      # gated out (thin)
+    assert "equity" in snap and "accrued_funding_total" in snap

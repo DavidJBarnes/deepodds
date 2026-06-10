@@ -10,12 +10,11 @@ import dataclasses
 import json
 import logging
 import os
-import sys
 import time
 
 from carry.config import CarryConfig
-from carry.engine import target_notional, tick
-from carry.hyperliquid import PERIODS_PER_YEAR, trailing_funding_ann, universe_ctx
+from carry.engine import build_snapshot, tick
+from carry.hyperliquid import trailing_funding_ann, universe_ctx
 from carry.models import CarryPosition, PaperPortfolio
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -46,51 +45,40 @@ def save(pf: PaperPortfolio) -> None:
     os.replace(tmp, STATE_FILE)
 
 
-def run_once(cfg: CarryConfig) -> None:
+def run_once(cfg: CarryConfig) -> dict:
+    """Stateless tick: load -> fetch live HL -> tick -> save. Returns snapshot."""
     pf = load(cfg)
     ctx_all = universe_ctx()
     ctx = {s: ctx_all[s] for s in cfg.symbols if s in ctx_all}
     trailing = {s: trailing_funding_ann(s, cfg.trailing_window_hours) for s in cfg.symbols}
-    now = time.time()
-
-    tick(pf, ctx, trailing, cfg, now)
+    tick(pf, ctx, trailing, cfg, time.time())
     save(pf)
+    snap = build_snapshot(pf, ctx, trailing, cfg)
+    snap["log_tail"] = pf.log[-5:]
+    return snap
 
-    marks = {s: c["mark"] for s, c in ctx.items() if c.get("mark")}
+
+def print_snapshot(snap: dict) -> None:
     print("\n=== Funding-carry paper status ===")
-    print(f"{'sym':5s} {'fundNow%/yr':>11s} {'trail7d%/yr':>11s} {'target$':>8s} {'position':>22s}")
-    for s in cfg.symbols:
-        c = ctx.get(s, {})
-        fn = (c.get("funding") or 0) * PERIODS_PER_YEAR * 100
-        tr = trailing.get(s)
+    print(f"{'sym':5s} {'fundNow%/yr':>11s} {'trail%/yr':>11s} {'target$':>8s} {'position':>26s}")
+    for s, d in snap["symbols"].items():
+        tr = d["trailing_ann"]
         trs = f"{tr*100:+.1f}" if tr is not None else "n/a"
-        tgt = target_notional(tr, cfg)
-        pos = pf.positions.get(s)
-        if pos:
-            mark = marks.get(s, pos.entry_perp)
-            poss = f"${pos.notional(mark):.0f} mr={pos.margin_ratio(mark):.2f} fund=${pos.accrued_funding:.2f}"
+        if d["notional"]:
+            poss = f"${d['notional']:.0f} mr={d['margin_ratio']:.2f} fund=${d['accrued_funding']:.4f}"
         else:
             poss = "flat"
-        print(f"{s:5s} {fn:+11.1f} {trs:>11s} {tgt:8.0f} {poss:>22s}")
-    print(f"\ncash=${pf.cash_usd:.2f}  equity=${pf.equity(marks):.2f}  "
-          f"accrued_funding=${pf.accrued_funding_total:.2f}  realized=${pf.realized_pnl:.2f}  "
-          f"fees=${pf.fees_total:.2f}  killed={pf.killed}")
-    for line in pf.log[-5:]:
+        print(f"{s:5s} {d['funding_ann']*100:+11.1f} {trs:>11s} {d['target']:8.0f} {poss:>26s}")
+    print(f"\ncash=${snap['cash']:.2f}  equity=${snap['equity']:.2f}  "
+          f"accrued_funding=${snap['accrued_funding_total']:.4f}  realized=${snap['realized_pnl']:.2f}  "
+          f"fees=${snap['fees_total']:.2f}  killed={snap['killed']}")
+    for line in snap.get("log_tail", []):
         print(f"  · {line}")
 
 
 def main() -> None:
-    cfg = CarryConfig()
-    if len(sys.argv) >= 3 and sys.argv[1] == "--loop":
-        interval = int(sys.argv[2])
-        while True:
-            try:
-                run_once(cfg)
-            except Exception:
-                logger.exception("paper tick failed")
-            time.sleep(interval)
-    else:
-        run_once(cfg)
+    """One-shot tick + status. For the continuous loop use `python -m carry.loop`."""
+    print_snapshot(run_once(CarryConfig()))
 
 
 if __name__ == "__main__":
