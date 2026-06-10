@@ -36,7 +36,24 @@ logger = logging.getLogger("scanner.exit")
 
 
 def _settled_yes_won(market_data: dict) -> bool | None:
-    """Return True/False if the market has finalized on Kalshi, else None."""
+    """Return True/False if Kalshi has explicitly published an outcome.
+
+    Returns True iff Kalshi reports result="yes", False iff result="no".
+    Returns None in every other case — including status='settled' with an
+    empty result. Callers (the exit loop) must not assume an outcome
+    based on last_price drift; if Kalshi hasn't yet published a result,
+    the position stays in 'filled' status until it does, or until the
+    post_expiry_orphan janitor kicks in 24h after recorded expiry.
+
+    Previous versions inferred result from last_price (>=95 → yes,
+    <=5 → no) when Kalshi's result field was empty. Observed 2026-06-10:
+    on Dallas June 9 markets, T90 returned False (implies high ≤ 90) but
+    B96.5 also returned False (implies high ≥ 96.5) — an impossible
+    state that pinned the last_price fallback as the culprit. The
+    fallback misattributes settlements during the brief windows where
+    Kalshi marks a market 'settled' but its result field has not yet
+    populated.
+    """
     status = (market_data.get("status") or "").lower()
     if status not in ("settled", "finalized"):
         return None
@@ -45,12 +62,6 @@ def _settled_yes_won(market_data: dict) -> bool | None:
         return True
     if result == "no":
         return False
-    last_price = market_data.get("last_price")
-    if isinstance(last_price, (int, float)):
-        if last_price >= 95:
-            return True
-        if last_price <= 5:
-            return False
     return None
 
 

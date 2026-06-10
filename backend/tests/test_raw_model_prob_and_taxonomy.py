@@ -17,7 +17,12 @@ import pytest
 
 from app.services.climate_probability_model import predict_climate_probability
 from app.services.climate_calibration import _fetch_training_pairs, reset_cache
-from scanner.loops.signal import _classify_rejection, _climate_ticker_direction
+from scanner.loops.signal import (
+    _classify_rejection,
+    _climate_ticker_direction,
+    _kalshi_event_ticker,
+)
+from scanner.loops.exit import _settled_yes_won
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +344,86 @@ def test_exit_loop_has_no_stop_loss_or_take_profit():
     # The Kalshi-settlement and 24h-janitor paths must both still exist.
     assert "_settled_yes_won" in src
     assert "post_expiry_orphan" in src
+
+
+# ---------------------------------------------------------------------------
+# event_ticker derivation: signal loop must enforce per-event position cap.
+# Pins the fix for the prod bug observed 2026-06-10 where signal.py read a
+# phantom attribute (getattr(snapshot, "_event_ticker", None)) that was
+# never set anywhere, so max_positions_per_event=1 silently did nothing.
+# Bot stacked 9 positions on Dallas June 9 high-temp markets; all lost
+# together when the underlying forecast was wrong.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ticker,expected", [
+    ("KXHIGHTDAL-26JUN09-B90.5",  "KXHIGHTDAL-26JUN09"),
+    ("KXHIGHTDAL-26JUN09-T90",    "KXHIGHTDAL-26JUN09"),
+    ("KXLOWTNYC-26JUN10-B62.5",   "KXLOWTNYC-26JUN10"),
+    ("KXHIGHTPHX-26JUN10-T105",   "KXHIGHTPHX-26JUN10"),
+    ("NODASH",                    None),
+    (None,                        None),
+    ("",                          None),
+])
+def test_kalshi_event_ticker(ticker, expected):
+    assert _kalshi_event_ticker(ticker) == expected
+
+
+def test_signal_loop_uses_real_event_ticker_not_phantom_attr():
+    """signal.py must derive event_ticker from the market_ticker, not
+    getattr(snapshot, '_event_ticker', None) — which always returned None
+    because no code path ever sets `_event_ticker` on a MarketSnapshot.
+
+    Inspect just the run_signal_loop function body (excluding docstrings
+    elsewhere in the module that document the rip history)."""
+    import inspect
+    from scanner.loops.signal import run_signal_loop
+    src = inspect.getsource(run_signal_loop)
+    assert "_kalshi_event_ticker(ticker)" in src, (
+        "run_signal_loop must call _kalshi_event_ticker(ticker) to derive event_ticker."
+    )
+    assert 'getattr(snapshot, "_event_ticker"' not in src, (
+        "run_signal_loop must not read the phantom `_event_ticker` attribute."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Settlement attribution: trust ONLY Kalshi's explicit result field.
+# Pins the fix for the prod bug observed 2026-06-10 where _settled_yes_won
+# inferred outcomes from last_price (>=95 → yes, <=5 → no) when Kalshi's
+# result field was empty. Caused contradictory settlements (T90 NO and
+# B96.5 NO on the same Dallas June 9 underlying — geometrically impossible).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("market_data,expected,label", [
+    ({"status": "settled",   "result": "yes"},                                True,  "explicit yes"),
+    ({"status": "settled",   "result": "no"},                                 False, "explicit no"),
+    ({"status": "finalized", "result": "yes"},                                True,  "finalized + yes"),
+    ({"status": "finalized", "result": "no"},                                 False, "finalized + no"),
+    ({"status": "settled",   "result": None, "last_price": 99},               None,  "high last_price without result must NOT infer yes"),
+    ({"status": "settled",   "result": None, "last_price": 1},                None,  "low last_price without result must NOT infer no"),
+    ({"status": "settled",   "result": "",   "last_price": 100},              None,  "empty result string + last_price=100 must NOT infer"),
+    ({"status": "open",      "result": "yes"},                                None,  "open status returns None regardless of result"),
+    ({},                                                                      None,  "empty dict"),
+])
+def test_settled_yes_won(market_data, expected, label):
+    assert _settled_yes_won(market_data) == expected, label
+
+
+def test_settled_yes_won_does_not_infer_from_last_price():
+    """The function body must not branch on last_price comparisons. The old
+    fallbacks (>=95 → yes, <=5 → no) introduced contradictions when Kalshi
+    marked a market 'settled' but had not yet published its result."""
+    import inspect
+    src = inspect.getsource(_settled_yes_won)
+    # Drop the docstring before scanning — docstring documents the rip.
+    body = src.split('"""', 2)[-1] if '"""' in src else src
+    for bad in ("last_price >=", "last_price <=", "last_price>", "last_price<"):
+        assert bad not in body, (
+            f"_settled_yes_won body must not use {bad!r} — that's the "
+            f"last_price-as-result inference we ripped 2026-06-10."
+        )
 
 
 def test_discover_preserves_old_model_prob_default():

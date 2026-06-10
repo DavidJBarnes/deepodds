@@ -60,6 +60,26 @@ def _climate_ticker_direction(ticker: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+def _kalshi_event_ticker(ticker: str | None) -> str | None:
+    """Derive the Kalshi event_ticker by stripping the strike suffix.
+
+    Kalshi temperature-range markets within one event share everything
+    before the last '-'-separated segment:
+        KXHIGHTDAL-26JUN09-B90.5  → event KXHIGHTDAL-26JUN09
+        KXHIGHTDAL-26JUN09-B94.5  → event KXHIGHTDAL-26JUN09
+        KXHIGHTDAL-26JUN09-T90    → event KXHIGHTDAL-26JUN09
+
+    Without this, the existing `getattr(snapshot, "_event_ticker", None)`
+    always returned None (no such attribute is set anywhere), so the
+    per-event position cap was unenforceable and the bot would stack
+    multiple bins of the same underlying event — guaranteed losers on at
+    most one of N bins per event by Kalshi's mutually-exclusive design.
+    """
+    if not ticker or "-" not in ticker:
+        return None
+    return ticker.rsplit("-", 1)[0]
+
+
 def run_signal_loop(session: Session) -> None:
     """Check scored snapshots against each enabled user's config.
 
@@ -192,7 +212,14 @@ def run_signal_loop(session: Session) -> None:
                 if exists:
                     continue
 
-                event_ticker = getattr(snapshot, "_event_ticker", None)
+                # Derive event_ticker from the market_ticker. The previous
+                # implementation read a phantom snapshot attribute that was
+                # never written anywhere, so this branch was silently dead
+                # and the bot stacked arbitrary positions per event — e.g.
+                # 9 positions on Dallas June 9 high-temp markets alone
+                # (2026-06-10), all losing together when the underlying
+                # event resolved against a forecast bias.
+                event_ticker = _kalshi_event_ticker(ticker)
                 if event_ticker and event_counts.get(event_ticker, 0) >= config.max_positions_per_event:
                     continue
 
