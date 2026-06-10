@@ -5,11 +5,7 @@ import Layout from "@/components/Layout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
-import DashboardPage from "@/pages/DashboardPage";
-import ClimatePage from "@/pages/ClimatePage";
-import HistoryPage from "@/pages/HistoryPage";
-import SettingsPage from "@/pages/SettingsPage";
-import ResourcesPage from "@/pages/ResourcesPage";
+import CarryPage from "@/pages/CarryPage";
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -24,11 +20,7 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="climate" element={<ClimatePage />} />
-          <Route path="history" element={<HistoryPage />} />
-          <Route path="resources" element={<ResourcesPage />} />
-          <Route path="settings" element={<SettingsPage />} />
+          <Route index element={<CarryPage />} />
         </Route>
       </Route>
     </Routes>
