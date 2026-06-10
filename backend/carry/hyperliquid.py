@@ -48,6 +48,22 @@ def universe_ctx() -> dict[str, dict]:
     return out
 
 
+def l2_quote(coin: str) -> tuple[float | None, float | None]:
+    """Best (bid, ask) for the perp from the L2 book. None on failure."""
+    try:
+        d = _post({"type": "l2Book", "coin": coin})
+    except Exception:
+        logger.warning("l2Book fetch failed for %s", coin)
+        return None, None
+    levels = d.get("levels")  # [bids, asks], each sorted best-first
+    if not levels or len(levels) < 2 or not levels[0] or not levels[1]:
+        return None, None
+    try:
+        return float(levels[0][0]["px"]), float(levels[1][0]["px"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None, None
+
+
 def funding_history(coin: str, hours: int = 24 * 7) -> list[float]:
     """Recent hourly funding rates for `coin`, oldest->newest."""
     import time

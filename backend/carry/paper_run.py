@@ -14,7 +14,8 @@ import time
 
 from carry.config import CarryConfig
 from carry.engine import build_snapshot, tick
-from carry.hyperliquid import trailing_funding_ann, universe_ctx
+from carry.execution import market_ctx
+from carry.hyperliquid import trailing_funding_ann
 from carry.models import CarryPosition, PaperPortfolio
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -48,8 +49,7 @@ def save(pf: PaperPortfolio) -> None:
 def run_once(cfg: CarryConfig) -> dict:
     """Stateless tick: load -> fetch live HL -> tick -> save. Returns snapshot."""
     pf = load(cfg)
-    ctx_all = universe_ctx()
-    ctx = {s: ctx_all[s] for s in cfg.symbols if s in ctx_all}
+    ctx = market_ctx(cfg.symbols, cfg)
     trailing = {s: trailing_funding_ann(s, cfg.trailing_window_hours) for s in cfg.symbols}
     tick(pf, ctx, trailing, cfg, time.time())
     save(pf)

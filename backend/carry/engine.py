@@ -76,33 +76,45 @@ def manage_margin(pos: CarryPosition, mark: float, cfg: CarryConfig) -> float:
     return moved
 
 
-def open_position(pf: PaperPortfolio, symbol: str, mark: float, notional: float, cfg: CarryConfig) -> CarryPosition:
-    qty = notional / mark
+def open_position(pf: PaperPortfolio, symbol: str, mark: float, notional: float, cfg: CarryConfig,
+                  fill_perp: float | None = None, fill_spot: float | None = None) -> CarryPosition:
+    # Short perp fills at the bid, long spot at the ask (cross the spread).
+    fp = fill_perp if fill_perp is not None else mark
+    fs = fill_spot if fill_spot is not None else mark
+    qty = notional / fs
     margin = notional / cfg.target_leverage
     reserve = notional * cfg.reserve_frac
     fees = notional * cfg.taker_fee_frac * (cfg.legs_per_round_trip / 2)  # open = 2 legs
-    committed = qty * mark + margin + reserve + fees
+    committed = qty * fs + margin + reserve + fees
     pos = CarryPosition(
-        symbol=symbol, coin_qty=qty, entry_perp=mark, entry_spot=mark,
+        symbol=symbol, coin_qty=qty, entry_perp=fp, entry_spot=fs,
         hl_margin=margin, reserve=reserve, fees_paid=fees, opened_ts=pf.last_tick_ts,
     )
     pf.cash_usd -= committed
     pf.fees_total += fees
     pf.positions[symbol] = pos
-    pf.log.append(f"OPEN {symbol} notional=${notional:.0f} qty={qty:.5f} @ ${mark:.2f} (lev {cfg.target_leverage}x)")
+    basis_bps = (fp - fs) / fs * 10_000 if fs else 0.0
+    pf.log.append(f"OPEN {symbol} notional=${notional:.0f} qty={qty:.5f} perp@${fp:.2f} spot@${fs:.2f} "
+                  f"basis={basis_bps:+.1f}bps (lev {cfg.target_leverage}x)")
     return pos
 
 
-def close_position(pf: PaperPortfolio, symbol: str, mark: float, cfg: CarryConfig, reason: str) -> None:
+def close_position(pf: PaperPortfolio, symbol: str, mark: float, cfg: CarryConfig, reason: str,
+                   exit_perp: float | None = None, exit_spot: float | None = None) -> None:
     pos = pf.positions.pop(symbol)
-    close_fees = pos.notional(mark) * cfg.taker_fee_frac * (cfg.legs_per_round_trip / 2)
-    pos.fees_paid += close_fees
-    # Return committed capital (spot proceeds + HL equity + reserve), realize pnl.
-    returned = pos.coin_qty * mark + pos.hl_equity(mark) + pos.reserve - close_fees
+    # Buy back perp at the ask, sell spot at the bid.
+    ep = exit_perp if exit_perp is not None else mark
+    es = exit_spot if exit_spot is not None else mark
+    close_fees = pos.coin_qty * es * cfg.taker_fee_frac * (cfg.legs_per_round_trip / 2)
+    # Realized P&L with actual exit fills: spot + perp legs + funding - all fees.
+    spot_pnl = pos.coin_qty * (es - pos.entry_spot)
+    perp_pnl = pos.coin_qty * (pos.entry_perp - ep)
+    realized = spot_pnl + perp_pnl + pos.accrued_funding - (pos.fees_paid + close_fees)
+    returned = pos.coin_qty * es + (pos.hl_margin + pos.accrued_funding + perp_pnl) + pos.reserve - close_fees
     pf.cash_usd += returned
-    pf.realized_pnl += pos.realized_pnl()
+    pf.realized_pnl += realized
     pf.fees_total += close_fees
-    pf.log.append(f"CLOSE {symbol} ({reason}) pnl=${pos.realized_pnl():.2f} funding=${pos.accrued_funding:.2f}")
+    pf.log.append(f"CLOSE {symbol} ({reason}) pnl=${realized:.2f} funding=${pos.accrued_funding:.4f}")
 
 
 def tick(pf: PaperPortfolio, ctx: dict[str, dict], trailing: dict[str, float | None],
@@ -126,7 +138,8 @@ def tick(pf: PaperPortfolio, ctx: dict[str, dict], trailing: dict[str, float | N
             pf.log.append(f"LIQUIDATION {sym} @ ${mark:.2f} margin_ratio={pos.margin_ratio(mark):.3f}")
             if cfg.kill_on_liquidation:
                 pf.killed = True
-            close_position(pf, sym, mark, cfg, "liquidated")
+            close_position(pf, sym, mark, cfg, "liquidated",
+                           exit_perp=c.get("perp_ask"), exit_spot=c.get("spot_bid"))
 
     # A liquidation during step 1 trips the kill-switch — halt all new entries.
     if pf.killed:
@@ -143,10 +156,12 @@ def tick(pf: PaperPortfolio, ctx: dict[str, dict], trailing: dict[str, float | N
         tgt = target_notional(trailing.get(sym), cfg)
         held = sym in pf.positions
         if held and trailing.get(sym) is not None and trailing[sym] < cfg.exit_funding_ann:
-            close_position(pf, sym, mark, cfg, "funding below exit")
+            close_position(pf, sym, mark, cfg, "funding below exit",
+                           exit_perp=c.get("perp_ask"), exit_spot=c.get("spot_bid"))
         elif not held and tgt > 0:
             # portfolio-wide exposure cap
             if pf.total_notional(marks) + tgt <= cfg.max_total_notional_usd and pf.cash_usd > tgt:
-                open_position(pf, sym, mark, tgt, cfg)
+                open_position(pf, sym, mark, tgt, cfg,
+                              fill_perp=c.get("perp_bid"), fill_spot=c.get("spot_ask"))
 
     pf.last_tick_ts = now_ts

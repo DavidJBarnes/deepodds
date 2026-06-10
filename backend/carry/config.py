@@ -29,6 +29,7 @@ class CarryConfig:
     # Costs (for paper P&L realism).
     taker_fee_frac: float = 0.0004               # per fill, per leg
     legs_per_round_trip: int = 4                 # open+close spot & perp
+    spot_spread_bps: float = 2.0                 # modeled spot half-spread when no live quote
 
     # Risk / kill-switch.
     max_total_notional_usd: float = 40_000.0     # portfolio-wide HL exposure cap

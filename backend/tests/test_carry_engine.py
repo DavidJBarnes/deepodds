@@ -115,6 +115,22 @@ def test_equity_price_invariant_delta_neutral():
     assert abs(eq_up - eq_flat) < 1e-6
 
 
+def test_open_fills_capture_basis_and_spread():
+    pf = PaperPortfolio(cash_usd=100000)
+    # short perp at bid 61804, long spot at ask 61767 -> favorable +basis
+    open_position(pf, "BTC", mark=61800, notional=20000, cfg=CFG,
+                  fill_perp=61804, fill_spot=61767)
+    pos = pf.positions["BTC"]
+    assert pos.entry_perp == 61804 and pos.entry_spot == 61767
+    assert pos.coin_qty == 20000 / 61767                  # bought spot at ask
+    # close flat at same fills reversed: pnl reflects spread cost + favorable basis
+    pf.positions["BTC"].accrued_funding = 0.0
+    close_position(pf, "BTC", mark=61800, cfg=CFG, reason="t", exit_perp=61805, exit_spot=61766)
+    # spot: sell 61766 vs bought 61767 (-1); perp: short 61804 buy 61805 (-1); minus fees
+    assert pf.realized_pnl < 0     # round-trip spread + fees with no funding -> small loss
+    assert pf.realized_pnl > -50   # but bounded/small (tight books)
+
+
 def test_build_snapshot_shape():
     pf = PaperPortfolio(cash_usd=100000)
     tick(pf, {"BTC": _ctx(0.00002, 60000.0)}, {"BTC": 0.25, "ETH": 0.01}, CFG, now_ts=3600)
