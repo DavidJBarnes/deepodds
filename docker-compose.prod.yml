@@ -18,6 +18,23 @@ services:
       scanner:
         condition: service_started
 
+  # Funding-carry paper harness (Hyperliquid perp + Coinbase spot). Independent
+  # of the Kalshi api/scanner. State persists in a host bind-mount (NOT a named
+  # volume) so the deploy's `docker system prune --volumes` never wipes it.
+  carry:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-carry
+    command: python -m carry.loop --interval 600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - CARRY_STATE=/data/state.json
+      - CARRY_HISTORY=/data/history.jsonl
+      - CARRY_HEARTBEAT=/data/heartbeat.json
+    volumes:
+      - /opt/deepodds/carry:/data:z   # :z relabels for SELinux hosts; no-op elsewhere
+
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"
     container_name: deepodds-nginx
