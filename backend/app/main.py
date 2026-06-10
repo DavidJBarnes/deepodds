@@ -1,6 +1,4 @@
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -16,30 +14,13 @@ from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
-_scheduler_tasks: list[asyncio.Task] = []
-_scheduler_executor: ThreadPoolExecutor | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Migrations are applied at deploy time via `make migrate` or `alembic upgrade head`.
-    # The market scan/score/signal/exit loops live in the separate scanner
-    # container (backend/scanner/main.py); the api owns only live-order
-    # reconciliation, retraining cron, and API-side caches.
-    from app.core.scheduler import start_scheduler
-    global _scheduler_tasks, _scheduler_executor
-
-    _scheduler_tasks, _scheduler_executor = await start_scheduler()
-
+    # The API serves auth + the carry status surface. The funding-carry strategy
+    # runs in its own container (backend/carry/, deepodds-carry). No scanner /
+    # scheduler here anymore (the Kalshi stack was retired).
     yield
-
-    for task in _scheduler_tasks:
-        task.cancel()
-    if _scheduler_tasks:
-        await asyncio.gather(*_scheduler_tasks, return_exceptions=True)
-    if _scheduler_executor:
-        _scheduler_executor.shutdown(wait=True)
-
     await engine.dispose()
 
 

@@ -1,26 +1,11 @@
-import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
-import { getKalshiBalance, type KalshiBalance } from "@/api/settings";
 
-const navItems = [
-  { to: "/", label: "Dashboard" },
-  { to: "/climate", label: "Climate" },
-  { to: "/history", label: "History" },
-  { to: "/resources", label: "Resources" },
-  { to: "/settings", label: "Settings" },
-];
+const navItems = [{ to: "/", label: "Funding Carry" }];
 
 export default function Layout() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const [balance, setBalance] = useState<KalshiBalance | null>(null);
-
-  useEffect(() => {
-    getKalshiBalance().then(setBalance).catch(() => {});
-    const id = setInterval(() => getKalshiBalance().then(setBalance).catch(() => {}), 60000);
-    return () => clearInterval(id);
-  }, []);
 
   return (
     <div className="h-screen bg-slate-950 flex overflow-hidden">
@@ -52,28 +37,6 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        {balance && (
-          <div className="px-4 py-3 border-t border-slate-800 space-y-1">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Account</p>
-            {balance.low_balance_warning && (
-              <p className="text-[10px] text-amber-400">{balance.low_balance_warning}</p>
-            )}
-            {balance.error ? (
-              <p className="text-[10px] text-amber-400 break-words">{balance.error}</p>
-            ) : (
-              <>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-400">Cash</span>
-                  <span className="text-white font-medium">${(balance.cash_cents / 100).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-400">Portfolio</span>
-                  <span className="text-emerald-400 font-medium">${(balance.portfolio_cents / 100).toFixed(2)}</span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
         <div className="p-4 border-t border-slate-800">
           <p className="text-xs text-slate-500 truncate mb-2">{user?.email}</p>
           <button
