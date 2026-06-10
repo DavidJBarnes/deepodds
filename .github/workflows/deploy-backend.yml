@@ -71,7 +71,7 @@ jobs:
               "echo === Ensuring docker compose is available ===",
               "mkdir -p /usr/local/lib/docker/cli-plugins",
               "docker compose version &>/dev/null || (ARCH=$(uname -m); if [ \"$ARCH\" = \"aarch64\" ]; then COMPOSE_ARCH=aarch64; else COMPOSE_ARCH=x86_64; fi; curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-${COMPOSE_ARCH} -o /usr/local/lib/docker/cli-plugins/docker-compose && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && echo compose installed)",
-              "echo === Stopping old containers (scanner is retired — Kalshi stack removed) ===",
+              "echo === Stopping old containers - scanner retired ===",
               "docker stop deepodds-api deepodds-scanner deepodds-carry 2>/dev/null || true",
               "docker rm deepodds-api deepodds-scanner deepodds-carry 2>/dev/null || true",
               "docker compose -f /opt/deepodds/docker-compose.yml down api carry 2>/dev/null || echo No compose running",
