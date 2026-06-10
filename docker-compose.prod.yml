@@ -1,12 +1,4 @@
 services:
-  scanner:
-    image: "IMAGE_PLACEHOLDER"
-    container_name: deepodds-scanner
-    command: python -m scanner.main
-    restart: unless-stopped
-    network_mode: host
-    env_file: /opt/deepodds/.env
-
   api:
     image: "IMAGE_PLACEHOLDER"
     container_name: deepodds-api
@@ -14,9 +6,13 @@ services:
     restart: unless-stopped
     network_mode: host
     env_file: /opt/deepodds/.env
-    depends_on:
-      scanner:
-        condition: service_started
+    environment:
+      # Read-only access to the carry harness state for GET /api/v1/carry/status.
+      - CARRY_STATE=/data/state.json
+      - CARRY_HISTORY=/data/history.jsonl
+      - CARRY_HEARTBEAT=/data/heartbeat.json
+    volumes:
+      - /opt/deepodds/carry:/data:ro
 
   # Funding-carry paper harness (Hyperliquid perp + Coinbase spot). Independent
   # of the Kalshi api/scanner. State persists in a host bind-mount (NOT a named
