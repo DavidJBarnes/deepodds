@@ -56,19 +56,13 @@ def test_settled_yes_won_returns_none_on_closed_pre_settle():
     assert _settled_yes_won(md) is None
 
 
-def test_settled_yes_won_uses_last_price_fallback_high():
-    md = _snapshot_to_market_data(_snap(status="settled", result=None, last_price=98))
-    assert _settled_yes_won(md) is True
-
-
-def test_settled_yes_won_uses_last_price_fallback_low():
-    md = _snapshot_to_market_data(_snap(status="settled", result=None, last_price=2))
-    assert _settled_yes_won(md) is False
-
-
-def test_settled_yes_won_ambiguous_last_price_is_none():
-    md = _snapshot_to_market_data(_snap(status="settled", result=None, last_price=50))
-    assert _settled_yes_won(md) is None
+def test_settled_yes_won_ignores_last_price_when_result_empty():
+    """last_price must NOT infer an outcome — the fallback was removed
+    2026-06-10 after it misattributed settlements (impossible T90/B96.5
+    both-False state on Dallas). Only Kalshi's explicit result counts."""
+    for lp in (98, 2, 50):
+        md = _snapshot_to_market_data(_snap(status="settled", result=None, last_price=lp))
+        assert _settled_yes_won(md) is None
 
 
 # ---------------------------------------------------------------------------
@@ -113,12 +107,11 @@ def _make_cfg(**overrides):
     return MagicMock(**defaults)
 
 
-def _stub_session(filled_signals, snapshots_by_ticker, crypto_cfgs=None, climate_cfgs=None):
+def _stub_session(filled_signals, snapshots_by_ticker, climate_cfgs=None):
     """Build a MagicMock Session whose .execute() returns a Result-like
     object whose .scalars().all() / .scalar_one_or_none() chain returns
     the data we want based on the query's primary entity.
     """
-    crypto_cfgs = crypto_cfgs or {}
     climate_cfgs = climate_cfgs or {}
 
     def execute(stmt):
@@ -129,11 +122,6 @@ def _stub_session(filled_signals, snapshots_by_ticker, crypto_cfgs=None, climate
             result.scalars.return_value.all.return_value = filled_signals
         elif "from market_snapshots" in text:
             result.scalars.return_value.all.return_value = list(snapshots_by_ticker.values())
-        elif "from crypto_configs" in text:
-            # The exit loop passes user_id in a WHERE clause; we cheat and
-            # return the first matching cfg if any.
-            cfg = next(iter(crypto_cfgs.values()), None)
-            result.scalar_one_or_none.return_value = cfg
         elif "from climate_configs" in text:
             cfg = next(iter(climate_cfgs.values()), None)
             result.scalar_one_or_none.return_value = cfg

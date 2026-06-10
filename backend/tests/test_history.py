@@ -3,8 +3,6 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-import pytest
-
 from app.schemas.history import HistoryCreate, HistoryListResponse, HistoryResponse
 
 
@@ -57,7 +55,7 @@ class FakeAsyncSession:
 class TestLogConfigChanges:
     """Direct unit tests of _log_config_changes in settings.py."""
 
-    def _run(self, old, new, section="Crypto"):
+    def _run(self, old, new, section="Climate"):
         import anyio
         from app.api.v1.settings import _log_config_changes
 
@@ -111,12 +109,12 @@ class TestLogConfigChanges:
         assert _FIELD_LABELS["min_hold_minutes"] == "Min Hold Minutes"
         assert _FIELD_LABELS["min_hours_to_expiry"] == "Min Hours to Expiry"
 
-    def test_field_labels_cover_all_crypto_config_fields(self):
+    def test_field_labels_cover_all_climate_config_fields(self):
         from app.api.v1.settings import _FIELD_LABELS
-        from app.models.crypto_config import CryptoConfig
+        from app.models.climate_config import ClimateConfig
 
         table_cols = {
-            c.name for c in CryptoConfig.__table__.columns
+            c.name for c in ClimateConfig.__table__.columns
             if c.name not in ("id", "user_id", "created_at", "updated_at")
         }
         labeled = set(_FIELD_LABELS)

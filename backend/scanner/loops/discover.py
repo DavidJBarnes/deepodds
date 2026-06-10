@@ -8,14 +8,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.models.climate_config import ClimateConfig
-from app.models.crypto_config import CryptoConfig
 from app.models.market_snapshot import MarketSnapshot
 from app.services.kalshi_client import KalshiClient
 from app.services.kalshi_utils import market_ask, market_ask_size, market_bid, market_mid, market_spread_pct
 
 logger = logging.getLogger("scanner.discover")
 
-_VENUE_CRYPTO = "kalshi_crypto"
 _VENUE_CLIMATE = "kalshi_climate"
 
 
@@ -227,62 +225,6 @@ def _upsert_markets(
     return count
 
 
-def _priority_order(series_list: list[str]) -> list[str]:
-    """Sort series so highest-liquidity markets are fetched first."""
-    high_priority = {"KXBTC", "KXETH"}
-    mid_priority = {"KXSOL", "KXXRP"}
-    rest = set(series_list)
-
-    result = []
-    for p in [high_priority, mid_priority]:
-        for s in sorted(rest & p):
-            result.append(s)
-            rest.discard(s)
-    result.extend(sorted(rest))
-    return result
-
-
-def discover_crypto(session: Session) -> None:
-    """Discover Kalshi crypto markets for all enabled users.
-
-    Collects unique series across all user configs, fetches Kalshi
-    listings, and upserts them into market_snapshots.
-    """
-    configs = session.execute(
-        select(CryptoConfig).where(CryptoConfig.enabled.is_(True))
-    ).scalars().all()
-
-    series_set: set[str] = set()
-    min_volume = 999999
-    max_price_val = 0.0
-    min_price_val = 1.0
-    min_hours = 0
-
-    for cfg in configs:
-        for s in (cfg.series_tickers or "").split(","):
-            s = s.strip()
-            if s:
-                series_set.add(s)
-        min_volume = min(min_volume, cfg.min_volume_24h)
-        min_price_val = min(min_price_val, cfg.min_price)
-        max_price_val = max(max_price_val, cfg.max_price)
-        if min_hours == 0 or (cfg.min_hours_to_expiry > 0 and cfg.min_hours_to_expiry < min_hours):
-            min_hours = cfg.min_hours_to_expiry
-
-    if not series_set:
-        return
-
-    client = KalshiClient.public()
-    series_list = _priority_order(list(series_set))
-
-    count = _fetch_and_upsert(
-        session, client, series_list, _VENUE_CRYPTO,
-        min_volume=min_volume, min_price=min_price_val,
-        max_price=max_price_val, min_hours_to_expiry=min_hours,
-    )
-    logger.info("Discover crypto: %d markets upserted from %d series", count, len(series_list))
-
-
 def discover_climate(session: Session) -> None:
     """Discover Kalshi climate markets for all enabled users."""
     configs = session.execute(
@@ -310,7 +252,7 @@ def discover_climate(session: Session) -> None:
         return
 
     client = KalshiClient.public()
-    series_list = _priority_order(list(series_set))
+    series_list = sorted(series_set)
 
     count = _fetch_and_upsert(
         session, client, series_list, _VENUE_CLIMATE,

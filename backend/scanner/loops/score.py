@@ -7,90 +7,10 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.models.market_snapshot import MarketSnapshot
-from app.services.probability_model import series_to_underlying
 
 logger = logging.getLogger("scanner.score")
 
-_VENUE_CRYPTO = "kalshi_crypto"
 _VENUE_CLIMATE = "kalshi_climate"
-_HOURS_TO_YEARS = 1 / (365.25 * 24)
-
-
-def score_crypto(session: Session) -> None:
-    """Compute model edge for unscored crypto market snapshots."""
-    rows = session.execute(
-        select(MarketSnapshot).where(
-            MarketSnapshot.venue == _VENUE_CRYPTO,
-            MarketSnapshot.edge.is_(None),
-            MarketSnapshot.filter_reason.is_(None),
-            MarketSnapshot.floor_strike.isnot(None),
-        ).order_by(MarketSnapshot.discovered_at.asc()).limit(200)
-    ).scalars().all()
-
-    if not rows:
-        return
-
-    from app.core.async_util import run_async
-    from app.services.binance_client import get_crypto_prices, get_realized_vol
-    from app.services.probability_model import compute_edge
-
-    symbols = {series_to_underlying(r.series) for r in rows}
-    symbols.discard(None)
-    spot_prices = {}
-    vol_cache: dict[str, float] = {}
-    if symbols:
-        spot_prices = run_async(get_crypto_prices(list(symbols)))
-
-    scored = 0
-    for row in rows:
-        symbol = series_to_underlying(row.series)
-        if not symbol or symbol not in spot_prices:
-            continue
-
-        spot = spot_prices[symbol]
-        if spot <= 0:
-            continue
-
-        if symbol not in vol_cache:
-            try:
-                vol = run_async(get_realized_vol(symbol, hours=24, interval="15m"))
-                if vol and vol > 0:
-                    vol_cache[symbol] = vol
-            except Exception:
-                pass
-
-        vol = vol_cache.get(symbol)
-        if not vol or vol <= 0:
-            continue
-
-        t_years = (row.hours_to_expiry or 0) * _HOURS_TO_YEARS
-        if t_years <= 0:
-            continue
-
-        result = compute_edge(
-            spot, row.floor_strike, row.cap_strike, row.strike_type,
-            t_years, vol, row.ask_price,
-        )
-
-        session.execute(
-            update(MarketSnapshot)
-            .where(MarketSnapshot.ticker == row.ticker)
-            .values(
-                underlying_price=spot,
-                realized_vol=vol,
-                model_prob=result.model_prob,
-                raw_model_prob=getattr(result, "raw_model_prob", result.model_prob),
-                edge=result.edge,
-                scored_at=datetime.now(timezone.utc),
-            )
-        )
-        scored += 1
-
-    if scored:
-        session.commit()
-        import gc
-        gc.collect()
-        logger.info("Score crypto: %d markets scored", scored)
 
 
 def score_climate(session: Session) -> None:

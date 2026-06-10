@@ -12,14 +12,12 @@ import signal
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger("scanner")
 
-_DISCOVER_CRYPTO_INTERVAL = 30
 _DISCOVER_CLIMATE_INTERVAL = 60
 _SCORE_INTERVAL = 30
 _SCORE_STAGGER = 5
@@ -57,25 +55,17 @@ def run_scanner(db_url: str) -> None:
             loop.run_in_executor(executor, func), timeout=timeout
         )
 
-    from scanner.loops.discover import discover_crypto, discover_climate
-    from scanner.loops.score import score_crypto, score_climate
+    from scanner.loops.discover import discover_climate
+    from scanner.loops.score import score_climate
     from scanner.loops.signal import run_signal_loop
     from scanner.loops.exit import run_exit_loop
     from scanner.heartbeat import write_heartbeat, init_heartbeat
 
     init_heartbeat(engine)
 
-    def _discover_crypto_sync():
-        with Session(engine) as s:
-            discover_crypto(s)
-
     def _discover_climate_sync():
         with Session(engine) as s:
             discover_climate(s)
-
-    def _score_crypto_sync():
-        with Session(engine) as s:
-            score_crypto(s)
 
     def _score_climate_sync():
         with Session(engine) as s:
@@ -94,10 +84,8 @@ def run_scanner(db_url: str) -> None:
             write_heartbeat(s)
 
     def _model_check_sync():
-        from scanner.models.crypto_xgb import check_and_reload as crypto_reload
         from scanner.models.climate_xgb import check_and_reload as climate_reload
         with Session(engine) as s:
-            crypto_reload(s)
             climate_reload(s)
 
     def _platt_refit_sync():
@@ -105,22 +93,6 @@ def run_scanner(db_url: str) -> None:
         with Session(engine) as s:
             fit_and_save(s)
         reset_cache()
-
-    async def discover_crypto_loop():
-        while True:
-            t0 = time.monotonic()
-            try:
-                await run_in_executor(_discover_crypto_sync, _DISCOVER_CRYPTO_INTERVAL + 10)
-            except Exception:
-                logger.exception("Discover crypto loop failed")
-            elapsed = time.monotonic() - t0
-            sleep = max(0, _DISCOVER_CRYPTO_INTERVAL - elapsed)
-            if elapsed > _DISCOVER_CRYPTO_INTERVAL - 5:
-                logger.warning(
-                    "Discover crypto took %.1fs, reducing next interval to %.1fs",
-                    elapsed, sleep,
-                )
-            await asyncio.sleep(sleep)
 
     async def discover_climate_loop():
         while True:
@@ -131,17 +103,6 @@ def run_scanner(db_url: str) -> None:
                 logger.exception("Discover climate loop failed")
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, _DISCOVER_CLIMATE_INTERVAL - elapsed))
-
-    async def score_crypto_loop():
-        await asyncio.sleep(_SCORE_STAGGER)
-        while True:
-            t0 = time.monotonic()
-            try:
-                await run_in_executor(_score_crypto_sync, _SCORE_INTERVAL + 10)
-            except Exception:
-                logger.exception("Score crypto loop failed")
-            elapsed = time.monotonic() - t0
-            await asyncio.sleep(max(0, _SCORE_INTERVAL - elapsed))
 
     async def score_climate_loop():
         await asyncio.sleep(_SCORE_STAGGER)
@@ -212,9 +173,7 @@ def run_scanner(db_url: str) -> None:
     async def main():
         await asyncio.gather(
             heartbeat_loop(),
-            discover_crypto_loop(),
             discover_climate_loop(),
-            score_crypto_loop(),
             score_climate_loop(),
             signal_loop(),
             exit_loop(),

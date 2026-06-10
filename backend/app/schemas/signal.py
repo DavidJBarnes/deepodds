@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class SignalResponse(BaseModel):
     id: UUID
-    venue: str = "kalshi_crypto"
+    venue: str = "kalshi_climate"
     pair: str
     side: str
     signal_type: str
