@@ -148,17 +148,28 @@ def run_exit_loop(session: Session, engine: Engine) -> None:
             exit_price = 1.0 if yes_won else 0.0
             pnl_usd = (exit_price - fill_price) * qty
             sig.exit_price = exit_price
-            sig.pnl_usd = round(pnl_usd, 4)
-            sig.pnl_pct = (
-                round((exit_price - fill_price) / fill_price * 100, 2)
-                if fill_price > 0 else 0.0
-            )
             sig.resolved_at = now
             sig.status = (
                 "settled_win" if pnl_usd > 0
                 else "settled_loss" if pnl_usd < 0
                 else "settled_breakeven"
             )
+            # P&L attribution differs by mode. In paper, fees are zero and
+            # the (exit - fill) * qty math is correct. In live, kalshi_live_sync
+            # is the authoritative writer for pnl_usd / pnl_pct using Kalshi's
+            # fee-aware fills + settles; if we write paper math here it races
+            # the sync and one of the two ends up wrong. Audited 2026-06-10.
+            if cfg.mode == "live":
+                # Let kalshi_live_sync attribute realized P&L. We mark the
+                # signal settled (so the dashboard reflects the outcome) but
+                # leave the dollar fields for the sync to fill in.
+                pass
+            else:
+                sig.pnl_usd = round(pnl_usd, 4)
+                sig.pnl_pct = (
+                    round((exit_price - fill_price) / fill_price * 100, 2)
+                    if fill_price > 0 else 0.0
+                )
             exited += 1
             kalshi_label = "YES" if yes_won else "NO"
             logger.info(

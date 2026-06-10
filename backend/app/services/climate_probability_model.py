@@ -51,21 +51,24 @@ class ClimateFairValueResult:
     cap_strike: float | None
 
 
-FORECAST_SKILL_FACTOR = 0.4
-
-
 def _scaled_sigma(forecast_sigma: float, days_ahead: int) -> float:
-    """Convert day-to-day vol into a 1-day-ahead forecast-error sigma.
+    """Scale day-to-day vol to a horizon-adjusted forecast-error sigma.
 
-    Day-to-day vol overstates true forecast uncertainty since NWP models beat
-    naive persistence (forecasts capture roughly 80% of next-day variance).
-    The 0.4 skill factor is a rough calibration; the trained model learns the
-    actual relationship from data.
+    The training data (see train_climate_model.py:99) computes
+    `scaled_sigma = sigma * sqrt(d_ahead)` with NO additional skill factor.
+    Inference MUST match that scaling so the model sees the same z-score
+    distribution it was trained on.
+
+    A prior 0.4 forecast-skill multiplier was applied here but not in
+    training, which inflated inference z-scores by 2.5× the training
+    range. That distribution mismatch drove the model into the sigmoid
+    tails, producing the 0.80–0.90-band 0/3 miscalibration that Platt
+    was unsuccessfully bolted on top of. Audited 2026-06-10. Removing
+    the factor restores train/inference alignment without retraining.
     """
     if forecast_sigma <= 0:
         return 1.0
-    base = forecast_sigma * FORECAST_SKILL_FACTOR
-    return base * math.sqrt(max(days_ahead, 1))
+    return forecast_sigma * math.sqrt(max(days_ahead, 1))
 
 
 def _normal_cdf(x: float, mu: float, sigma: float) -> float:

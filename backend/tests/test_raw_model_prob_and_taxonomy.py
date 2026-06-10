@@ -426,6 +426,130 @@ def test_settled_yes_won_does_not_infer_from_last_price():
         )
 
 
+# ---------------------------------------------------------------------------
+# Climate model train/inference sigma alignment (HIGH-2 fix, 2026-06-10).
+# A prior FORECAST_SKILL_FACTOR=0.4 was applied at inference but not in
+# training, inflating inference z-scores by 2.5× vs the training range and
+# driving the model into the sigmoid tails (root cause of the 0.80-0.90
+# band 0/3 miscalibration). Inference must match training: sigma * sqrt(d).
+# ---------------------------------------------------------------------------
+
+
+def test_scaled_sigma_no_skill_factor_matches_training():
+    """Inference's _scaled_sigma must equal `sigma * sqrt(days_ahead)`,
+    matching train_climate_model.py:99 exactly. Any constant multiplier
+    distorts the train/inference z-score distributions."""
+    import math
+    from app.services.climate_probability_model import _scaled_sigma
+    assert _scaled_sigma(10.0, 1) == pytest.approx(10.0)
+    assert _scaled_sigma(10.0, 4) == pytest.approx(10.0 * math.sqrt(4))
+    assert _scaled_sigma(5.0, 9) == pytest.approx(5.0 * math.sqrt(9))
+    # days_ahead floor at 1
+    assert _scaled_sigma(10.0, 0) == pytest.approx(10.0)
+    # non-positive sigma falls back to 1.0
+    assert _scaled_sigma(0.0, 1) == 1.0
+    assert _scaled_sigma(-5.0, 1) == 1.0
+
+
+def test_climate_probability_model_no_forecast_skill_factor():
+    """The skill-factor multiplier must not be assigned or used in the
+    inference module. Docstrings may reference the historic constant for
+    documentation; what matters is that no live code path multiplies sigma
+    by it."""
+    import inspect
+    import app.services.climate_probability_model as m
+    src = inspect.getsource(m)
+    forbidden_live_patterns = [
+        "FORECAST_SKILL_FACTOR = ",
+        "forecast_sigma * FORECAST_SKILL_FACTOR",
+        "FORECAST_SKILL_FACTOR *",
+        "* FORECAST_SKILL_FACTOR",
+    ]
+    for pat in forbidden_live_patterns:
+        assert pat not in src, (
+            f"climate_probability_model.py must not contain {pat!r} — "
+            f"that's the 2.5× train/inference mismatch we ripped 2026-06-10."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Signal loop in-pass position cap + cumulative bankroll + fresh edge
+# (HIGH-1 + M3 + M5, audited 2026-06-10). open_positions is loaded once
+# and never grows during a pass; without per-pass counters one scan cycle
+# could open dozens of positions past the cap and over-allocate bankroll.
+# ---------------------------------------------------------------------------
+
+
+def test_signal_loop_uses_fired_this_pass_counter():
+    """run_signal_loop must increment a counter per fire and use it to
+    enforce max_open_positions across the whole pass."""
+    import inspect
+    from scanner.loops.signal import run_signal_loop
+    src = inspect.getsource(run_signal_loop)
+    assert "fired_this_pass" in src, (
+        "Signal loop must track positions opened in the current pass."
+    )
+    assert "len(open_positions) + fired_this_pass" in src, (
+        "Position cap must include in-pass increments, not just the "
+        "initial open_positions snapshot."
+    )
+
+
+def test_signal_loop_uses_remaining_bankroll_for_kelly():
+    """Kelly sizing must subtract this-pass spend from the available bankroll."""
+    import inspect
+    from scanner.loops.signal import run_signal_loop
+    src = inspect.getsource(run_signal_loop)
+    assert "spent_cents_this_pass" in src
+    assert "remaining_cents" in src, (
+        "Kelly call must use remaining bankroll, not the pass-start cached value."
+    )
+
+
+def test_signal_loop_recomputes_edge_against_fresh_price():
+    """When a live client returns a fresh market_price, signal loop must
+    re-gate and re-size on the fresh-edge, not the stale snapshot.edge."""
+    import inspect
+    from scanner.loops.signal import run_signal_loop
+    src = inspect.getsource(run_signal_loop)
+    assert "fresh_edge = snapshot.model_prob - market_price" in src
+    assert "if fresh_edge < config.min_edge:" in src
+
+
+# ---------------------------------------------------------------------------
+# Exit loop defers live-mode P&L to kalshi_live_sync (M4, 2026-06-10).
+# Paper math (no fees) racing the fee-aware live sync produced wrong
+# realized P&L in live mode.
+# ---------------------------------------------------------------------------
+
+
+def test_exit_loop_skips_pnl_write_for_live_mode():
+    """run_exit_loop must skip the (exit - fill) * qty pnl write when
+    cfg.mode == 'live' — kalshi_live_sync owns that attribution."""
+    import inspect
+    from scanner.loops.exit import run_exit_loop
+    src = inspect.getsource(run_exit_loop)
+    assert 'cfg.mode == "live"' in src
+    # The Kalshi-settled path must have an explicit live-mode guard around
+    # the pnl_usd write.
+    assert "Let kalshi_live_sync attribute realized P&L" in src
+
+
+# ---------------------------------------------------------------------------
+# Score loop no longer reads phantom _event_ticker attribute (2026-06-10).
+# Parses date directly from row.ticker.
+# ---------------------------------------------------------------------------
+
+
+def test_score_climate_does_not_read_phantom_event_ticker():
+    import inspect
+    import scanner.loops.score as score_module
+    src = inspect.getsource(score_module)
+    assert 'getattr(row, "_event_ticker"' not in src, (
+        "score.py must not read the phantom _event_ticker attribute."
+    )
+
+
 def test_discover_preserves_old_model_prob_default():
     """discover.py must default new_model_prob to old_model_prob, not None.
 

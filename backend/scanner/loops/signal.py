@@ -139,6 +139,15 @@ def run_signal_loop(session: Session) -> None:
             if len(open_positions) >= config.max_open_positions:
                 continue
 
+            # Track positions opened and bankroll spent WITHIN this pass.
+            # open_positions is loaded once and never grows, so without
+            # these counters one pass could blow past max_open_positions
+            # and exhaust the bankroll across dozens of signals while
+            # each individual Kelly call thinks the full balance is free.
+            # Audited 2026-06-10.
+            fired_this_pass = 0
+            spent_cents_this_pass = 0
+
             event_counts: dict[str, int] = {}
             for sig in open_positions:
                 if sig.event_ticker:
@@ -223,7 +232,10 @@ def run_signal_loop(session: Session) -> None:
                 if event_ticker and event_counts.get(event_ticker, 0) >= config.max_positions_per_event:
                     continue
 
-                if len(open_positions) + 1 > config.max_open_positions:
+                # In-loop position cap. open_positions is loaded once and
+                # never grows, so we add fired_this_pass to enforce the
+                # cap across the whole scan cycle.
+                if len(open_positions) + fired_this_pass >= config.max_open_positions:
                     break
 
                 ask_price = snapshot.ask_price
@@ -247,10 +259,28 @@ def run_signal_loop(session: Session) -> None:
                         )
                         continue
 
+                # Recompute edge against the fresh market_price. snapshot.edge
+                # was computed when snapshot.ask_price was the price; the live
+                # query may have moved the price. Re-gating + Kelly sizing on
+                # stale edge oversizes when the move went against the thesis.
+                if snapshot.model_prob is not None:
+                    fresh_edge = snapshot.model_prob - market_price
+                    if fresh_edge < config.min_edge:
+                        continue
+                else:
+                    fresh_edge = snapshot.edge
+
+                # Cumulative-bankroll-aware Kelly. Each pass starts with
+                # bankroll_cents (cached); we subtract what we've already
+                # committed in this pass so cumulative sizing doesn't blow
+                # past the actual balance.
                 bankroll_cents = read_balance_cache(str(config.user_id))
                 if bankroll_cents and bankroll_cents > 0:
+                    remaining_cents = max(0, bankroll_cents - spent_cents_this_pass)
+                    if remaining_cents <= 0:
+                        break
                     count = kelly_count(
-                        snapshot.edge, market_price, bankroll_cents,
+                        fresh_edge, market_price, remaining_cents,
                         config.contracts_per_signal, config.max_cost_per_signal,
                     )
                 else:
@@ -394,6 +424,10 @@ def run_signal_loop(session: Session) -> None:
 
                 if event_ticker:
                     event_counts[event_ticker] = event_counts.get(event_ticker, 0) + 1
+                # Track per-pass position count + cost. Used by the in-loop
+                # cap and cumulative bankroll guard above.
+                fired_this_pass += 1
+                spent_cents_this_pass += int(round(cost * 100))
 
         except Exception:
             logger.exception("Signal processing failed for user %s, venue %s", config.user_id, venue)

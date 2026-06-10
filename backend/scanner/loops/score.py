@@ -127,8 +127,11 @@ def score_climate(session: Session) -> None:
                 continue
             city, kind = mapping
 
-            event_ticker_raw = getattr(row, "_event_ticker", None)
-            target_date = parse_event_date(event_ticker_raw or row.ticker or "")
+            # MarketSnapshot has no event_ticker attribute; parse the date
+            # directly from the market_ticker. The previous getattr lookup
+            # for `_event_ticker` always returned None and the OR-fallback
+            # silently masked the dead reference.
+            target_date = parse_event_date(row.ticker or "")
             if not target_date:
                 continue
 
