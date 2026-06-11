@@ -1,17 +1,16 @@
 """
 Download historical BTC price + exchange flow data. Run once; backtest never hits the network.
 
+Sources (no API key, no account required):
+  - Bitfinex public API for daily BTC/USD OHLCV (6yr history, single call)
+  - Coin Metrics Community API for BTC exchange flows (6yr history, single call)
+
 Usage:
     cd backend
-    GLASSNODE_API_KEY=<key> uv run python -m onchain.backtest.fetch_data
-
-Glassnode Studio (free) plan includes basic exchange flow metrics at daily resolution.
-If you get a 403, the metric may require a paid tier — see https://glassnode.com/pricing.
+    uv run python -m onchain.backtest.fetch_data
 """
 import json
 import logging
-import os
-import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,14 +21,15 @@ DATA_DIR = Path(__file__).parent / "data"
 PRICES_CSV = DATA_DIR / "btc_prices.csv"
 FLOWS_CSV = DATA_DIR / "btc_flows.csv"
 
-COINGECKO_URL = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart"
-GLASSNODE_BASE = "https://api.glassnode.com/v1/metrics/transactions"
+# 2020-01-01 in milliseconds — gives full 2021–2025 backtest window + 90d signal warmup.
+_START_MS = 1577836800000
+_CANDLE_LIMIT = 5000
 
-# 6 years covers 2020-01 → now, giving the full 2021–2025 backtest window plus warmup.
-DAYS_HISTORY = 2190
+BITFINEX_URL = f"https://api-pub.bitfinex.com/v2/candles/trade:1D:tBTCUSD/hist"
+COINMETRICS_URL = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
 
 
-def _get(url: str, params: dict, timeout: int = 30) -> dict | list:
+def _get(url: str, params: dict, timeout: int = 45) -> dict | list:
     query = "&".join(f"{k}={v}" for k, v in params.items())
     req = urllib.request.Request(
         f"{url}?{query}",
@@ -40,58 +40,70 @@ def _get(url: str, params: dict, timeout: int = 30) -> dict | list:
 
 
 def fetch_btc_prices() -> list[dict]:
-    logger.info("Fetching BTC prices from CoinGecko (%d days)...", DAYS_HISTORY)
-    data = _get(COINGECKO_URL, {"vs_currency": "usd", "days": str(DAYS_HISTORY), "interval": "daily"})
+    """
+    Fetch daily BTC/USD closes from Bitfinex.
+    Response format: [timestamp_ms, open, close, high, low, volume]
+    """
+    logger.info("Fetching BTC daily prices from Bitfinex...")
+    data = _get(BITFINEX_URL, {
+        "limit": str(_CANDLE_LIMIT),
+        "start": str(_START_MS),
+        "sort": "1",  # ascending
+    })
+    if not isinstance(data, list) or not data:
+        raise RuntimeError(f"Unexpected Bitfinex response: {data!r}")
+
     rows = []
-    for ts_ms, price in data["prices"]:
-        dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-        rows.append({"date": dt.strftime("%Y-%m-%d"), "close": round(price, 2)})
-    # CoinGecko sometimes emits a duplicate final row with today's partial candle — deduplicate.
     seen: set[str] = set()
-    deduped = []
-    for r in rows:
-        if r["date"] not in seen:
-            seen.add(r["date"])
-            deduped.append(r)
-    logger.info("  %d price rows (%s → %s)", len(deduped), deduped[0]["date"], deduped[-1]["date"])
-    return deduped
+    for candle in data:
+        ts_ms, _open, close, _high, _low, _vol = candle[:6]
+        dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+        date_str = dt.strftime("%Y-%m-%d")
+        if date_str not in seen:
+            seen.add(date_str)
+            rows.append({"date": date_str, "close": round(float(close), 2)})
+
+    logger.info("  %d rows  [%s → %s]", len(rows), rows[0]["date"], rows[-1]["date"])
+    return rows
 
 
-def _fetch_glassnode(metric: str, api_key: str) -> dict[str, float]:
-    """Fetch a daily Glassnode metric for BTC. Returns {date_str: value}."""
-    data = _get(
-        f"{GLASSNODE_BASE}/{metric}",
-        {"a": "BTC", "i": "24h", "c": "usd", "api_key": api_key},
-    )
-    out: dict[str, float] = {}
-    for item in data:
-        dt = datetime.fromtimestamp(item["t"], tz=timezone.utc)
-        out[dt.strftime("%Y-%m-%d")] = float(item["v"])
-    return out
+def fetch_btc_flows() -> list[dict]:
+    """
+    Fetch BTC exchange inflow + outflow from Coin Metrics Community API.
 
+    FlowInExUSD  = USD value of BTC transferred into exchanges (selling pressure indicator)
+    FlowOutExUSD = USD value of BTC transferred out of exchanges (accumulation indicator)
 
-def fetch_btc_flows(api_key: str) -> list[dict]:
-    logger.info("Fetching BTC exchange inflows from Glassnode...")
-    inflows = _fetch_glassnode("transfers_volume_to_exchanges_sum", api_key)
-    logger.info("  %d inflow rows", len(inflows))
+    No API key or account required.
+    """
+    logger.info("Fetching BTC exchange flows from Coin Metrics Community API...")
+    data = _get(COINMETRICS_URL, {
+        "assets": "btc",
+        "metrics": "FlowInExUSD,FlowOutExUSD",
+        "frequency": "1d",
+        "start_time": "2020-01-01",
+        "page_size": "10000",
+    })
 
-    time.sleep(1.5)  # stay under Glassnode rate limit
+    rows = []
+    for item in data.get("data", []):
+        date_str = item["time"][:10]
+        inflow = item.get("FlowInExUSD")
+        outflow = item.get("FlowOutExUSD")
+        if inflow is not None and outflow is not None:
+            rows.append({
+                "date": date_str,
+                "exchange_inflow_usd": float(inflow),
+                "exchange_outflow_usd": float(outflow),
+            })
 
-    logger.info("Fetching BTC exchange outflows from Glassnode...")
-    outflows = _fetch_glassnode("transfers_volume_from_exchanges_sum", api_key)
-    logger.info("  %d outflow rows", len(outflows))
-
-    dates = sorted(set(inflows) & set(outflows))
-    if not dates:
+    if not rows:
         raise RuntimeError(
-            "No overlapping dates between inflow and outflow series.\n"
-            "Check your Glassnode API key and that the free tier includes these metrics."
+            "Coin Metrics returned no flow data. Check connectivity and try again."
         )
-    rows = [
-        {"date": d, "exchange_inflow_usd": inflows[d], "exchange_outflow_usd": outflows[d]}
-        for d in dates
-    ]
-    logger.info("  %d flow rows (%s → %s)", len(rows), rows[0]["date"], rows[-1]["date"])
+
+    rows.sort(key=lambda r: r["date"])
+    logger.info("  %d rows  [%s → %s]", len(rows), rows[0]["date"], rows[-1]["date"])
     return rows
 
 
@@ -108,19 +120,10 @@ def _write_csv(rows: list[dict], path: Path) -> None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
-    api_key = os.environ.get("GLASSNODE_API_KEY", "").strip()
-    if not api_key:
-        raise SystemExit(
-            "\nGLASSNODE_API_KEY not set.\n"
-            "1. Create a free account at https://glassnode.com\n"
-            "2. Go to Account → API → generate key\n"
-            "3. Re-run: GLASSNODE_API_KEY=<key> uv run python -m onchain.backtest.fetch_data\n"
-        )
-
     prices = fetch_btc_prices()
     _write_csv(prices, PRICES_CSV)
 
-    flows = fetch_btc_flows(api_key)
+    flows = fetch_btc_flows()
     _write_csv(flows, FLOWS_CSV)
 
     print(f"\n✓ Data saved to {DATA_DIR}")
