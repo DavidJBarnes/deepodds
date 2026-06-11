@@ -213,6 +213,58 @@ def test_cash_never_goes_negative_two_symbols():
 
 
 # ---------------------------------------------------------------------------
+# v2 rebalancing — Jan-2020 scenario (price ramp +70%)
+# ---------------------------------------------------------------------------
+
+def test_jan2020_scenario_no_liquidation_no_kill():
+    """
+    Synthetic fixture: price ramps +70% over 1,000 hourly ticks with constant
+    positive funding. At $8k capital, 2x leverage, rebalancing must prevent
+    any liquidation or kill event.
+    """
+    n_hours = 1_000
+    entry_price = 130.0
+    final_price = entry_price * 1.70   # +70%
+    funding_rate = 0.0001              # 0.01%/hr = ~87.6%/yr, well above hurdle
+
+    prices = [entry_price + (final_price - entry_price) * i / n_hours for i in range(n_hours)]
+    idx = pd.date_range("2020-01-01", periods=n_hours, freq="1h", tz="UTC")
+    df = pd.DataFrame({
+        "ts": idx,
+        "funding_hourly": [funding_rate] * n_hours,
+        "perp_close": prices,
+        "spot_close": prices,
+    })
+    frames = {"ETH": df, "BTC": df.copy()}
+
+    cfg = scaled_config(
+        8_000.0,
+        min_funding_hurdle_ann=0.06,
+        rich_funding_ann=0.20,
+        trailing_window_hours=1,    # opens on tick 1
+        exit_funding_ann=0.0,
+        max_leverage_band=3.0,
+    )
+    result = run_replay(frames, cfg)
+
+    assert result.liquidation_count == 0, (
+        f"Expected zero liquidations, got {result.liquidation_count}"
+    )
+    assert result.kill_events == 0, (
+        f"Expected zero kill events, got {result.kill_events}"
+    )
+    assert result.rebalance_topup_count > 0 or result.rebalance_recenter_count > 0, (
+        "Expected at least one rebalance event for a +70% price move"
+    )
+    assert result.gross_funding_collected > 0, "Should have collected some funding"
+    # Delta-neutral: P&L ≈ funding − fees (within spread basis tolerance)
+    expected_approx = result.gross_funding_collected - result.total_fees
+    assert abs(result.net_pnl - expected_approx) < 30.0, (
+        f"P&L {result.net_pnl:.2f} deviates >$30 from funding-fees={expected_approx:.2f}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Metric helpers
 # ---------------------------------------------------------------------------
 

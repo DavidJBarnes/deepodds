@@ -35,7 +35,8 @@ from carry.config import CarryConfig
 logger = logging.getLogger("backtest.sweep")
 
 RESULTS_DIR = Path(__file__).parent / "results"
-RESULTS_CSV = RESULTS_DIR / "sweep_results.csv"
+RESULTS_CSV = RESULTS_DIR / "sweep_results.csv"        # v1 (kept for reference)
+RESULTS_V2_CSV = RESULTS_DIR / "sweep_results_v2.csv"  # v2 with rebalancing + band sweep
 
 SELECTION_START = "2020-01-01"
 SELECTION_END   = "2023-12-31"
@@ -49,6 +50,7 @@ PROD_DEFAULTS = dict(
     rich_funding_ann=0.20,
     trailing_window_hours=168,
     exit_funding_ann=0.00,
+    max_leverage_band=3.0,
 )
 
 GRID = dict(
@@ -56,11 +58,12 @@ GRID = dict(
     rich_funding_ann=[0.15, 0.20, 0.30],
     trailing_window_hours=[72, 168, 336],
     exit_funding_ann=[0.00, 0.02, 0.04],
+    max_leverage_band=[2.5, 3.0, 3.5],
 )
 
 
 def _valid_combo(hurdle: float, rich: float, exit_: float) -> bool:
-    """Skip combinations where rich ≤ hurdle or exit ≥ hurdle."""
+    """Skip combinations where rich ≤ hurdle or exit ≥ hurdle. Band is always valid."""
     return rich > hurdle and exit_ < hurdle
 
 
@@ -80,7 +83,7 @@ def _disqualified(sel_results: list[dict]) -> bool:
 
 
 def _row_from_result(result, capital: float, hurdle: float, rich: float,
-                     window: int, exit_: float, window_label: str) -> dict:
+                     window: int, exit_: float, band: float, window_label: str) -> dict:
     """Convert a ReplayResult into a flat CSV row."""
     return {
         "window": window_label,
@@ -89,6 +92,7 @@ def _row_from_result(result, capital: float, hurdle: float, rich: float,
         "rich": rich,
         "trail_h": window,
         "exit": exit_,
+        "band": band,
         "roi_ann": round(result.annualized_roi * 100, 3),
         "sharpe": round(result.sharpe, 3),
         "max_dd": round(result.max_drawdown * 100, 3),
@@ -99,6 +103,10 @@ def _row_from_result(result, capital: float, hurdle: float, rich: float,
         "funding_paid": round(result.gross_negative_funding_paid, 2),
         "liquidations": result.liquidation_count,
         "kill_switch": result.kill_switch_fired,
+        "kill_events": result.kill_events,
+        "topup_count": result.rebalance_topup_count,
+        "recenter_count": result.rebalance_recenter_count,
+        "recenter_fees": round(result.rebalance_fees_usd, 4),
         "net_pnl": round(result.net_pnl, 2),
         "yearly": result.yearly,
     }
@@ -128,14 +136,15 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
             trailing_cache[(coin, window)] = series[coin]
     logger.info("Cache built.")
 
-    # Build full grid of valid parameter combos
+    # Build full grid of valid parameter combos (includes band dimension)
     combos = [
-        (hurdle, rich, window, exit_)
-        for hurdle, rich, window, exit_ in itertools.product(
+        (hurdle, rich, window, exit_, band)
+        for hurdle, rich, window, exit_, band in itertools.product(
             GRID["min_funding_hurdle_ann"],
             GRID["rich_funding_ann"],
             GRID["trailing_window_hours"],
             GRID["exit_funding_ann"],
+            GRID["max_leverage_band"],
         )
         if _valid_combo(hurdle, rich, exit_)
     ]
@@ -148,7 +157,7 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
     total = len(combos) * len(CAPITAL_LEVELS)
     done = 0
 
-    for hurdle, rich, window, exit_ in combos:
+    for hurdle, rich, window, exit_, band in combos:
         for capital in CAPITAL_LEVELS:
             cfg = scaled_config(
                 capital,
@@ -156,21 +165,23 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
                 rich_funding_ann=rich,
                 trailing_window_hours=window,
                 exit_funding_ann=exit_,
+                max_leverage_band=band,
             )
             try:
                 sel = run_replay(frames, cfg, start=SELECTION_START, end=SELECTION_END,
                                  _price_idx=price_idx, _trailing_cache=trailing_cache)
             except Exception as e:
-                logger.warning("Replay failed (sel) %s: %s", (hurdle, rich, window, exit_, capital), e)
+                logger.warning("Replay failed (sel) %s: %s",
+                               (hurdle, rich, window, exit_, band, capital), e)
                 done += 1
                 continue
 
-            row = _row_from_result(sel, capital, hurdle, rich, window, exit_, "selection")
+            row = _row_from_result(sel, capital, hurdle, rich, window, exit_, band, "selection")
             all_rows.append(row)
-            selection_by_capital[capital].append(((hurdle, rich, window, exit_), row))
+            selection_by_capital[capital].append(((hurdle, rich, window, exit_, band), row))
 
             done += 1
-            if verbose and done % 20 == 0:
+            if verbose and done % 50 == 0:
                 logger.info("  %d/%d selection replays done", done, total)
 
     # --- Walk-forward: top-3 per capital + production defaults + cost sensitivity ---
@@ -184,30 +195,32 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
         qualified.sort(key=lambda x: x[1]["roi_ann"], reverse=True)
         top3 = qualified[:3]
 
-        # Add production defaults (always include)
-        prod_combos = {
-            (PROD_DEFAULTS["min_funding_hurdle_ann"],
-             PROD_DEFAULTS["rich_funding_ann"],
-             PROD_DEFAULTS["trailing_window_hours"],
-             PROD_DEFAULTS["exit_funding_ann"])
-        }
+        # Add production defaults (always include, band=3.0)
+        prod_combo = (
+            PROD_DEFAULTS["min_funding_hurdle_ann"],
+            PROD_DEFAULTS["rich_funding_ann"],
+            PROD_DEFAULTS["trailing_window_hours"],
+            PROD_DEFAULTS["exit_funding_ann"],
+            PROD_DEFAULTS["max_leverage_band"],
+        )
         top3_combos = {combo for combo, _ in top3}
-        val_targets = list(top3_combos | prod_combos)
+        val_targets = list(top3_combos | {prod_combo})
 
         for combo in val_targets:
-            hurdle, rich, window, exit_ = combo
+            hurdle, rich, window, exit_, band = combo
             cfg = scaled_config(
                 capital,
                 min_funding_hurdle_ann=hurdle,
                 rich_funding_ann=rich,
                 trailing_window_hours=window,
                 exit_funding_ann=exit_,
+                max_leverage_band=band,
             )
-            label = "prod_default" if combo in prod_combos and combo not in top3_combos else "validation"
+            label = "prod_default" if combo == prod_combo and combo not in top3_combos else "validation"
             try:
                 val = run_replay(frames, cfg, start=VALIDATION_START,
                                  _price_idx=price_idx, _trailing_cache=trailing_cache)
-                row = _row_from_result(val, capital, hurdle, rich, window, exit_, label)
+                row = _row_from_result(val, capital, hurdle, rich, window, exit_, band, label)
                 all_rows.append(row)
             except Exception as e:
                 logger.warning("Validation replay failed %s: %s", combo, e)
@@ -221,8 +234,9 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
                 rich_funding_ann=PROD_DEFAULTS["rich_funding_ann"],
                 trailing_window_hours=PROD_DEFAULTS["trailing_window_hours"],
                 exit_funding_ann=PROD_DEFAULTS["exit_funding_ann"],
-                taker_fee_frac=0.0008,       # doubled from 0.0004
-                spot_spread_bps=4.0,          # doubled from 2.0
+                max_leverage_band=PROD_DEFAULTS["max_leverage_band"],
+                taker_fee_frac=0.0008,   # doubled
+                spot_spread_bps=4.0,      # doubled
             )
             try:
                 val_costly = run_replay(frames, cfg_costly, start=VALIDATION_START,
@@ -233,6 +247,7 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
                     PROD_DEFAULTS["rich_funding_ann"],
                     PROD_DEFAULTS["trailing_window_hours"],
                     PROD_DEFAULTS["exit_funding_ann"],
+                    PROD_DEFAULTS["max_leverage_band"],
                     "cost_sensitivity",
                 )
                 all_rows.append(row_costly)
@@ -242,11 +257,11 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
     # Save to CSV (exclude yearly column — it's a list)
     if all_rows:
         flat_rows = [{k: v for k, v in r.items() if k != "yearly"} for r in all_rows]
-        with open(RESULTS_CSV, "w", newline="") as f:
+        with open(RESULTS_V2_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(flat_rows[0].keys()))
             writer.writeheader()
             writer.writerows(flat_rows)
-        logger.info("Saved %d rows to %s", len(flat_rows), RESULTS_CSV)
+        logger.info("Saved %d rows to %s", len(flat_rows), RESULTS_V2_CSV)
 
     # Build and return DataFrame (include all rows with yearly as string)
     df = pd.DataFrame(all_rows)
@@ -263,9 +278,9 @@ def main() -> None:
     if not val.empty:
         print("\nTop validation results ($8k):")
         sub = val[val["capital"] == 8000].sort_values("roi_ann", ascending=False)
-        print(sub[["window", "hurdle", "rich", "trail_h", "exit", "roi_ann",
-                    "sharpe", "max_dd", "liquidations", "kill_switch"]].head(10).to_string(index=False))
-    print(f"\nAll results saved to: {RESULTS_CSV}")
+        print(sub[["window", "hurdle", "rich", "trail_h", "exit", "band", "roi_ann",
+                    "sharpe", "max_dd", "liquidations", "kill_events"]].head(10).to_string(index=False))
+    print(f"\nAll results saved to: {RESULTS_V2_CSV}")
 
 
 if __name__ == "__main__":

@@ -34,3 +34,10 @@ class CarryConfig:
     # Risk / kill-switch.
     max_total_notional_usd: float = 40_000.0     # portfolio-wide HL exposure cap
     kill_on_liquidation: bool = True
+
+    # Two-tier leverage rebalancing (Task 1).
+    max_leverage_band: float = 3.0   # effective leverage above which rebalancing triggers
+    cash_floor_frac: float = 0.02    # min free-cash fraction after any Tier-A transfer
+
+    # Halt semantics: True = halt forever on kill (live default); False = replay mode.
+    halt_on_kill: bool = True

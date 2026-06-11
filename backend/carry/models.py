@@ -64,6 +64,11 @@ class PaperPortfolio:
     def total_notional(self, marks: dict[str, float]) -> float:
         return sum(p.notional(marks.get(s, p.entry_perp)) for s, p in self.positions.items())
 
+    # Rebalancing counters (incremented by engine.rebalance())
+    rebalance_topup_count: int = 0
+    rebalance_recenter_count: int = 0
+    rebalance_fees_usd: float = 0.0
+
     def equity(self, marks: dict[str, float]) -> float:
         """Cash + committed capital + unrealized (== cash + committed + accrued funding)."""
         held = sum(

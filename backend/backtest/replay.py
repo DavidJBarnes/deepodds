@@ -19,6 +19,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from dataclasses import replace as _dc_replace
+
 import pandas as pd
 
 from carry.config import CarryConfig
@@ -49,8 +51,14 @@ class ReplayResult:
     gross_funding_collected: float = 0.0
     gross_negative_funding_paid: float = 0.0
     liquidation_count: int = 0
-    kill_switch_fired: bool = False
+    kill_switch_fired: bool = False     # True if any kill event fired (even after resume)
     worst_trade_pnl: float = 0.0       # worst single closed-trade P&L (from log)
+
+    # Rebalancing metrics (v2)
+    rebalance_topup_count: int = 0     # Tier-A fee-free cash transfers
+    rebalance_recenter_count: int = 0  # Tier-B close+reopen events
+    rebalance_fees_usd: float = 0.0    # fees from Tier-B only
+    kill_events: int = 0               # number of kill-switch trips (cleared + resumed each time)
 
     # Calendar-year breakdown rows, filled by run_replay
     yearly: list[dict] = field(default_factory=list)
@@ -184,8 +192,13 @@ def _sharpe(equity: pd.Series, rf_annual: float = RISK_FREE_ANNUAL) -> float:
 
 
 def _yearly_breakdown(daily_equity: pd.Series, pf: PaperPortfolio,
-                      capital: float) -> list[dict]:
-    """Per-calendar-year ROI / drawdown from the daily equity series."""
+                      capital: float,
+                      year_stats: dict[int, dict] | None = None) -> list[dict]:
+    """Per-calendar-year ROI / drawdown from the daily equity series.
+
+    year_stats is the per-year accumulator built in run_replay; merged in when
+    present so the yearly rows include funding, fees, and rebalance counts.
+    """
     result = []
     for yr in sorted(daily_equity.index.year.unique()):
         mask = daily_equity.index.year == yr
@@ -196,8 +209,22 @@ def _yearly_breakdown(daily_equity: pd.Series, pf: PaperPortfolio,
         end_eq = float(sub.iloc[-1])
         roi = (end_eq - start_eq) / capital
         mdd = _max_drawdown(sub)
-        result.append({"year": yr, "roi": roi, "max_drawdown": mdd,
-                       "start_equity": start_eq, "end_equity": end_eq})
+        ys = (year_stats or {}).get(yr, {})
+        total = ys.get("total", 1)
+        row = {
+            "year": yr,
+            "roi": roi,
+            "max_drawdown": mdd,
+            "start_equity": start_eq,
+            "end_equity": end_eq,
+            "pct_deployed": ys.get("deployed", 0) / total if total else 0.0,
+            "round_trips": ys.get("round_trips", 0),
+            "topups": ys.get("topups", 0),
+            "recenters": ys.get("recenters", 0),
+            "funding": ys.get("funding", 0.0),
+            "fees": ys.get("fees", 0.0),
+        }
+        result.append(row)
     return result
 
 
@@ -236,6 +263,10 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
     Returns:
         ReplayResult with all metrics computed.
     """
+    # Backtest always runs with halt_on_kill=False so kill events can be counted
+    # and measured without halting the simulation permanently.
+    cfg = _dc_replace(cfg, halt_on_kill=False)
+
     # Build time index
     hourly_idx = _build_hourly_index(df_by_symbol, start, end)
     if len(hourly_idx) == 0:
@@ -262,7 +293,11 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
     deployed_hours = 0
     total_hours = 0
     tick_count = 0
-    prev_funding_total = 0.0
+    kill_events = 0
+    ever_killed = False
+
+    # Per-year tracking: funding, fees, rebalance counts, deployed hours, round trips
+    year_stats: dict[int, dict] = {}
 
     for ts in hourly_idx:
         ctx = _build_ctx(ts, df_by_symbol, price_idx, cfg)
@@ -288,11 +323,18 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
             if gap_hours > 24.0:
                 logger.debug("Tick gap %.1fh at %s — engine clamps to 24h", gap_hours, ts)
 
+        # Snapshot pre-tick state for per-year delta tracking
+        fund_before = pf.accrued_funding_total
+        fees_before = pf.fees_total
+        topup_before = pf.rebalance_topup_count
+        recenter_before = pf.rebalance_recenter_count
+        log_len_before = len(pf.log)
+
         tick(pf, ctx, trailing, cfg, ts.timestamp())
 
-        # Force-close any ghost positions when kill-switch first trips.
-        # Engine halts on pf.killed so positions otherwise sit open indefinitely,
-        # distorting pct_deployed and equity. Close them at current marks.
+        # Kill-event handling: force-close ghost positions, increment counter, clear flag.
+        # halt_on_kill=False means the engine does not halt permanently; the replay clears
+        # pf.killed between ticks so measurement continues after each kill event.
         if pf.killed and pf.positions:
             for sym in list(pf.positions.keys()):
                 c = ctx.get(sym)
@@ -301,13 +343,36 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
                                    exit_perp=c.get("perp_ask"), exit_spot=c.get("spot_bid"))
                 else:
                     pf.positions.pop(sym, None)
+        if pf.killed:
+            kill_events += 1
+            ever_killed = True
+            pf.killed = False  # clear so next tick runs normally
 
         # Assert no negative cash (Task 4 regression guard)
         assert pf.cash_usd >= -0.01, f"Negative cash ${pf.cash_usd:.4f} at {ts}"
 
         total_hours += 1
-        if pf.positions:
+        if pf.positions and not pf.killed:
             deployed_hours += 1
+
+        # Per-year accumulation
+        yr = ts.year
+        if yr not in year_stats:
+            year_stats[yr] = {
+                "funding": 0.0, "fees": 0.0,
+                "topups": 0, "recenters": 0,
+                "deployed": 0, "total": 0, "round_trips": 0,
+            }
+        ys = year_stats[yr]
+        ys["funding"] += pf.accrued_funding_total - fund_before
+        ys["fees"]    += pf.fees_total - fees_before
+        ys["topups"]  += pf.rebalance_topup_count - topup_before
+        ys["recenters"] += pf.rebalance_recenter_count - recenter_before
+        ys["total"]   += 1
+        if pf.positions and not pf.killed:
+            ys["deployed"] += 1
+        new_entries = pf.log[log_len_before:]
+        ys["round_trips"] += sum(1 for e in new_entries if e.startswith("CLOSE"))
 
         tick_count += 1
         if tick_count % 24 == 0:
@@ -323,13 +388,8 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
     equity_series = pd.Series(daily_equity).sort_index()
     equity_series.index = pd.DatetimeIndex(equity_series.index)
 
-    # Close any open positions at final price for metrics
     final_equity = float(equity_series.iloc[-1]) if len(equity_series) else cfg.paper_capital_usd
 
-    # Compute gross funding collected vs paid
-    gross_pos = sum(cf for cf in [pf.accrued_funding_total] if cf > 0)
-    gross_neg = abs(sum(cf for cf in [pf.accrued_funding_total] if cf < 0))
-    # More precisely: track tick-by-tick; we use the portfolio totals as proxy
     gross_funding_collected = max(0.0, pf.accrued_funding_total)
     gross_negative_paid = abs(min(0.0, pf.accrued_funding_total))
 
@@ -354,10 +414,14 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
         gross_funding_collected=gross_funding_collected,
         gross_negative_funding_paid=gross_negative_paid,
         liquidation_count=liquidations,
-        kill_switch_fired=pf.killed,
+        kill_switch_fired=ever_killed,
         worst_trade_pnl=worst_trade,
+        rebalance_topup_count=pf.rebalance_topup_count,
+        rebalance_recenter_count=pf.rebalance_recenter_count,
+        rebalance_fees_usd=pf.rebalance_fees_usd,
+        kill_events=kill_events,
     )
-    result.yearly = _yearly_breakdown(equity_series, pf, cfg.paper_capital_usd)
+    result.yearly = _yearly_breakdown(equity_series, pf, cfg.paper_capital_usd, year_stats)
     return result
 
 
