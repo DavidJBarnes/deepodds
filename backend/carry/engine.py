@@ -159,8 +159,14 @@ def tick(pf: PaperPortfolio, ctx: dict[str, dict], trailing: dict[str, float | N
             close_position(pf, sym, mark, cfg, "funding below exit",
                            exit_perp=c.get("perp_ask"), exit_spot=c.get("spot_bid"))
         elif not held and tgt > 0:
-            # portfolio-wide exposure cap
-            if pf.total_notional(marks) + tgt <= cfg.max_total_notional_usd and pf.cash_usd > tgt:
+            # Estimate total cash committed per dollar of notional: spot + margin(1/lev) + reserve + open fees.
+            # pf.cash_usd > tgt was insufficient — allowed cash to go negative at small capital.
+            committed_estimate = (
+                tgt * (1 + 1 / cfg.target_leverage + cfg.reserve_frac)
+                + tgt * cfg.taker_fee_frac * (cfg.legs_per_round_trip / 2)
+            )
+            if (pf.total_notional(marks) + tgt <= cfg.max_total_notional_usd
+                    and pf.cash_usd >= committed_estimate):
                 open_position(pf, sym, mark, tgt, cfg,
                               fill_perp=c.get("perp_bid"), fill_spot=c.get("spot_ask"))
 

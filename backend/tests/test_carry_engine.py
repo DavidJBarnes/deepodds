@@ -131,6 +131,30 @@ def test_open_fills_capture_basis_and_spread():
     assert pf.realized_pnl > -50   # but bounded/small (tight books)
 
 
+# ---- Task 4 regression: cash cannot go negative on open ----
+def test_cash_cannot_go_negative_on_open():
+    """
+    Regression for Task 4 engine fix: the old check (pf.cash_usd > tgt) allowed
+    cash to go negative at small capital because tgt < committed_capital.
+    After the fix (check pf.cash_usd >= committed_estimate), cash must stay ≥ 0.
+    """
+    # $2,000 capital. At CFG defaults (max_notional_per_symbol=$20k) the engine
+    # cannot open ANY position — committed_estimate >> available cash.
+    small_cfg = CarryConfig(
+        paper_capital_usd=2_000.0,
+        max_notional_per_symbol=2_000.0,
+        max_total_notional_usd=3_000.0,
+    )
+    pf = PaperPortfolio(cash_usd=2_000.0)
+    # Rich funding → engine WANTS to open
+    rich = {"BTC": 0.50, "ETH": 0.50}
+    tick(pf, {"BTC": _ctx(0.001, 30000.0), "ETH": _ctx(0.001, 2000.0)},
+         rich, small_cfg, now_ts=3600)
+    # committed_estimate for BTC: 2000×(1+0.5+0.15) + 2000×0.0004×2 = 3300+1.6 > 2000
+    # Engine should NOT open — cash must remain non-negative
+    assert pf.cash_usd >= 0.0, f"Cash went negative: ${pf.cash_usd:.4f}"
+
+
 def test_build_snapshot_shape():
     pf = PaperPortfolio(cash_usd=100000)
     tick(pf, {"BTC": _ctx(0.00002, 60000.0)}, {"BTC": 0.25, "ETH": 0.01}, CFG, now_ts=3600)
