@@ -149,12 +149,15 @@ def fetch_historical_cutoff(client: KalshiClient) -> datetime:
     Markets settled *after* it come from GET /markets (live window, ~3 months).
     """
     data = client.get(f"{HIST_PREFIX}/cutoff")
-    ts = (data.get("market_settled_ts")
-          or data.get("cutoff_ts")
-          or data.get("cutoff"))
-    if ts is None:
+    raw = (data.get("market_settled_ts")
+           or data.get("cutoff_ts")
+           or data.get("cutoff"))
+    if raw is None:
         raise RuntimeError(f"Unexpected /historical/cutoff response shape: {data!r}")
-    cutoff = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+    if isinstance(raw, str):
+        cutoff = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    else:
+        cutoff = datetime.fromtimestamp(int(raw), tz=timezone.utc)
     logger.info("Historical cutoff: %s", cutoff.isoformat())
     return cutoff
 

@@ -13,12 +13,16 @@ realized resolution rate exceed the breakeven rate `price / (price - fee)`?
 
 ## Result
 
-**Cannot test. Universe of usable markets = 0.**
+**Cannot test. Universe of usable markets = 0 via API.**
 
-The `api.elections.kalshi.com/trade-api/v2` endpoint does not provide usable historical
-binary market data in the 80–97¢ price range from 2024–2025.
+Both the live endpoint (`/markets`) and the historical endpoint (`/historical/markets`)
+are dominated by 5-leg daily sports parlay bundles. 2024 election/financial/econ markets
+exist in the historical database but are unreachable without a full pagination crawl
+through millions of recent sports markets.
 
 ## What was found
+
+### Live tier (GET /markets, last ~3 months)
 
 | Metric | Value |
 |--------|-------|
@@ -26,23 +30,33 @@ binary market data in the 80–97¢ price range from 2024–2025.
 | Markets with volume ≥ 500 | 321 / 5,000 (6.4%) |
 | Market types present | KXMVESPORTSMULTIGAMEEXTENDED (74%), KXMVECROSSCATEGORY (26%) |
 | Markets with 80–97¢ price data | **0** |
-| Historical 2024 markets (NASDAQ, election) | Present but volume_fp = 0.00 |
-| KXPRES / KXSENATE settled markets | 0 returned |
 
-The API is dominated by 5-leg daily sports parlay bundles that resolve in hours,
-settle at 0¢ or 100¢ with no gradual price discovery, and have no history in the
-target price range. Traditional binary prediction markets (elections, NASDAQ brackets,
-economic outcomes) are either absent or return zero volume.
+### Historical tier (GET /historical/markets, settled before 2026-04-13)
 
-## Root cause
+| Metric | Value |
+|--------|-------|
+| Cutoff date (live/historical boundary) | 2026-04-13 |
+| Pages scanned (50 pages × 200) | 10,000 markets |
+| All pages' close_time | 2026-04-12 only |
+| Date filtering supported | **No** — min/max_close_ts ignored |
+| Ascending sort supported | **No** — newest-first only |
+| KXPRES (US elections) via series filter | 0 results |
+| KXFOMC / KXNASDAQ via series filter | 0 results |
+| KXTEMPNYCH (NYC temperature, 13 days of data) | 4,000 markets, 3 in 80-97¢ range |
+| Estimated pages to reach June 2024 | ~100,000+ (infeasible) |
 
-Kalshi migrated to `api.elections.kalshi.com` for U.S. politics markets. The prior
-trading-api.kalshi.com market universe (sports game-winners, financial brackets, fed rate
-decisions) is not carried forward with live trading metrics in this endpoint.
+### Why 2024 data is unreachable via API
+
+The historical endpoint sorts newest-first with no pagination shortcut to older dates.
+Sports parlay series generate thousands of markets per day (KXMVESPORTSMULTIGAMEEXTENDED
+alone: ~500 markets/day). To reach June 2024 (~680 days ago) requires paginating through
+an estimated 300,000–500,000 markets at 0.25s/request = 21–35 hours minimum.
+Traditional election and financial series (KXPRES, KXFOMC, KXNASDAQ) return 0 results
+via `series_ticker` filter — they don't appear to be indexed in this endpoint.
 
 ## Kill criteria
 
-- **KC-1** (≥ 5,000 usable markets): **FAIL — 0 markets**
+- **KC-1** (≥ 5,000 usable markets): **FAIL — 0 markets in 80-97¢ range reachable via API**
 - KC-2 through KC-5: untestable, pending data
 
 ## Path forward
@@ -53,4 +67,4 @@ API universe issue entirely and would enable the full calibration analysis.
 
 ## Module status
 
-Full pipeline built and 34 tests passing. Ready to run against bulk data.
+Full pipeline built and 37 tests passing. Ready to run against bulk data.

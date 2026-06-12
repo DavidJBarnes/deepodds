@@ -61,36 +61,49 @@ unresolved (Stanley Cup finals ongoing as of 2026-06-11).
 
 ---
 
-## 4. Historical Data Unavailable
+## 4. Historical API Tier Investigation (2026-06-12)
 
-Markets from 2024-2025 return `volume_fp = 0.00` (zero trading activity recorded).
-This includes NASDAQ100 daily bracket markets from Oct 2024.
+Kalshi exposes a separate historical tier for markets settled before the cutoff.
+The cutoff date was discovered at `GET /historical/cutoff`:
+`{"market_settled_ts": "2026-04-13T00:00:00Z"}`.
 
-Election and financial series are absent from search results:
-- KXPRES, KXPRESUSA, KXSENATE, KXHOUSE: 0 settled markets
-- NASDAQ100 series filter: 0 settled markets
-- INX series filter: 0 settled markets
+**Historical endpoint behavior (`GET /historical/markets`):**
 
-These appear in the API as legacy records with no volume data — the old
-trading-api.kalshi.com system's data was not carried over into the elections API
-with live trading metrics.
+- Returns markets sorted newest-first — no ascending sort option
+- Silently ignores `min_close_ts` / `max_close_ts` query parameters
+- 50 pages × 200 = 10,000 markets scanned → all from 2026-04-12 only
+- Series filter results:
+  - `series_ticker=KXPRES` → **0 results**
+  - `series_ticker=KXFOMC` → **0 results**
+  - `series_ticker=KXNASDAQ` → **0 results**
+  - `series_ticker=KXBTCD` (BTC daily brackets) → results but only April 2026
+  - `series_ticker=KXTEMPNYCH` (NYC temperature) → 4,000 markets, March–April 2026 only, 3 in 80–97¢
+
+**Estimated pages to reach June 2024:**
+
+~500–1,000 sports parlay markets/day × 680 days ÷ 200 per page ≈ 1,700–3,400 pages
+minimum, just for sports. Election/financial series (KXPRES, KXFOMC) are not indexed
+in the settled listing at all and cannot be reached via `series_ticker` filter.
+
+**Historical market schema differs from live:** no `series_ticker` or `category` fields;
+uses `event_ticker` and `mve_collection_ticker`. The `_normalise_market` helper
+already derives series from `event_ticker` as a fallback.
 
 ---
 
 ## 5. Root Cause
 
-Kalshi pivoted its main platform toward U.S. election and politics markets
-around 2024-2025, migrating to `api.elections.kalshi.com`. The prior market
-types (sports game-winners, Fed rate markets, financial brackets, individual
-game outcome markets) that would generate the rich binary-price time-series
-needed for a favorites calibration study are either:
+The Kalshi API (`api.elections.kalshi.com`) was designed for real-time access,
+not historical research. Both the live and historical tiers:
 
-1. **Not in this API** — data lives on a legacy system or a different endpoint
-2. **Present but zero-volume** — market shells with no price history recorded
+1. Sort newest-first with no mechanism to jump to older dates
+2. Are dominated by daily sports parlay bundles (~500–1,000/day) that bury
+   election/financial/economic markets far back in the pagination stack
+3. Have no working date-range filter on the historical tier
+4. Do not index election series (KXPRES, KXSENATE) in the settled-market listing
 
-The high-volume market type that IS present (KXMVESPORTSMULTIGAMEEXTENDED)
-is a 5-leg daily sports parlay that resolves within hours and has no gradual
-price discovery in the 80-97¢ range.
+The 2024 election, Fed, CPI, and financial bracket markets exist in the Kalshi
+database but are effectively unreachable via this API without a multi-day crawl.
 
 ---
 
@@ -108,14 +121,15 @@ This is below the 5,000 threshold, and the analysis is stopped.
 
 ## 7. What Would Be Required to Proceed
 
-1. **Access the legacy Kalshi trading API** — the prior platform (trading-api.kalshi.com)
-   may have a different data endpoint with historical game-winner and economic
-   outcome markets from 2022-2024.
+1. **Kalshi bulk historical download** — Kalshi publishes complete market history
+   at https://kalshi.com/stats/historical-data (downloadable ZIP archives).
+   These contain all settled markets with their full price histories, bypassing
+   the API pagination problem entirely. This is the primary recommended path.
 
-2. **Alternative data source** — Kalshi publishes bulk market history files at
-   https://kalshi.com/stats/historical-data (downloadable ZIP archives).
-   These contain all settled markets with their price histories and would enable
-   the full calibration analysis without API rate limits.
+2. **Deep API crawl** — Theoretically possible but impractical: filter by specific
+   series (KXBTCD, KXTEMPNYCH, etc.) and crawl page by page until reaching 2024 data.
+   Estimated 1,700–3,400+ pages, ~7–14 hours of runtime, and only for series that
+   the API indexes. Election series (KXPRES, KXFOMC) are not available via this path.
 
 3. **Sufficient universe** — need ≥ 5,000 markets where the YES ask price was
    in the 80-97¢ range at some point in the final 72h before close, with
