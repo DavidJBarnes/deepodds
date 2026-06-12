@@ -33,3 +33,6 @@ backend/app/core/climate_platt.json
 backend/backtest/data/
 backend/backtest/results/
 backend/backtest/REPORT_equity.png
+
+# Kalshi backtest data + output (large CSV, not committed)
+backend/kalshi_backtest/data/
