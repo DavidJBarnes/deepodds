@@ -37,6 +37,7 @@ logger = logging.getLogger("backtest.sweep")
 RESULTS_DIR = Path(__file__).parent / "results"
 RESULTS_CSV = RESULTS_DIR / "sweep_results.csv"        # v1 (kept for reference)
 RESULTS_V2_CSV = RESULTS_DIR / "sweep_results_v2.csv"  # v2 with rebalancing + band sweep
+RESULTS_V3_CSV = RESULTS_DIR / "sweep_results_v3.csv"  # v3 with symmetric resize
 
 SELECTION_START = "2020-01-01"
 SELECTION_END   = "2023-12-31"
@@ -107,6 +108,9 @@ def _row_from_result(result, capital: float, hurdle: float, rich: float,
         "topup_count": result.rebalance_topup_count,
         "recenter_count": result.rebalance_recenter_count,
         "recenter_fees": round(result.rebalance_fees_usd, 4),
+        "resize_up": result.resize_up_count,
+        "resize_down": result.resize_down_count,
+        "resize_fees": round(result.resize_fees_usd, 4),
         "net_pnl": round(result.net_pnl, 2),
         "yearly": result.yearly,
     }
@@ -257,11 +261,11 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
     # Save to CSV (exclude yearly column — it's a list)
     if all_rows:
         flat_rows = [{k: v for k, v in r.items() if k != "yearly"} for r in all_rows]
-        with open(RESULTS_V2_CSV, "w", newline="") as f:
+        with open(RESULTS_V3_CSV, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(flat_rows[0].keys()))
             writer.writeheader()
             writer.writerows(flat_rows)
-        logger.info("Saved %d rows to %s", len(flat_rows), RESULTS_V2_CSV)
+        logger.info("Saved %d rows to %s", len(flat_rows), RESULTS_V3_CSV)
 
     # Build and return DataFrame (include all rows with yearly as string)
     df = pd.DataFrame(all_rows)
@@ -271,7 +275,7 @@ def run_sweep(frames: dict | None = None, verbose: bool = True) -> pd.DataFrame:
 def main() -> None:
     """Run the full sweep and print top-10 validation results."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    print("=== Carry Backtest — Parameter Sweep ===\n")
+    print("=== Carry Backtest v3 — Parameter Sweep ===\n")
     df = run_sweep(verbose=True)
 
     val = df[df["window"].isin(["validation", "prod_default"])]
@@ -279,8 +283,8 @@ def main() -> None:
         print("\nTop validation results ($8k):")
         sub = val[val["capital"] == 8000].sort_values("roi_ann", ascending=False)
         print(sub[["window", "hurdle", "rich", "trail_h", "exit", "band", "roi_ann",
-                    "sharpe", "max_dd", "liquidations", "kill_events"]].head(10).to_string(index=False))
-    print(f"\nAll results saved to: {RESULTS_V2_CSV}")
+                    "sharpe", "max_dd", "liquidations", "kill_events", "resize_up", "resize_down"]].head(10).to_string(index=False))
+    print(f"\nAll results saved to: {RESULTS_V3_CSV}")
 
 
 if __name__ == "__main__":

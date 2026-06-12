@@ -39,5 +39,11 @@ class CarryConfig:
     max_leverage_band: float = 3.0   # effective leverage above which rebalancing triggers
     cash_floor_frac: float = 0.02    # min free-cash fraction after any Tier-A transfer
 
+    # Symmetric position resize (Phase 2A fix for frozen-notional bug).
+    # When |current_notional - gate_target| / max(current, target) > this threshold,
+    # adjust toward target with real fills. Prevents positions opened near the hurdle
+    # from staying tiny when trailing rises to the rich band.
+    resize_tolerance: float = 0.25
+
     # Halt semantics: True = halt forever on kill (live default); False = replay mode.
     halt_on_kill: bool = True

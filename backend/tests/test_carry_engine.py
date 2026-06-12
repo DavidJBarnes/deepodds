@@ -1,8 +1,8 @@
 """Lock the funding-carry money-math: gating, accrual, delta-neutrality,
-liquidation, capital conservation, and v2 two-tier rebalancing."""
+liquidation, capital conservation, and v2/v3 rebalancing + resize."""
 from carry.config import CarryConfig
 from carry.engine import (
-    accrue_funding, close_position, open_position, rebalance,
+    accrue_funding, close_position, open_position, rebalance, resize_position,
     target_notional, tick,
 )
 from carry.models import CarryPosition, PaperPortfolio
@@ -314,3 +314,197 @@ def test_build_snapshot_shape():
     assert snap["symbols"]["BTC"]["notional"] > 0      # opened (rich)
     assert snap["symbols"]["ETH"]["target"] == 0.0      # gated out (thin)
     assert "equity" in snap and "accrued_funding_total" in snap
+
+
+# ---------------------------------------------------------------------------
+# v3 — Symmetric resize (Phase 2A: frozen-notional fix)
+# ---------------------------------------------------------------------------
+
+def _scaled_ctx(mark: float, funding: float = 0.0001) -> dict:
+    """Full bid/ask context for resize tests."""
+    half = 0.0001   # 1bp half-spread
+    return {
+        "funding": funding, "mark": mark, "oracle": mark,
+        "perp_bid": mark * (1 - half), "perp_ask": mark * (1 + half),
+        "spot_bid": mark * (1 - half), "spot_ask": mark * (1 + half),
+    }
+
+
+def test_resize_up_fires_when_notional_below_target():
+    """
+    Regression for the frozen-notional bug.
+    Open at trailing barely above hurdle → tiny notional.
+    When trailing rises to rich, resize_up must bring notional to target.
+    """
+    cfg = CarryConfig(
+        paper_capital_usd=100_000.0,
+        max_notional_per_symbol=20_000.0,
+        max_total_notional_usd=40_000.0,
+        resize_tolerance=0.25,
+        target_leverage=2.0, reserve_frac=0.15,
+    )
+    pf = PaperPortfolio(cash_usd=100_000.0)
+    mark = 50_000.0
+
+    # Open at just-above-hurdle trailing (6.1%) → tiny notional
+    trailing_open = 0.061
+    tgt_open = target_notional(trailing_open, cfg)  # small fraction of max
+    open_position(pf, "BTC", mark, tgt_open, cfg)
+    notional_before = pf.positions["BTC"].coin_qty * mark
+    assert notional_before < 200, f"Expected tiny open, got ${notional_before:.0f}"
+
+    # Now trailing is rich (25%) → tgt_new >> current
+    trailing_rich = 0.25
+    tgt_new = target_notional(trailing_rich, cfg)    # should be max_notional_per_symbol
+    ctx = _scaled_ctx(mark)
+
+    result = resize_position(pf, "BTC", tgt_new, mark, cfg, {"BTC": mark},
+                             fill_perp_bid=ctx["perp_bid"], fill_spot_ask=ctx["spot_ask"],
+                             fill_perp_ask=ctx["perp_ask"], fill_spot_bid=ctx["spot_bid"])
+
+    assert result == "resize_up"
+    assert pf.resize_up_count == 1
+    notional_after = pf.positions["BTC"].coin_qty * mark
+    assert abs(notional_after - tgt_new) / tgt_new < 0.01, (
+        f"After resize_up, notional ${notional_after:.0f} should be ≈ ${tgt_new:.0f}"
+    )
+
+
+def test_resize_up_accounting_invariant():
+    """
+    After resize_up, the accounting invariant must hold:
+    equity = capital + realized_pnl + sum(open_pnl).
+    """
+    cfg = CarryConfig(
+        paper_capital_usd=100_000.0,
+        max_notional_per_symbol=20_000.0,
+        max_total_notional_usd=40_000.0,
+        resize_tolerance=0.25,
+        target_leverage=2.0, reserve_frac=0.15,
+    )
+    pf = PaperPortfolio(cash_usd=100_000.0)
+    mark = 50_000.0
+
+    open_position(pf, "BTC", mark, 500.0, cfg)   # open at tiny notional
+
+    marks = {"BTC": mark}
+    tgt_new = 20_000.0
+    ctx = _scaled_ctx(mark)
+    resize_position(pf, "BTC", tgt_new, mark, cfg, marks,
+                    fill_perp_bid=ctx["perp_bid"], fill_spot_ask=ctx["spot_ask"],
+                    fill_perp_ask=ctx["perp_ask"], fill_spot_bid=ctx["spot_bid"])
+
+    pos = pf.positions["BTC"]
+    # equity() = cash + coin_qty*entry_perp + hl_margin + accrued_funding + reserve
+    equity = pf.equity(marks)
+    open_pnl = (pos.accrued_funding
+                + pos.coin_qty * (pos.entry_perp - mark)
+                + pos.coin_qty * (mark - pos.entry_spot)
+                - pos.fees_paid)
+    expected = cfg.paper_capital_usd + pf.realized_pnl + open_pnl
+    assert abs(equity - expected) < 0.01, f"Invariant violated: actual={equity:.4f} expected={expected:.4f}"
+
+
+def test_resize_down_fires_when_notional_above_target():
+    """
+    Open at full notional ($20k). Trailing drops: target shrinks to $5k.
+    resize_down must reduce position proportionally.
+    """
+    cfg = CarryConfig(
+        paper_capital_usd=100_000.0,
+        max_notional_per_symbol=20_000.0,
+        max_total_notional_usd=40_000.0,
+        resize_tolerance=0.25,
+        target_leverage=2.0, reserve_frac=0.15,
+    )
+    pf = PaperPortfolio(cash_usd=100_000.0)
+    mark = 50_000.0
+
+    open_position(pf, "BTC", mark, 20_000.0, cfg)
+    notional_before = pf.positions["BTC"].coin_qty * mark
+
+    tgt_new = 5_000.0   # gate wants to shrink the position
+    ctx = _scaled_ctx(mark)
+
+    result = resize_position(pf, "BTC", tgt_new, mark, cfg, {"BTC": mark},
+                             fill_perp_bid=ctx["perp_bid"], fill_spot_ask=ctx["spot_ask"],
+                             fill_perp_ask=ctx["perp_ask"], fill_spot_bid=ctx["spot_bid"])
+
+    assert result == "resize_down"
+    assert pf.resize_down_count == 1
+    notional_after = pf.positions["BTC"].coin_qty * mark
+    assert notional_after < notional_before
+    # Should land close to the target
+    assert abs(notional_after - tgt_new) / tgt_new < 0.01, (
+        f"After resize_down, notional ${notional_after:.0f} should be ≈ ${tgt_new:.0f}"
+    )
+
+
+def test_resize_down_accounting_invariant():
+    """After resize_down the accounting invariant holds (equity = capital + pnl)."""
+    cfg = CarryConfig(
+        paper_capital_usd=100_000.0,
+        max_notional_per_symbol=20_000.0,
+        max_total_notional_usd=40_000.0,
+        resize_tolerance=0.25,
+        target_leverage=2.0, reserve_frac=0.15,
+    )
+    pf = PaperPortfolio(cash_usd=100_000.0)
+    mark = 50_000.0
+
+    open_position(pf, "BTC", mark, 20_000.0, cfg)
+    # Accrue some funding so pos.accrued_funding > 0
+    from carry.engine import accrue_funding
+    accrue_funding(pf.positions["BTC"], 0.00002, mark, 100.0)
+    pf.accrued_funding_total += pf.positions["BTC"].accrued_funding
+
+    marks = {"BTC": mark}
+    tgt_new = 5_000.0
+    ctx = _scaled_ctx(mark)
+    resize_position(pf, "BTC", tgt_new, mark, cfg, marks,
+                    fill_perp_bid=ctx["perp_bid"], fill_spot_ask=ctx["spot_ask"],
+                    fill_perp_ask=ctx["perp_ask"], fill_spot_bid=ctx["spot_bid"])
+
+    pos = pf.positions["BTC"]
+    equity = pf.equity(marks)
+    open_pnl = (pos.accrued_funding
+                + pos.coin_qty * (pos.entry_perp - mark)
+                + pos.coin_qty * (mark - pos.entry_spot)
+                - pos.fees_paid)
+    expected = cfg.paper_capital_usd + pf.realized_pnl + open_pnl
+    assert abs(equity - expected) < 0.01, f"Invariant violated: actual={equity:.4f} expected={expected:.4f}"
+
+
+def test_tick_resizes_position_toward_target():
+    """
+    tick() integration: open at tiny notional, then call tick() with rich trailing.
+    Position must be resized up within the tick (no separate call needed).
+    """
+    cfg = CarryConfig(
+        paper_capital_usd=100_000.0,
+        max_notional_per_symbol=20_000.0,
+        max_total_notional_usd=40_000.0,
+        resize_tolerance=0.25,
+        target_leverage=2.0, reserve_frac=0.15,
+        min_funding_hurdle_ann=0.06,
+        rich_funding_ann=0.20,
+    )
+    pf = PaperPortfolio(cash_usd=100_000.0)
+    mark = 50_000.0
+
+    # Open at tiny notional (just above hurdle)
+    tgt_small = target_notional(0.061, cfg)
+    open_position(pf, "BTC", mark, tgt_small, cfg)
+    notional_after_open = pf.positions["BTC"].coin_qty * mark
+
+    ctx = _scaled_ctx(mark, funding=0.00003)   # rich instantaneous rate
+    pf.last_tick_ts = 0.0  # first tick
+
+    # One tick with 25% trailing (well above rich band)
+    tick(pf, {"BTC": ctx}, {"BTC": 0.25}, cfg, now_ts=3_600)
+
+    notional_after_tick = pf.positions["BTC"].coin_qty * mark
+    assert notional_after_tick > notional_after_open, (
+        "tick() must upsize position when trailing is rich"
+    )
+    assert pf.resize_up_count >= 1

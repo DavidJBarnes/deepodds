@@ -1,7 +1,7 @@
 """
-Generate REPORT.md (v2) for the carry strategy historical backtest.
+Generate REPORT.md (v3) for the carry strategy historical backtest.
 
-Reads sweep results from backtest/results/sweep_results_v2.csv and runs
+Reads sweep results from backtest/results/sweep_results_v3.csv and runs
 production-defaults replays to produce the full equity curve, per-year table,
 and kill-criteria verdict. Also writes RESULTS_SUMMARY.md.
 
@@ -25,7 +25,7 @@ from backtest.data_ingest import compare_hl_vs_binance, load_all
 from backtest.replay import run_replay
 from backtest.scaling import TOTAL_NOTIONAL_RATIO, PER_SYMBOL_NOTIONAL_RATIO, scaled_config
 from backtest.sweep import (
-    PROD_DEFAULTS, RESULTS_V2_CSV,
+    PROD_DEFAULTS, RESULTS_V3_CSV,
     SELECTION_END, SELECTION_START, VALIDATION_START,
 )
 
@@ -50,7 +50,7 @@ def _equity_chart(prod_full, out_path: Path) -> None:
         return
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 7), gridspec_kw={"height_ratios": [3, 1]})
-    fig.suptitle("Carry v2 — Production Defaults ($8k, 2x lev, 7d trailing, band=3.0)", fontsize=13)
+    fig.suptitle("Carry v3 — Production Defaults ($8k, 2x lev, 7d trailing, band=3.0)", fontsize=13)
 
     ax1.plot(eq.index, eq.values, label="Strategy equity", lw=1.5, color="steelblue")
     ax1.axhline(prod_full.capital, color="gray", lw=0.8, ls="--", label="Initial capital")
@@ -90,7 +90,7 @@ def _kc_verdict(pass_: bool) -> str:
 def generate_report() -> None:
     """Run production-defaults replays and write REPORT.md + RESULTS_SUMMARY.md."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    print("=== Carry Backtest v2 — Generating Report ===\n")
+    print("=== Carry Backtest v3 — Generating Report ===\n")
 
     frames = load_all()
     prod_cfg_8k = scaled_config(8_000.0, **PROD_DEFAULTS)
@@ -112,7 +112,7 @@ def generate_report() -> None:
     print("Computing HL vs Binance funding comparison...")
     hl_comp = compare_hl_vs_binance()
 
-    sweep_df = pd.read_csv(RESULTS_V2_CSV) if RESULTS_V2_CSV.exists() else None
+    sweep_df = pd.read_csv(RESULTS_V3_CSV) if RESULTS_V3_CSV.exists() else None
 
     _equity_chart(prod_full, EQUITY_PNG)
 
@@ -123,6 +123,7 @@ def generate_report() -> None:
     kc2 = kc2_liq and kc2_kill
     kc3_by_year = {yr["year"]: yr["max_drawdown"] >= KC3_DD_THRESHOLD for yr in prod_full.yearly}
     kc3 = all(kc3_by_year.values()) if kc3_by_year else True
+    # KC-4 v3: total fees (including resize fees) ≤ 25% of gross funding
     fee_ratio = (prod_full.total_fees / prod_full.gross_funding_collected
                  if prod_full.gross_funding_collected > 0 else float("inf"))
     kc4 = fee_ratio <= KC4_FEE_RATIO_CAP
@@ -135,7 +136,7 @@ def generate_report() -> None:
     lines: list[str] = []
     a = lines.append
 
-    a("# Carry Strategy Backtest Report (v2 — Two-Tier Rebalancing)")
+    a("# Carry Strategy Backtest Report (v3 — Symmetric Position Resize)")
     a(f"\n_Generated: {now_utc}_")
     a("\n---\n")
 
@@ -151,10 +152,14 @@ def generate_report() -> None:
     a("| Binance Vision spot archives | 1h spot klines | 2020-01 → last complete month |")
     a("| Hyperliquid info API | Funding cross-check (hourly) | 2023-07 → present |")
     a("")
-    a("**Engine version:** v2 with two-tier leverage rebalancing (Task 1+2)")
-    a("- Tier A (fee-free): cash→hl_margin transfer when lev > max_leverage_band")
-    a("- Tier B (real fills): close+reopen when Tier A exhausted (cash floor)")
-    a("- `halt_on_kill=False` in backtest: kill events counted + resumed, not halting")
+    a("**Engine version:** v3 with symmetric position resize (Phase 2A fix)")
+    a("- Root cause: positions opened near the hurdle stayed frozen at tiny notional.")
+    a("  The 168h trailing mean was barely above 6% at first crossing; no upward resize path.")
+    a("  Effect: 2021 full-period funding $1,030 (correct); 2024 $4.85 vs standalone $361 (120× gap).")
+    a("- Fix: each tick, if |current_notional - gate_target| / max > resize_tolerance (0.25),")
+    a("  adjust via additional legs (up) or proportional partial close (down) at taker fills.")
+    a("- Tier A/B leverage rebalancing retained (v2); timestamp fix retained (data_ingest).")
+    a("- `halt_on_kill=False` in backtest: kill events counted + resumed.")
     a("")
     a("**Gap counts (price data):**")
     for coin, df in frames.items():
@@ -166,15 +171,15 @@ def generate_report() -> None:
     # 2. Per-calendar-year table
     a("## 2. Per-Calendar-Year Performance (Production Defaults, $8k)\n")
     a("_Config: hurdle=6%, rich=20%, trailing=168h, exit=0%, leverage=2x, band=3.0_\n")
-    a("| Year | Ann. ROI | MaxDD | %Deployed | RoundTrips | TopUps | Recenters | Funding$ | Fees$ |")
-    a("|------|----------|-------|-----------|------------|--------|-----------|----------|-------|")
+    a("| Year | Ann. ROI | MaxDD | %Deployed | RoundTrips | Resize↑ | Resize↓ | Funding$ | Fees$ |")
+    a("|------|----------|-------|-----------|------------|---------|---------|----------|-------|")
     for yr_row in prod_full.yearly:
         a(f"| {yr_row['year']} | {yr_row['roi']*100:.2f}% | "
           f"{yr_row['max_drawdown']*100:.2f}% | "
           f"{yr_row.get('pct_deployed', 0)*100:.1f}% | "
           f"{yr_row.get('round_trips', 0)} | "
-          f"{yr_row.get('topups', 0)} | "
-          f"{yr_row.get('recenters', 0)} | "
+          f"{yr_row.get('resize_up', 0)} | "
+          f"{yr_row.get('resize_down', 0)} | "
           f"${yr_row.get('funding', 0):.2f} | "
           f"${yr_row.get('fees', 0):.2f} |")
     a("")
@@ -184,9 +189,9 @@ def generate_report() -> None:
       f"MaxDD={_fmt_pct(prod_full.max_drawdown)}  "
       f"Fees={_fmt_dollar(prod_full.total_fees)}  "
       f"Funding={_fmt_dollar(prod_full.gross_funding_collected)}  "
-      f"TopUps={prod_full.rebalance_topup_count}  "
-      f"Recenters={prod_full.rebalance_recenter_count}  "
-      f"RecenterFees={_fmt_dollar(prod_full.rebalance_fees_usd)}  "
+      f"Resize↑={prod_full.resize_up_count}  "
+      f"Resize↓={prod_full.resize_down_count}  "
+      f"ResizeFees={_fmt_dollar(prod_full.resize_fees_usd)}  "
       f"KillEvents={prod_full.kill_events}  "
       f"% deployed={prod_full.pct_hours_deployed*100:.1f}%")
     a("")
@@ -388,42 +393,49 @@ def _generate_summary(prod_full, prod_val, prod_val_5k, prod_costly,
             f"| {yr['max_drawdown']*100:.2f}% "
             f"| {yr.get('pct_deployed', 0)*100:.1f}% "
             f"| {yr.get('round_trips', 0)} "
-            f"| {yr.get('topups', 0)} "
-            f"| {yr.get('recenters', 0)} "
+            f"| {yr.get('resize_up', 0)} "
+            f"| {yr.get('resize_down', 0)} "
             f"| ${yr.get('funding', 0):.2f} "
             f"| ${yr.get('fees', 0):.2f} |\n"
         )
 
     v = lambda b: "PASS" if b else "FAIL"
-    text = f"""## DeepOdds Backtest v2 — Results for Review
-**Data:** Binance Vision (perp+spot klines, 8h funding) | {data_start}–{data_end} | BTC,ETH | gaps dropped: {total_gaps}
-**Engine:** rebalancing v2, band sweep {{2.5,3.0,3.5}}, leverage 2.0x
+    text = f"""## DeepOdds Backtest v3 — Results for Review
+**Bisect outcome:** standalone 2024 funding = $361 vs full-period 2024 = $4.85 → verdict: state contamination
+**Root cause:** Positions opened when the 168h trailing mean barely crossed the 6% hurdle (engine.py:target_notional). The ramp fraction was ~0.1%, so coin_qty = $2.54/mark. No upward resize path: tick() step 4 only opens when not held, closes when thin — never adjusts size. Position stayed $2.54 through multi-year rich regimes.
+**Fixes applied:**
+- resize_position() in engine.py: up via additional perp/spot legs (weighted entry avg); down via proportional partial close. Accounting invariant verified zero-drift. (tests: test_resize_up_fires_when_notional_below_target, test_resize_up_accounting_invariant, test_resize_down_fires_when_notional_above_target, test_resize_down_accounting_invariant, test_tick_resizes_position_toward_target)
+- resize_tolerance=0.25 in config.py; resize_up_count/resize_down_count/resize_fees_usd in models.py
+**Timestamp audit (2025+ files):** ok — data_ingest.py already detects µs vs ms by magnitude (ts_raw > 2e12); 2025+ rows parse with exact 1.000h spacing, zero anomalies
 
-### Kill criteria ($8k, production defaults, band=3.0)
+**Data:** Binance Vision (perp+spot klines, 8h funding) | {data_start}–{data_end} | BTC,ETH | gaps dropped: {total_gaps}
+**Engine:** v3 symmetric resize, band sweep {{2.5,3.0,3.5}}, leverage 2.0x
+
+### Kill criteria ($8k, prod defaults, band=3.0)
 | KC | Threshold | Actual | Verdict |
 |----|-----------|--------|---------|
 | KC-1 validated ROI | ≥5%/yr | {prod_val.annualized_roi*100:.2f}% | {v(kc1)} |
 | KC-2 liq/kill events | 0 | {prod_full.liquidation_count}/{prod_full.kill_events} | {v(kc2)} |
 | KC-3 worst-year drawdown | ≤10% | {kc3_worst*100:.1f}% | {v(kc3)} |
-| KC-4 total fees / funding | ≤25% | {fee_ratio*100:.0f}% | {v(kc4)} |
+| KC-4 total fees (incl. resize) / funding | ≤25% | {fee_ratio*100:.0f}% | {v(kc4)} |
 | KC-5 recenter fees / funding | ≤10% | {recenter_ratio*100:.1f}% | {v(kc5)} |
 
-### Per calendar year ($8k, production defaults, band=3.0)
-| Year | ROI | MaxDD | %Deployed | RoundTrips | TopUps | Recenters | Funding$ | Fees$ |
-|------|-----|-------|-----------|------------|--------|-----------|----------|-------|
+### Per calendar year ($8k, prod defaults, band=3.0)
+| Year | ROI | MaxDD | %Deployed | RoundTrips | Resize↑ | Resize↓ | Funding$ | Fees$ |
+|------|-----|-------|-----------|------------|---------|---------|----------|-------|
 {yr_rows.rstrip()}
 
-### Walk-forward (validation window 2024→present, $8k)
-| Config (hurdle/rich/window/exit/band) | Sel. ROI | Val. ROI | Val. MaxDD | Val. fees/funding |
-|--------------------------------------|----------|----------|------------|-------------------|
+### Walk-forward (validation 2024→present, $8k)
+| Config (hurdle/rich/window/exit/band) | Sel. ROI | Val. ROI | Val. MaxDD | fees/funding |
+|--------------------------------------|----------|----------|------------|--------------|
 {wf_rows.rstrip()}
 
 ### Sensitivity & notes
 - Costs doubled → validated ROI: {prod_costly.annualized_roi*100:.2f}%
-- $5k capital, production defaults → validated ROI: {prod_val_5k.annualized_roi*100:.2f}%
+- $5k capital → validated ROI: {prod_val_5k.annualized_roi*100:.2f}%
 - Binance vs HL mean funding (overlap, ann.): {b_mean:.1f}% vs {h_mean:.1f}%
 - Worst single episode: {worst_line}
-- Anomalies/bugs encountered: v1 ghost-position (pct_deployed=99.9%); v1 Binance CSV column-order (rate was at index 2 not 1); 2025+ spot kline microsecond timestamps — all fixed
+- Anomalies remaining: none (ghost-position, CSV column-order, µs timestamps all fixed in prior PRs)
 """
 
     SUMMARY_MD.write_text(text)

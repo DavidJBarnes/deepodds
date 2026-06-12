@@ -54,11 +54,16 @@ class ReplayResult:
     kill_switch_fired: bool = False     # True if any kill event fired (even after resume)
     worst_trade_pnl: float = 0.0       # worst single closed-trade P&L (from log)
 
-    # Rebalancing metrics (v2)
+    # Leverage rebalancing metrics (v2)
     rebalance_topup_count: int = 0     # Tier-A fee-free cash transfers
     rebalance_recenter_count: int = 0  # Tier-B close+reopen events
     rebalance_fees_usd: float = 0.0    # fees from Tier-B only
     kill_events: int = 0               # number of kill-switch trips (cleared + resumed each time)
+
+    # Funding-driven resize metrics (v3)
+    resize_up_count: int = 0
+    resize_down_count: int = 0
+    resize_fees_usd: float = 0.0
 
     # Calendar-year breakdown rows, filled by run_replay
     yearly: list[dict] = field(default_factory=list)
@@ -221,6 +226,8 @@ def _yearly_breakdown(daily_equity: pd.Series, pf: PaperPortfolio,
             "round_trips": ys.get("round_trips", 0),
             "topups": ys.get("topups", 0),
             "recenters": ys.get("recenters", 0),
+            "resize_up": ys.get("resize_up", 0),
+            "resize_down": ys.get("resize_down", 0),
             "funding": ys.get("funding", 0.0),
             "fees": ys.get("fees", 0.0),
         }
@@ -328,6 +335,8 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
         fees_before = pf.fees_total
         topup_before = pf.rebalance_topup_count
         recenter_before = pf.rebalance_recenter_count
+        resize_up_before = pf.resize_up_count
+        resize_down_before = pf.resize_down_count
         log_len_before = len(pf.log)
 
         tick(pf, ctx, trailing, cfg, ts.timestamp())
@@ -361,14 +370,17 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
             year_stats[yr] = {
                 "funding": 0.0, "fees": 0.0,
                 "topups": 0, "recenters": 0,
+                "resize_up": 0, "resize_down": 0,
                 "deployed": 0, "total": 0, "round_trips": 0,
             }
         ys = year_stats[yr]
-        ys["funding"] += pf.accrued_funding_total - fund_before
-        ys["fees"]    += pf.fees_total - fees_before
-        ys["topups"]  += pf.rebalance_topup_count - topup_before
-        ys["recenters"] += pf.rebalance_recenter_count - recenter_before
-        ys["total"]   += 1
+        ys["funding"]     += pf.accrued_funding_total - fund_before
+        ys["fees"]        += pf.fees_total - fees_before
+        ys["topups"]      += pf.rebalance_topup_count - topup_before
+        ys["recenters"]   += pf.rebalance_recenter_count - recenter_before
+        ys["resize_up"]   += pf.resize_up_count - resize_up_before
+        ys["resize_down"] += pf.resize_down_count - resize_down_before
+        ys["total"]       += 1
         if pf.positions and not pf.killed:
             ys["deployed"] += 1
         new_entries = pf.log[log_len_before:]
@@ -420,6 +432,9 @@ def run_replay(df_by_symbol: dict[str, pd.DataFrame],
         rebalance_recenter_count=pf.rebalance_recenter_count,
         rebalance_fees_usd=pf.rebalance_fees_usd,
         kill_events=kill_events,
+        resize_up_count=pf.resize_up_count,
+        resize_down_count=pf.resize_down_count,
+        resize_fees_usd=pf.resize_fees_usd,
     )
     result.yearly = _yearly_breakdown(equity_series, pf, cfg.paper_capital_usd, year_stats)
     return result

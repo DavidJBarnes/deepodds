@@ -1,6 +1,6 @@
-# Carry Strategy Backtest Report (v2 — Two-Tier Rebalancing)
+# Carry Strategy Backtest Report (v3 — Symmetric Position Resize)
 
-_Generated: 2026-06-11 21:30 UTC_
+_Generated: 2026-06-12 02:00 UTC_
 
 ---
 
@@ -15,10 +15,14 @@ _Generated: 2026-06-11 21:30 UTC_
 | Binance Vision spot archives | 1h spot klines | 2020-01 → last complete month |
 | Hyperliquid info API | Funding cross-check (hourly) | 2023-07 → present |
 
-**Engine version:** v2 with two-tier leverage rebalancing (Task 1+2)
-- Tier A (fee-free): cash→hl_margin transfer when lev > max_leverage_band
-- Tier B (real fills): close+reopen when Tier A exhausted (cash floor)
-- `halt_on_kill=False` in backtest: kill events counted + resumed, not halting
+**Engine version:** v3 with symmetric position resize (Phase 2A fix)
+- Root cause: positions opened near the hurdle stayed frozen at tiny notional.
+  The 168h trailing mean was barely above 6% at first crossing; no upward resize path.
+  Effect: 2021 full-period funding $1,030 (correct); 2024 $4.85 vs standalone $361 (120× gap).
+- Fix: each tick, if |current_notional - gate_target| / max > resize_tolerance (0.25),
+  adjust via additional legs (up) or proportional partial close (down) at taker fills.
+- Tier A/B leverage rebalancing retained (v2); timestamp fix retained (data_ingest).
+- `halt_on_kill=False` in backtest: kill events counted + resumed.
 
 **Gap counts (price data):**
   - BTC: 31 hours dropped
@@ -28,17 +32,17 @@ _Generated: 2026-06-11 21:30 UTC_
 
 _Config: hurdle=6%, rich=20%, trailing=168h, exit=0%, leverage=2x, band=3.0_
 
-| Year | Ann. ROI | MaxDD | %Deployed | RoundTrips | TopUps | Recenters | Funding$ | Fees$ |
-|------|----------|-------|-----------|------------|--------|-----------|----------|-------|
-| 2020 | 2.05% | -0.01% | 98.2% | 5 | 27 | 0 | $164.86 | $1.71 |
-| 2021 | 12.69% | -0.10% | 94.7% | 6 | 27 | 1 | $1030.32 | $8.95 |
-| 2022 | 0.01% | -0.00% | 70.4% | 13 | 5 | 0 | $0.61 | $0.17 |
-| 2023 | 0.02% | -0.00% | 87.4% | 2 | 14 | 0 | $1.89 | $0.04 |
-| 2024 | 0.06% | -0.00% | 89.5% | 2 | 14 | 0 | $4.85 | $0.04 |
-| 2025 | 0.00% | -0.00% | 95.8% | 4 | 6 | 0 | $0.41 | $0.03 |
-| 2026 | 0.00% | -0.00% | 26.8% | 2 | 0 | 0 | $0.02 | $0.01 |
+| Year | Ann. ROI | MaxDD | %Deployed | RoundTrips | Resize↑ | Resize↓ | Funding$ | Fees$ |
+|------|----------|-------|-----------|------------|---------|---------|----------|-------|
+| 2020 | 9.37% | -0.09% | 98.2% | 6 | 149 | 123 | $794.63 | $43.57 |
+| 2021 | 12.71% | -0.08% | 94.7% | 6 | 96 | 109 | $1061.16 | $32.65 |
+| 2022 | -0.07% | -0.08% | 70.4% | 13 | 320 | 299 | $13.42 | $16.68 |
+| 2023 | 1.10% | -0.05% | 87.4% | 2 | 333 | 300 | $121.42 | $29.59 |
+| 2024 | 4.22% | -0.01% | 89.5% | 2 | 142 | 149 | $365.03 | $24.65 |
+| 2025 | 0.04% | -0.05% | 95.8% | 4 | 338 | 310 | $21.78 | $15.78 |
+| 2026 | -0.01% | -0.01% | 26.8% | 2 | 39 | 37 | $0.39 | $0.82 |
 
-**Full period:** Net P&L=$1,187.39  Ann. ROI=2.31%  Sharpe=-3.658  MaxDD=-0.10%  Fees=$10.94  Funding=$1,202.97  TopUps=93  Recenters=1  RecenterFees=$7.24  KillEvents=0  % deployed=85.3%
+**Full period:** Net P&L=$2,198.24  Ann. ROI=4.28%  Sharpe=-0.426  MaxDD=-0.09%  Fees=$163.74  Funding=$2,377.83  Resize↑=1417  Resize↓=1327  ResizeFees=$153.74  KillEvents=0  % deployed=85.3%
 
 ## 3. Walk-Forward Results
 
@@ -48,33 +52,33 @@ _Config: hurdle=6%, rich=20%, trailing=168h, exit=0%, leverage=2x, band=3.0_
 
 | Hurdle | Rich | Trail(h) | Exit | Band | Ann.ROI | MaxDD | Deploy% |
 |--------|------|----------|------|------|---------|-------|---------|
-| 6% | 15% | 168 | 0% | 3.5 | 5.09% | -0.19% | 87.7% |
-| 6% | 15% | 168 | 2% | 3.5 | 5.08% | -0.19% | 84.7% |
-| 6% | 15% | 168 | 0% | 3.0 | 4.75% | -0.07% | 87.7% |
-| 6% | 15% | 168 | 2% | 3.0 | 4.74% | -0.07% | 84.7% |
-| 4% | 15% | 168 | 0% | 3.5 | 4.68% | -0.07% | 91.0% |
-| 4% | 15% | 168 | 2% | 3.5 | 4.68% | -0.07% | 88.3% |
-| 4% | 15% | 168 | 0% | 3.0 | 4.68% | -0.07% | 91.0% |
-| 4% | 15% | 168 | 2% | 3.0 | 4.67% | -0.07% | 88.3% |
-| 4% | 15% | 168 | 0% | 2.5 | 4.62% | -0.08% | 91.0% |
-| 4% | 15% | 168 | 2% | 2.5 | 4.62% | -0.08% | 88.3% |
+| 6% | 15% | 168 | 2% | 3.5 | 8.31% | -0.12% | 84.7% |
+| 6% | 15% | 168 | 2% | 3.0 | 8.31% | -0.12% | 84.7% |
+| 6% | 15% | 168 | 4% | 3.5 | 8.31% | -0.12% | 81.1% |
+| 6% | 15% | 168 | 4% | 3.0 | 8.31% | -0.12% | 81.1% |
+| 6% | 15% | 168 | 0% | 3.5 | 8.31% | -0.12% | 87.7% |
+| 6% | 15% | 168 | 0% | 3.0 | 8.31% | -0.12% | 87.7% |
+| 6% | 15% | 336 | 0% | 3.5 | 8.19% | -0.17% | 91.3% |
+| 6% | 15% | 336 | 2% | 3.5 | 8.19% | -0.17% | 83.6% |
+| 6% | 15% | 336 | 4% | 3.5 | 8.19% | -0.17% | 80.7% |
+| 4% | 15% | 168 | 2% | 3.0 | 8.02% | -0.12% | 88.3% |
 
 ### Validation window results ($8k)
 
 | Config | Hurdle | Rich | Trail(h) | Exit | Band | Ann.ROI | MaxDD | Liq | KillEvents |
 |--------|--------|------|----------|------|------|---------|-------|-----|------------|
-| prod_default | 6% | 20% | 168 | 0% | 3.0 | 1.79% | -0.04% | 0 | 0 |
-| validation | 6% | 15% | 168 | 0% | 3.5 | 1.69% | -0.04% | 0 | 0 |
-| validation | 6% | 15% | 168 | 0% | 3.0 | 1.69% | -0.04% | 0 | 0 |
-| validation | 6% | 15% | 168 | 2% | 3.5 | 1.62% | -0.04% | 0 | 0 |
+| validation | 6% | 15% | 168 | 0% | 3.5 | 1.71% | -0.10% | 0 | 0 |
+| prod_default | 6% | 20% | 168 | 0% | 3.0 | 1.67% | -0.07% | 0 | 0 |
+| validation | 6% | 15% | 168 | 0% | 3.0 | 1.65% | -0.10% | 0 | 0 |
+| validation | 6% | 15% | 168 | 2% | 3.0 | 1.65% | -0.10% | 0 | 0 |
 
 ## 4. Cost Sensitivity
 
 Production defaults ($8k), validation window, with all fees + spreads doubled:
-  - Baseline ROI: **1.79%**
-  - Doubled-cost ROI: **1.78%**
-  - ROI delta: **-0.00pp**
-  - Baseline fees: $13.92  |  Doubled-cost fees: $22.87
+  - Baseline ROI: **1.67%**
+  - Doubled-cost ROI: **1.38%**
+  - ROI delta: **-0.29pp**
+  - Baseline fees: $44.36  |  Doubled-cost fees: $88.71
 
 ## 5. Binance vs Hyperliquid Funding Comparison
 
@@ -110,13 +114,13 @@ Pre-agreed kill criteria, mechanically evaluated. No editorializing.
 
 | # | Criterion | Threshold | Actual | Result |
 |---|-----------|-----------|--------|--------|
-| KC-1 | Validation-window ann. ROI (prod defaults, $8k) | ≥ 5% | 1.79% ann. ROI ($8k, validation) | **FAIL** |
+| KC-1 | Validation-window ann. ROI (prod defaults, $8k) | ≥ 5% | 1.67% ann. ROI ($8k, validation) | **FAIL** |
 | KC-2 | Zero liquidations + zero kill events (full period, 2x lev) | 0 / 0 | 0 liquidations, 0 kill events (full 2020→present) | **PASS** |
-| KC-3 | Max drawdown ≤ 10% every calendar year | ≤ −10% | Worst: -0.10% (2021) | **PASS** |
-| KC-4 | Total fees ≤ 25% of gross funding | ≤ 25% | 0.9% ($10.94 / $1202.97) | **PASS** |
-| KC-5 | Tier-B recenter fees ≤ 10% of gross funding | ≤ 10% | 0.6% ($7.24 / $1202.97) | **PASS** |
+| KC-3 | Max drawdown ≤ 10% every calendar year | ≤ −10% | Worst: -0.09% (2020) | **PASS** |
+| KC-4 | Total fees ≤ 25% of gross funding | ≤ 25% | 6.9% ($163.74 / $2377.83) | **PASS** |
+| KC-5 | Tier-B recenter fees ≤ 10% of gross funding | ≤ 10% | 0.2% ($4.39 / $2377.83) | **PASS** |
 
 **Overall verdict:** ONE OR MORE KILL CRITERIA FAILED — see above.
 
-- KC-1 FAILED: Validation ROI 1.79% < 5%.
+- KC-1 FAILED: Validation ROI 1.67% < 5%.
 
