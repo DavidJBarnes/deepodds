@@ -7,6 +7,7 @@ from __future__ import annotations
 import csv
 import math
 import time
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch, call
@@ -508,3 +509,94 @@ class TestAnnualizedROI:
         state = SimState(bankroll=10_000.0)
         roi = annualized_roi(state, "2024-01-01", "2024-01-01", 10_000.0)
         assert roi == 0.0
+
+
+# ===========================================================================
+# 7. Historical API routing
+# ===========================================================================
+
+class TestHistoricalRouting:
+    """
+    Markets settled before cutoff_dt must hit /historical/... endpoints.
+    Markets settled after must hit the live /series/... or /markets endpoints.
+    """
+
+    CUTOFF_DT = datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+    def _market(self, close_dt: datetime, ticker: str = "KXTEST-ROUTING",
+                series: str = "KXTEST") -> dict:
+        return {
+            "ticker": ticker,
+            "event_ticker": ticker,
+            "series_ticker": series,
+            "category": "politics",
+            "title": "Routing test market",
+            "close_time": close_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "result": "yes",
+            "volume": 1000.0,
+        }
+
+    def test_candles_route_historical(self):
+        """Market settled before cutoff → GET /historical/markets/{ticker}/candlesticks."""
+        from kalshi_backtest import ingest
+
+        close_dt = self.CUTOFF_DT - timedelta(days=30)
+        market = self._market(close_dt)
+
+        called_paths = []
+        client = ingest.KalshiClient.__new__(ingest.KalshiClient)
+        client.get = lambda path, params=None: (called_paths.append(path) or {"candlesticks": []})
+
+        ingest.fetch_candles(client, market, cutoff_dt=self.CUTOFF_DT)
+
+        assert len(called_paths) == 1
+        assert called_paths[0] == f"/historical/markets/{market['ticker']}/candlesticks"
+
+    def test_candles_route_live(self):
+        """Market settled after cutoff → GET /series/{series}/markets/{ticker}/candlesticks."""
+        from kalshi_backtest import ingest
+
+        close_dt = self.CUTOFF_DT + timedelta(days=30)
+        market = self._market(close_dt, series="KXTEST")
+
+        called_paths = []
+        client = ingest.KalshiClient.__new__(ingest.KalshiClient)
+        client.get = lambda path, params=None: (called_paths.append(path) or {"candlesticks": []})
+
+        ingest.fetch_candles(client, market, cutoff_dt=self.CUTOFF_DT)
+
+        assert len(called_paths) == 1
+        expected = f"/series/KXTEST/markets/{market['ticker']}/candlesticks"
+        assert called_paths[0] == expected
+
+    def test_markets_both_tiers_called(self, tmp_path, monkeypatch):
+        """fetch_settled_markets with cutoff_dt queries /historical/markets AND /markets."""
+        from kalshi_backtest import ingest
+
+        monkeypatch.setattr(ingest, "MARKETS_DIR", tmp_path / "markets")
+        monkeypatch.setattr(ingest, "CANDLES_DIR", tmp_path / "candles")
+        (tmp_path / "markets").mkdir()
+
+        called_paths = []
+        client = MagicMock()
+
+        def mock_get(path, params=None):
+            called_paths.append(path)
+            return {"markets": [], "cursor": None}
+
+        client.get.side_effect = mock_get
+
+        cutoff = self.CUTOFF_DT
+        ingest.fetch_settled_markets(
+            client,
+            start=cutoff - timedelta(days=60),
+            end=cutoff + timedelta(days=60),
+            cutoff_dt=cutoff,
+        )
+
+        assert "/historical/markets" in called_paths, (
+            f"Expected /historical/markets call; got: {called_paths}"
+        )
+        assert "/markets" in called_paths, (
+            f"Expected /markets call; got: {called_paths}"
+        )

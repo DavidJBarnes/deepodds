@@ -1,22 +1,28 @@
 """
 Kalshi data ingestion — settled markets + candlesticks.
 
+Markets are partitioned into two API tiers:
+  - Historical  (settled before /historical/cutoff): GET /historical/markets
+  - Live        (settled after cutoff):               GET /markets
+
+Candlesticks follow the same split:
+  - Historical: GET /historical/markets/{ticker}/candlesticks
+  - Live:       GET /series/{series}/markets/{ticker}/candlesticks
+
+Both tiers are fetched transparently; the rest of the pipeline sees one merged list.
+
 Credentials required (env vars):
     KALSHI_API_KEY_ID        — your Kalshi API key ID
     KALSHI_PRIVATE_KEY_PATH  — path to the RSA private key PEM file
-
-Usage:
-    cd backend
-    uv run python -m kalshi_backtest.ingest
 """
 from __future__ import annotations
 
 import base64
 import csv
-import hashlib
 import logging
 import os
 import time
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -32,18 +38,19 @@ logger = logging.getLogger("kalshi_backtest.ingest")
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 _API_PATH_PREFIX = "/trade-api/v2"
+HIST_PREFIX = "/historical"      # relative to BASE_URL; no trailing slash
+
 DATA_DIR = Path(__file__).parent / "data"
 MARKETS_DIR = DATA_DIR / "markets"
 CANDLES_DIR = DATA_DIR / "candles"
 
 INGEST_START = datetime(2024, 6, 1, tzinfo=timezone.utc)
 MIN_VOLUME = 500          # contracts — initial floor; raised if universe too large
-CANDLE_PERIOD_SEC = 3600  # 1h candlesticks
 LOOKBACK_HOURS = 72       # hours of candles to fetch before close
-TARGET_PERIOD_MIN = 60    # 1h in minutes (Kalshi uses period_interval in minutes)
+TARGET_PERIOD_MIN = 60    # 1h in minutes (Kalshi period_interval is in minutes)
 
 # Rate-limit safety
-_REQUEST_DELAY_SEC = 0.25   # between requests
+_REQUEST_DELAY_SEC = 0.25   # between successful requests
 _RETRY_DELAYS = [2, 4, 8]   # seconds, for 429/5xx
 
 # ---------------------------------------------------------------------------
@@ -60,7 +67,6 @@ def _load_creds() -> tuple[str, bytes]:
             "Set the following env vars before running:\n"
             "  KALSHI_API_KEY_ID       — your API key ID from kalshi.com → Account → API\n"
             "  KALSHI_PRIVATE_KEY_PATH — path to the RSA private key PEM file\n"
-            "Generate a key at: https://kalshi.com/account/api\n"
         )
     pem_bytes = Path(key_path).read_bytes()
     return key_id, pem_bytes
@@ -70,11 +76,10 @@ def _sign_request(method: str, path: str, ts_ms: int, key_id: str,
                   pem_bytes: bytes) -> dict[str, str]:
     """Build KALSHI-ACCESS-* headers using RSA-PSS.
 
-    The signed message is: timestamp_ms + METHOD_UPPER + full_path_with_prefix.
-    full_path must start with /trade-api/v2 — Kalshi 401s if you sign only the suffix.
+    Signed message: timestamp_ms + METHOD_UPPER + /trade-api/v2 + path_suffix.
+    The full /trade-api/v2 prefix must be present — Kalshi 401s without it.
     """
     ts_str = str(ts_ms)
-    # Ensure the full /trade-api/v2 prefix is in the signed path
     full_path = path if path.startswith(_API_PATH_PREFIX) else _API_PATH_PREFIX + path
     msg = ts_str + method.upper() + full_path
     private_key = serialization.load_pem_private_key(pem_bytes, password=None)
@@ -133,7 +138,29 @@ class KalshiClient:
 
 
 # ---------------------------------------------------------------------------
-# Task 1a — Settled market universe
+# Historical tier — cutoff discovery
+# ---------------------------------------------------------------------------
+
+def fetch_historical_cutoff(client: KalshiClient) -> datetime:
+    """
+    Return the UTC datetime that separates the historical API tier from live.
+
+    Markets settled *before* this timestamp come from GET /historical/markets.
+    Markets settled *after* it come from GET /markets (live window, ~3 months).
+    """
+    data = client.get(f"{HIST_PREFIX}/cutoff")
+    ts = (data.get("market_settled_ts")
+          or data.get("cutoff_ts")
+          or data.get("cutoff"))
+    if ts is None:
+        raise RuntimeError(f"Unexpected /historical/cutoff response shape: {data!r}")
+    cutoff = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+    logger.info("Historical cutoff: %s", cutoff.isoformat())
+    return cutoff
+
+
+# ---------------------------------------------------------------------------
+# Market universe
 # ---------------------------------------------------------------------------
 
 MARKETS_FIELDS = [
@@ -141,26 +168,26 @@ MARKETS_FIELDS = [
     "title", "close_time", "result", "volume", "open_interest", "liquidity",
 ]
 
-# Prefix → category mapping for tickers Kalshi doesn't expose in the markets endpoint
+# Best-effort prefix → category for tickers where Kalshi omits the field
 _TICKER_PREFIX_TO_CATEGORY: dict[str, str] = {
-    "KXNBA": "sports", "KXNFL": "sports", "KXMLB": "sports",
-    "KXNHL": "sports", "KXNCAAF": "sports", "KXNCAAB": "sports",
-    "KXSOCCER": "sports", "KXMMA": "sports", "KXTENNIS": "sports",
-    "KXUFC": "sports", "KXgolf": "sports", "KXNASCAR": "sports",
-    "KXMLBHRR": "sports", "KXMLBTB": "sports",
-    "KXMVESPORTS": "sports", "KXMVECROSS": "sports",
-    "KXBTC": "financials", "KXETH": "financials", "KXSPY": "financials",
-    "KXNASDAQ": "financials", "KXSP": "financials", "KXDOW": "financials",
-    "KXGOLD": "financials", "KXOIL": "financials", "KXFED": "economics",
-    "KXFOMC": "economics", "KXCPI": "economics", "KXGDP": "economics",
-    "KXUNEMPLOYMENT": "economics", "KXJOBS": "economics",
-    "KXPRES": "politics", "KXELECTION": "politics", "KXCONGRESS": "politics",
-    "KXSENATE": "politics", "KXHOUSE": "politics",
+    "KXNBA": "sports",        "KXNFL": "sports",      "KXMLB": "sports",
+    "KXNHL": "sports",        "KXNCAAF": "sports",    "KXNCAAB": "sports",
+    "KXSOCCER": "sports",     "KXMMA": "sports",      "KXTENNIS": "sports",
+    "KXUFC": "sports",        "KXGOLF": "sports",     "KXNASCAR": "sports",
+    "KXMLBHRR": "sports",     "KXMLBTB": "sports",
+    "KXMVESPORTS": "sports",  "KXMVECROSS": "sports",
+    "KXBTC": "financials",    "KXETH": "financials",  "KXSPY": "financials",
+    "KXNASDAQ": "financials", "KXSP": "financials",   "KXDOW": "financials",
+    "KXGOLD": "financials",   "KXOIL": "financials",
+    "KXFED": "economics",     "KXFOMC": "economics",  "KXCPI": "economics",
+    "KXGDP": "economics",     "KXUNEMPLOYMENT": "economics", "KXJOBS": "economics",
+    "KXPRES": "politics",     "KXELECTION": "politics", "KXCONGRESS": "politics",
+    "KXSENATE": "politics",   "KXHOUSE": "politics",  "KXGOV": "politics",
+    "KXCLIMATE": "climate",   "KXWEATHER": "climate",
 }
 
 
 def _derive_category(ticker: str) -> str:
-    """Best-effort category from ticker prefix."""
     upper = ticker.upper()
     for prefix, cat in _TICKER_PREFIX_TO_CATEGORY.items():
         if upper.startswith(prefix):
@@ -169,7 +196,7 @@ def _derive_category(ticker: str) -> str:
 
 
 def _derive_series_ticker(event_ticker: str) -> str:
-    """Extract series from event_ticker: 'KXNBA-24-BOS' → 'KXNBA'."""
+    """'KXNBA-24-BOS' → 'KXNBA'."""
     if not event_ticker:
         return ""
     return event_ticker.split("-")[0]
@@ -180,7 +207,6 @@ def _month_shard_path(year: int, month: int) -> Path:
 
 
 def _existing_tickers() -> set[str]:
-    """All market tickers already persisted across all monthly shards."""
     tickers: set[str] = set()
     for p in MARKETS_DIR.glob("markets_*.csv"):
         with open(p, newline="") as f:
@@ -189,15 +215,107 @@ def _existing_tickers() -> set[str]:
     return tickers
 
 
+def _normalise_market(m: dict) -> dict | None:
+    """
+    Extract + normalise a raw API market dict.
+    Returns None if it fails the binary/volume filters (caller sets volume_floor).
+    Does NOT apply the volume_floor — caller checks vol_fp against it.
+    """
+    ticker = m.get("ticker", "")
+    result = m.get("result", "")
+    if result not in ("yes", "no"):
+        return None
+    vol_fp = float(m.get("volume_fp") or m.get("volume") or 0)
+    event_ticker = m.get("event_ticker", "")
+    series_ticker = m.get("series_ticker") or _derive_series_ticker(event_ticker)
+    category = ((m.get("category") or "").lower().strip()
+                or _derive_category(ticker))
+    return {
+        "ticker": ticker,
+        "event_ticker": event_ticker,
+        "series_ticker": series_ticker,
+        "category": category,
+        "title": m.get("title", "")[:200],
+        "close_time": m.get("close_time", ""),
+        "result": result,
+        "volume": round(vol_fp, 2),
+        "open_interest": float(m.get("open_interest_fp") or m.get("open_interest") or 0),
+        "liquidity": float(m.get("liquidity_dollars") or m.get("liquidity") or 0),
+        "_vol_fp": vol_fp,   # scratch field for caller's volume check; stripped before saving
+    }
+
+
+def _fetch_tier(client: KalshiClient,
+                markets_path: str,
+                start: datetime,
+                end: datetime,
+                existing: set[str],
+                volume_floor: int,
+                out: list[dict]) -> tuple[int, int]:
+    """
+    Page through `markets_path` (either /markets or /historical/markets)
+    for the [start, end] window. Appends passing rows to `out`.
+    Returns (total_seen, total_kept) for logging.
+    """
+    cursor: str | None = None
+    total_seen = 0
+    total_kept = 0
+    params: dict = {
+        "status": "settled",
+        "min_close_ts": int(start.timestamp()),
+        "max_close_ts": int(end.timestamp()),
+        "limit": 200,
+    }
+    logger.info("Tier %s: %s → %s", markets_path, start.date(), end.date())
+    while True:
+        if cursor:
+            params["cursor"] = cursor
+        elif "cursor" in params:
+            del params["cursor"]
+
+        data = client.get(markets_path, params=params)
+        markets = data.get("markets", [])
+        total_seen += len(markets)
+
+        for m in markets:
+            ticker = m.get("ticker", "")
+            if ticker in existing:
+                continue
+            row = _normalise_market(m)
+            if row is None:
+                continue
+            if row["_vol_fp"] < volume_floor:
+                continue
+            del row["_vol_fp"]
+            out.append(row)
+            existing.add(ticker)
+            total_kept += 1
+
+        cursor = data.get("cursor")
+        if not cursor or not markets:
+            break
+
+        if total_seen % 2000 == 0:
+            logger.info("  %s: scanned %d, kept %d", markets_path, total_seen, total_kept)
+
+    logger.info("  done %s: scanned=%d kept=%d", markets_path, total_seen, total_kept)
+    return total_seen, total_kept
+
+
 def fetch_settled_markets(client: KalshiClient,
                           start: datetime = INGEST_START,
                           end: datetime | None = None,
-                          volume_floor: int = MIN_VOLUME) -> list[dict]:
+                          volume_floor: int = MIN_VOLUME,
+                          cutoff_dt: datetime | None = None) -> list[dict]:
     """
-    Page through /markets?status=settled in [start, end].
-    Returns all markets passing volume_floor.
-    Checkpoints: shards already on disk are skipped; within the current
-    month, only tickers not yet seen are written.
+    Fetch all settled markets from [start, end], merging historical + live tiers.
+
+    `cutoff_dt` partitions requests:
+      - [start, cutoff_dt) → GET /historical/markets
+      - [cutoff_dt, end]   → GET /markets
+
+    Pass cutoff_dt=None to skip historical routing and use the live endpoint only
+    (backward-compatible for unit tests that don't need the split).
     """
     MARKETS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -206,84 +324,40 @@ def fetch_settled_markets(client: KalshiClient,
     logger.info("Found %d already-cached tickers", len(existing))
 
     all_markets: list[dict] = []
-    # Load already-cached
     for p in sorted(MARKETS_DIR.glob("markets_*.csv")):
         with open(p, newline="") as f:
             all_markets.extend(csv.DictReader(f))
     logger.info("Loaded %d cached markets", len(all_markets))
 
-    # Determine fetch range — only fetch months not fully cached
-    # Months fully before current month are assumed complete once their shard exists
-    cursor: str | None = None
-    fetched_this_run: list[dict] = []
-    total_seen = 0
-    total_kept = 0
+    fetched: list[dict] = []
+    total_seen = total_kept = 0
 
-    params: dict = {
-        "status": "settled",
-        "min_close_ts": int(start.timestamp()),
-        "max_close_ts": int(now.timestamp()),
-        "limit": 200,
-    }
+    if cutoff_dt is None:
+        # Backward-compat: live tier only
+        s, k = _fetch_tier(client, "/markets", start, now, existing, volume_floor, fetched)
+        total_seen += s
+        total_kept += k
+    else:
+        # Historical tier: [start, min(cutoff_dt, now)]
+        if start < cutoff_dt:
+            hist_end = min(cutoff_dt, now)
+            s, k = _fetch_tier(client, f"{HIST_PREFIX}/markets", start, hist_end,
+                               existing, volume_floor, fetched)
+            total_seen += s
+            total_kept += k
+        # Live tier: [max(start, cutoff_dt), now]
+        if now > cutoff_dt:
+            live_start = max(start, cutoff_dt)
+            s, k = _fetch_tier(client, "/markets", live_start, now,
+                               existing, volume_floor, fetched)
+            total_seen += s
+            total_kept += k
 
-    logger.info("Fetching settled markets from %s → %s", start.date(), now.date())
-    while True:
-        if cursor:
-            params["cursor"] = cursor
-        elif "cursor" in params:
-            del params["cursor"]
-
-        data = client.get("/markets", params=params)
-        markets = data.get("markets", [])
-        total_seen += len(markets)
-
-        for m in markets:
-            ticker = m.get("ticker", "")
-            if ticker in existing:
-                continue
-            # Only binary-settled markets
-            result = m.get("result", "")
-            if result not in ("yes", "no"):
-                continue
-            # API uses volume_fp (string float) not volume
-            vol_fp = float(m.get("volume_fp") or m.get("volume") or 0)
-            if vol_fp < volume_floor:
-                continue
-
-            event_ticker = m.get("event_ticker", "")
-            series_ticker = (m.get("series_ticker")
-                             or _derive_series_ticker(event_ticker))
-            category = ((m.get("category") or "").lower()
-                        or _derive_category(ticker))
-            row = {
-                "ticker": ticker,
-                "event_ticker": event_ticker,
-                "series_ticker": series_ticker,
-                "category": category,
-                "title": m.get("title", "")[:200],
-                "close_time": m.get("close_time", ""),
-                "result": result,
-                "volume": round(vol_fp, 2),
-                "open_interest": float(m.get("open_interest_fp") or m.get("open_interest") or 0),
-                "liquidity": float(m.get("liquidity_dollars") or m.get("liquidity") or 0),
-            }
-            fetched_this_run.append(row)
-            existing.add(ticker)
-            total_kept += 1
-
-        cursor = data.get("cursor")
-        if not cursor or not markets:
-            break
-
-        if total_seen % 1000 == 0:
-            logger.info("  Scanned %d markets, kept %d so far", total_seen, total_kept)
-
-    logger.info("Fetch complete: %d scanned, %d passed volume/binary filter",
-                total_seen, total_kept)
+    logger.info("Fetch complete: scanned=%d passed=%d", total_seen, total_kept)
 
     # Shard newly-fetched by close_time month
     shards: dict[tuple[int, int], list[dict]] = {}
-    for row in fetched_this_run:
+    for row in fetched:
         ct = row["close_time"]
         try:
             dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
@@ -304,9 +378,8 @@ def fetch_settled_markets(client: KalshiClient,
             w.writerows(rows)
         logger.info("Wrote %d rows to %s", len(rows), p.name)
 
-    all_markets.extend(fetched_this_run)
+    all_markets.extend(fetched)
 
-    # Log funnel
     by_cat: dict[str, int] = {}
     for m in all_markets:
         c = m.get("category", "other")
@@ -319,14 +392,71 @@ def fetch_settled_markets(client: KalshiClient,
 
 
 # ---------------------------------------------------------------------------
-# Task 1c — Price candlesticks
+# Per-month × category histogram (sanity gate before candlestick fetch)
+# ---------------------------------------------------------------------------
+
+def print_month_histogram(markets: list[dict]) -> None:
+    """
+    Print a per-month × per-category count table to stdout.
+    Run this after fetch_settled_markets to verify the universe includes
+    election/financial/economics categories before committing to candle fetch.
+    """
+    counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    cats: set[str] = set()
+
+    for m in markets:
+        ct = m.get("close_time", "")
+        try:
+            dt = datetime.fromisoformat(ct.replace("Z", "+00:00"))
+            month = f"{dt.year}-{dt.month:02d}"
+        except Exception:
+            month = "unknown"
+        cat = (m.get("category") or "other").lower()
+        counts[month][cat] += 1
+        cats.add(cat)
+
+    sorted_cats = sorted(cats)
+    col_w = 12
+    header = f"{'Month':<10}" + "".join(f"  {c:>{col_w}}" for c in sorted_cats) + f"  {'TOTAL':>7}"
+    sep = "-" * len(header)
+    print(sep)
+    print(header)
+    print(sep)
+
+    grand: dict[str, int] = defaultdict(int)
+    for month in sorted(counts):
+        row_data = counts[month]
+        total = sum(row_data.values())
+        row = f"{month:<10}" + "".join(f"  {row_data.get(c, 0):>{col_w}}" for c in sorted_cats) + f"  {total:>7}"
+        print(row)
+        for c in sorted_cats:
+            grand[c] += row_data.get(c, 0)
+
+    grand_total = sum(grand.values())
+    print(sep)
+    total_row = f"{'TOTAL':<10}" + "".join(f"  {grand[c]:>{col_w}}" for c in sorted_cats) + f"  {grand_total:>7}"
+    print(total_row)
+    print(sep)
+    print()
+
+    # Sanity gate: warn if expected categories are absent
+    expected = {"economics", "financials", "politics"}
+    missing = expected - set(cats)
+    if missing:
+        logger.warning("SANITY GATE: expected categories absent from universe: %s", missing)
+        logger.warning("Historical tier may not be routing correctly — check cutoff_dt.")
+    else:
+        logger.info("SANITY GATE OK: economics + financials + politics all present")
+
+
+# ---------------------------------------------------------------------------
+# Candlesticks
 # ---------------------------------------------------------------------------
 
 CANDLE_FIELDS = ["ticker", "ts", "yes_bid", "yes_ask", "price", "volume"]
 
 
 def _candle_path(ticker: str) -> Path:
-    # Use first 2 chars of ticker as subdir to avoid huge flat dirs
     safe = ticker.replace("/", "_").replace(":", "_")
     sub = CANDLES_DIR / safe[:2].lower()
     sub.mkdir(parents=True, exist_ok=True)
@@ -340,17 +470,26 @@ def _already_fetched_tickers() -> set[str]:
     return fetched
 
 
-def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
+def _price_from_nested(obj: object, fallback: float) -> float:
+    """Parse Kalshi price field: dict with close_dollars (string) or close (numeric)."""
+    if not isinstance(obj, dict):
+        return float(obj or fallback) if obj is not None else fallback
+    val = obj.get("close_dollars") or obj.get("close")
+    return float(val) if val is not None else fallback
+
+
+def fetch_candles(client: KalshiClient, market: dict,
+                  cutoff_dt: datetime | None = None) -> list[dict] | None:
     """
     Fetch 1h candles for [close_time - LOOKBACK_HOURS, close_time].
+
+    Routing:
+      - market settled before cutoff_dt → GET /historical/markets/{ticker}/candlesticks
+      - otherwise                        → GET /series/{series}/markets/{ticker}/candlesticks
+
     Returns list of dicts or None if unavailable.
     """
     ticker = market["ticker"]
-    series_ticker = market.get("series_ticker", "")
-    if not series_ticker:
-        logger.debug("No series_ticker for %s — skipping", ticker)
-        return None
-
     close_time_str = market.get("close_time", "")
     try:
         close_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
@@ -361,7 +500,15 @@ def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
     start_ts = int((close_dt - timedelta(hours=LOOKBACK_HOURS)).timestamp())
     end_ts = int(close_dt.timestamp())
 
-    path = f"/series/{series_ticker}/markets/{ticker}/candlesticks"
+    if cutoff_dt is not None and close_dt < cutoff_dt:
+        path = f"{HIST_PREFIX}/markets/{ticker}/candlesticks"
+    else:
+        series_ticker = market.get("series_ticker", "")
+        if not series_ticker:
+            logger.debug("No series_ticker for %s — skipping", ticker)
+            return None
+        path = f"/series/{series_ticker}/markets/{ticker}/candlesticks"
+
     params = {
         "start_ts": start_ts,
         "end_ts": end_ts,
@@ -380,16 +527,9 @@ def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
     rows = []
     for c in candles_raw:
         ts = c.get("end_period_ts") or c.get("ts") or 0
-        # Kalshi returns prices as dicts with "close_dollars" (string) or "close" (numeric)
-        def _price_from_nested(obj: dict, fallback: float) -> float:
-            if not isinstance(obj, dict):
-                return float(obj or fallback)
-            val = obj.get("close_dollars") or obj.get("close")
-            return float(val) if val is not None else fallback
-
-        yes_bid = _price_from_nested(c.get("yes_bid", {}) or c.get("yes", {}), 0.0)
-        yes_ask = _price_from_nested(c.get("yes_ask", {}), yes_bid)
-        price = _price_from_nested(c.get("price", {}), yes_bid)
+        yes_bid = _price_from_nested(c.get("yes_bid") or c.get("yes"), 0.0)
+        yes_ask = _price_from_nested(c.get("yes_ask"), yes_bid)
+        price = _price_from_nested(c.get("price"), yes_bid)
         vol = int(c.get("volume", 0) or 0)
         rows.append({
             "ticker": ticker,
@@ -403,18 +543,15 @@ def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
     return rows if rows else None
 
 
-def fetch_all_candles(client: KalshiClient, markets: list[dict]) -> dict[str, list[dict]]:
-    """
-    Fetch + cache candlesticks for all markets.
-    Skips already-cached tickers.
-    """
+def fetch_all_candles(client: KalshiClient, markets: list[dict],
+                      cutoff_dt: datetime | None = None) -> dict[str, list[dict]]:
+    """Fetch + cache candlesticks for all markets. Skips already-cached tickers."""
     CANDLES_DIR.mkdir(parents=True, exist_ok=True)
     done = _already_fetched_tickers()
     logger.info("%d tickers already have candle files", len(done))
 
     result: dict[str, list[dict]] = {}
 
-    # Load cached
     cached_count = 0
     for m in markets:
         safe = m["ticker"].replace("/", "_").replace(":", "_")
@@ -435,10 +572,8 @@ def fetch_all_candles(client: KalshiClient, markets: list[dict]) -> dict[str, li
     fetched = 0
     skipped = 0
     for i, m in enumerate(to_fetch):
-        rows = fetch_candles(client, m)
-        safe = m["ticker"].replace("/", "_").replace(":", "_")
+        rows = fetch_candles(client, m, cutoff_dt=cutoff_dt)
         if rows:
-            # Persist
             p = _candle_path(m["ticker"])
             with open(p, "w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=CANDLE_FIELDS)
@@ -447,9 +582,7 @@ def fetch_all_candles(client: KalshiClient, markets: list[dict]) -> dict[str, li
             result[m["ticker"]] = rows
             fetched += 1
         else:
-            # Write empty sentinel so we don't re-try
-            p = _candle_path(m["ticker"])
-            p.write_text("")
+            _candle_path(m["ticker"]).write_text("")
             skipped += 1
 
         if (i + 1) % 500 == 0:
@@ -466,7 +599,6 @@ def fetch_all_candles(client: KalshiClient, markets: list[dict]) -> dict[str, li
 # ---------------------------------------------------------------------------
 
 def load_markets() -> list[dict]:
-    """Load all cached market rows."""
     rows: list[dict] = []
     for p in sorted(MARKETS_DIR.glob("markets_*.csv")):
         with open(p, newline="") as f:
@@ -475,7 +607,6 @@ def load_markets() -> list[dict]:
 
 
 def load_candles(ticker: str) -> list[dict] | None:
-    """Load candle rows for one ticker. Returns None if not cached or empty."""
     safe = ticker.replace("/", "_").replace(":", "_")
     sub = CANDLES_DIR / safe[:2].lower()
     p = sub / f"{safe}.csv"
@@ -507,19 +638,33 @@ def main() -> None:
     key_id, pem_bytes = _load_creds()
     client = KalshiClient(key_id, pem_bytes)
     try:
-        markets = fetch_settled_markets(client)
+        # Step 1: discover historical/live partition
+        cutoff_dt = fetch_historical_cutoff(client)
+
+        # Step 2: fetch market universe across both tiers
+        markets = fetch_settled_markets(client, cutoff_dt=cutoff_dt)
+
+        # Step 3: per-month × category histogram — sanity gate before candles
+        print("\n=== Market Universe: per-month × category ===")
+        print_month_histogram(markets)
+
+        if len(markets) < 5_000:
+            print(f"STOP: only {len(markets):,} usable markets (threshold: 5,000)")
+            print("Universe too small — check historical tier routing and volume filter.")
+            return
+
         if len(markets) > 50_000:
             new_floor = MIN_VOLUME * 5
-            logger.warning(
-                "Universe %d > 50,000 — raising volume floor to %d",
-                len(markets), new_floor,
-            )
-            markets = [m for m in markets if int(m.get("volume", 0)) >= new_floor]
+            logger.warning("Universe %d > 50,000 — raising volume floor to %d",
+                           len(markets), new_floor)
+            markets = [m for m in markets if float(m.get("volume", 0)) >= new_floor]
             logger.info("After floor raise: %d markets", len(markets))
-        candles = fetch_all_candles(client, markets)
+
+        # Step 4: candlesticks (routed by cutoff_dt)
+        candles = fetch_all_candles(client, markets, cutoff_dt=cutoff_dt)
         with_candles = sum(1 for m in markets if m["ticker"] in candles)
         print(funnel_report(
-            all_settled=len(markets) + 0,  # conservative (only passing markets counted)
+            all_settled=len(markets),
             after_filter=len(markets),
             with_candles=with_candles,
         ))
