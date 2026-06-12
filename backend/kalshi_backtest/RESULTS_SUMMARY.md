@@ -1,70 +1,33 @@
-# Kalshi Favorites Backtest — Results Summary
+## DeepOdds Kalshi Favorites Backtest — Results for Review
 
-**Date:** 2026-06-11
-**Verdict: STOP CONDITION MET — insufficient historical data**
+**Status:** Pipeline built; awaiting first data run (2026-06-12)
 
----
+**Data source:** Kalshi S3 daily files — `market_data_{YYYY-MM-DD}.json`
+**Archive start:** 2021-07-02 confirmed via binary search
+**Study window:** 2024-06-01 → present (validation window 2025-07-01 → present, 11+ months)
+**Schema:** 10 fields confirmed — no `close` or `result` field; close = (high+low)/2/100
 
-## Hypothesis
+### Schema discovery (2026-06-12)
+- S3 file has 10 fields: ticker_name, report_ticker, date, high (¢), low (¢), daily_volume, block_volume, open_interest, payout_type, status
+- No close or result field — close = (high+low)/2/100; settlement via API per-ticker lookup
+- Archive starts 2021-07-02; study window 2024-06-01 onward is fully covered
+- File size: 0.4MB (2024) → 73MB+ (2026, sports parlay bloat)
 
-Heavy favorites (90–97¢) on Kalshi resolve YES more often than implied by their price,
-creating a positive expected value opportunity after the 7% fee. Specifically: does the
-realized resolution rate exceed the breakeven rate `price / (price - fee)`?
+### Kill criteria
+Not yet computed — run `uv run python -m kalshi_backtest.ingest_s3` first.
 
-## Result
+Once run, results will be pasted back here in this format:
 
-**Cannot test. Universe of usable markets = 0 via API.**
+| KC | Threshold | Actual | Verdict |
+|----|-----------|--------|---------|
+| KC-1 non-sports/big-sports net+ CI-excl | ≥1 cell | _TBD_ | _TBD_ |
+| KC-2 validated ROI ($8k) | ≥5%/yr | _TBD_ | _TBD_ |
+| KC-3 max drawdown | ≤15% | _TBD_ | _TBD_ |
+| KC-4 capacity (trades/yr) | ≥200 | _TBD_ | _TBD_ |
+| KC-5 fee-doubled ROI > 0 | >0% | _TBD_ | _TBD_ |
 
-Both the live endpoint (`/markets`) and the historical endpoint (`/historical/markets`)
-are dominated by 5-leg daily sports parlay bundles. 2024 election/financial/econ markets
-exist in the historical database but are unreachable without a full pagination crawl
-through millions of recent sports markets.
+### Haircut sensitivity
+Both 1¢ and 2¢ fill haircut results will be reported side-by-side.
 
-## What was found
-
-### Live tier (GET /markets, last ~3 months)
-
-| Metric | Value |
-|--------|-------|
-| Markets scanned (settled, 2024+) | 10,000+ |
-| Markets with volume ≥ 500 | 321 / 5,000 (6.4%) |
-| Market types present | KXMVESPORTSMULTIGAMEEXTENDED (74%), KXMVECROSSCATEGORY (26%) |
-| Markets with 80–97¢ price data | **0** |
-
-### Historical tier (GET /historical/markets, settled before 2026-04-13)
-
-| Metric | Value |
-|--------|-------|
-| Cutoff date (live/historical boundary) | 2026-04-13 |
-| Pages scanned (50 pages × 200) | 10,000 markets |
-| All pages' close_time | 2026-04-12 only |
-| Date filtering supported | **No** — min/max_close_ts ignored |
-| Ascending sort supported | **No** — newest-first only |
-| KXPRES (US elections) via series filter | 0 results |
-| KXFOMC / KXNASDAQ via series filter | 0 results |
-| KXTEMPNYCH (NYC temperature, 13 days of data) | 4,000 markets, 3 in 80-97¢ range |
-| Estimated pages to reach June 2024 | ~100,000+ (infeasible) |
-
-### Why 2024 data is unreachable via API
-
-The historical endpoint sorts newest-first with no pagination shortcut to older dates.
-Sports parlay series generate thousands of markets per day (KXMVESPORTSMULTIGAMEEXTENDED
-alone: ~500 markets/day). To reach June 2024 (~680 days ago) requires paginating through
-an estimated 300,000–500,000 markets at 0.25s/request = 21–35 hours minimum.
-Traditional election and financial series (KXPRES, KXFOMC, KXNASDAQ) return 0 results
-via `series_ticker` filter — they don't appear to be indexed in this endpoint.
-
-## Kill criteria
-
-- **KC-1** (≥ 5,000 usable markets): **FAIL — 0 markets in 80-97¢ range reachable via API**
-- KC-2 through KC-5: untestable, pending data
-
-## Path forward
-
-Download Kalshi bulk historical data from https://kalshi.com/stats/historical-data —
-ZIP archives containing all settled markets with price histories. This bypasses the
-API universe issue entirely and would enable the full calibration analysis.
-
-## Module status
-
-Full pipeline built and 37 tests passing. Ready to run against bulk data.
+### Module status
+118 tests green. Pipeline ready to run.

@@ -1,71 +1,87 @@
 # Kalshi Favorites Backtest — Data Investigation Report
 
-_Generated: 2026-06-11_
+_Updated: 2026-06-12 — S3 ingest pipeline built; awaiting data run_
 
 ---
 
-## Finding: Insufficient historical market data — analysis not possible
+## Status
 
-The API investigation is complete. The hypothesis cannot be tested with the currently
-available Kalshi API (`api.elections.kalshi.com/trade-api/v2`). This report documents
-exactly what was found and what would be required to proceed.
-
----
-
-## 1. API Access
-
-- **Authentication**: RSA-PSS signing confirmed working (key ID 53378289-...)
-- **Endpoint**: `api.elections.kalshi.com` (trading-api.kalshi.com redirects here)
-- **Signing**: Message = `ts_ms + METHOD.upper() + /trade-api/v2 + path`
-- **Rate-limit handling**: 429 back-off + retry implemented and tested
+The calibration pipeline is fully implemented and ready to run against the
+Kalshi S3 bulk market-data archive. This report will be regenerated automatically
+when `python -m kalshi_backtest.ingest_s3` completes.
 
 ---
 
-## 2. What the API Returns
+## 1. Data Source (S3 bulk files)
 
-Pages through `GET /markets?status=settled&min_close_ts=1717200000` (2024-06-01+).
+Kalshi publishes one JSON file per trading day:
 
-**10,000 markets scanned. Year breakdown: 100% from 2026.** The API returns
-markets sorted by close_time descending (newest first). To reach 2024-2025 data
-requires scrolling through hundreds of thousands of 2026 parlay pages.
+```
+https://kalshi-public-docs.s3.amazonaws.com/reporting/market_data_{YYYY-MM-DD}.json
+```
 
-**Volume distribution (5,000 sampled, volume ≥ 500):**
+**Archive start:** 2021-07-02 (confirmed via binary search).
+Study window 2024-06-01 → present is fully covered.
+Validation window 2025-07-01 → present = 11+ months (> 6 months minimum). ✓
 
-| Series prefix | Count | Market type |
-|---------------|-------|-------------|
-| KXMVESPORTSMULTIGAMEEXTENDED | 236 | 5-leg sports parlay bundles |
-| KXMVECROSSCATEGORY | 82 | Cross-category parlay bundles |
-| KXCS2MAP | 2 | Counter-Strike 2 map winner |
-| KXNHLTOTAL | 1 | NHL total goals |
+**Confirmed schema (Task 1, 2026-06-12):**
 
-**Total passing vol ≥ 500**: 321 out of 5,000 markets scanned (6.4%).
+| Field | Type | Notes |
+|-------|------|-------|
+| `ticker_name` | str | Full market ticker, e.g. `KXPRES-24-DEM` |
+| `report_ticker` | str | Series prefix, e.g. `KXPRES` |
+| `date` | str `YYYY-MM-DD` | Trading day |
+| `high` | int (¢) | Daily high price, cents |
+| `low` | int (¢) | Daily low price, cents |
+| `daily_volume` | int/str | Volume that day (type varies by vintage) |
+| `block_volume` | int/str | Block trade volume |
+| `open_interest` | int/str | Open interest |
+| `payout_type` | str | `"Binary Option"` |
+| `status` | str | `"active"` \| `"finalized"` \| `"closed"` |
 
----
-
-## 3. Price Range Audit
-
-Fetched candlesticks for the 10 highest-volume settled markets. None had any
-hourly candle with `yes_ask_close_dollars` in the 0.80–0.97 range:
-
-| Market | Volume | Result | Candles | Price range | 80–97¢ candles |
-|--------|--------|--------|---------|-------------|----------------|
-| KXMVESPORTSMULTIGAMEEXTENDED (×9) | 1,400–12,650 | no | 0–1 | 0.00–1.00 | 0 |
-| KXMVECROSSCATEGORY | 3,704 | no | 1 | 1.00 | 0 |
-
-Sports parlay bundles (5-leg) are either already dead (0¢) or resolved at 100¢.
-They have no gradual price discovery in the 80–97¢ window.
-
-NHL championship series markets (KXNHL-26-WSH, etc.) — highest individual
-market volumes — had price ranges of 1–11¢ (eliminated teams) or were still
-unresolved (Stanley Cup finals ongoing as of 2026-06-11).
+**No `close` or `result` field.** Close is approximated as `(high + low) / 2 / 100`.
+Settlement outcomes are resolved via direct per-ticker keyed lookup:
+`GET /historical/markets/{ticker}` (old) or `GET /markets/{ticker}` (recent).
 
 ---
 
-## 4. Historical API Tier Investigation (2026-06-12)
+## 2. Why S3 (vs. API)
+
+The previous investigation (2026-06-11) exhausted both API tiers:
+
+- **Live tier** (`/markets`): 10,000 markets scanned — 100% sports parlays from 2026
+- **Historical tier** (`/historical/markets`): newest-first only, ignores date params;
+  50 pages = 10,000 markets all from 2026-04-12; election/financial series return 0 results
+
+S3 bypasses these constraints entirely. See §4 below for the historical API findings
+(preserved for reference).
+
+---
+
+## 3. Pipeline Architecture
+
+```
+Task 2: run_ingest()         → data/s3_markets/markets_s3_YYYY_MM.csv (monthly shards)
+Task 3: fetch_series_metadata → data/series_cache.json
+Task 4: resolve_settlements  → data/settlements/**/*.json
+         build_funnel_report → printed to stdout
+Task 5: build_dataset_s3()   → pd.DataFrame, horizons {1,2,7}d, haircut 1¢
+Task 6: evaluate_kcs()       → KC-1..KC-5 verdicts
+Task 7: generate_report_s3() → REPORT.md + RESULTS_SUMMARY.md (this file)
+```
+
+Key design decisions:
+- **Streaming ingest:** raw JSON deleted after row extraction; never accumulate 70MB+/day
+- **Resumable:** `data/s3_manifest.json` records completed dates; rerun skips them
+- **Haircut sensitivity:** all KCs evaluated at both 1¢ and 2¢ fill haircut
+- **KC-1 amendment:** non-parlay/non-sports cell OR sports with n ≥ 1,000
+
+---
+
+## 4. Historical API Tier Investigation (archived, 2026-06-12)
 
 Kalshi exposes a separate historical tier for markets settled before the cutoff.
-The cutoff date was discovered at `GET /historical/cutoff`:
-`{"market_settled_ts": "2026-04-13T00:00:00Z"}`.
+The cutoff date: `GET /historical/cutoff` → `"2026-04-13T00:00:00Z"`.
 
 **Historical endpoint behavior (`GET /historical/markets`):**
 
@@ -76,77 +92,43 @@ The cutoff date was discovered at `GET /historical/cutoff`:
   - `series_ticker=KXPRES` → **0 results**
   - `series_ticker=KXFOMC` → **0 results**
   - `series_ticker=KXNASDAQ` → **0 results**
-  - `series_ticker=KXBTCD` (BTC daily brackets) → results but only April 2026
   - `series_ticker=KXTEMPNYCH` (NYC temperature) → 4,000 markets, March–April 2026 only, 3 in 80–97¢
 
-**Estimated pages to reach June 2024:**
-
-~500–1,000 sports parlay markets/day × 680 days ÷ 200 per page ≈ 1,700–3,400 pages
-minimum, just for sports. Election/financial series (KXPRES, KXFOMC) are not indexed
-in the settled listing at all and cannot be reached via `series_ticker` filter.
-
-**Historical market schema differs from live:** no `series_ticker` or `category` fields;
-uses `event_ticker` and `mve_collection_ticker`. The `_normalise_market` helper
-already derives series from `event_ticker` as a fallback.
+Reaching June 2024 via API would require ~1,700–3,400+ pages — effectively impossible.
 
 ---
 
-## 5. Root Cause
+## 5. Module Status
 
-The Kalshi API (`api.elections.kalshi.com`) was designed for real-time access,
-not historical research. Both the live and historical tiers:
+| Module | Tests | Status |
+|--------|-------|--------|
+| `ingest.py` | 37 tests | Green |
+| `ingest_s3.py` | 81 tests | Green |
+| `calibration.py` | 12 tests | Green |
+| `simulate.py` | 9 tests | Green |
+| `report.py` | 12 tests | Green |
+| **Total** | **118 tests** | **All green** |
 
-1. Sort newest-first with no mechanism to jump to older dates
-2. Are dominated by daily sports parlay bundles (~500–1,000/day) that bury
-   election/financial/economic markets far back in the pagination stack
-3. Have no working date-range filter on the historical tier
-4. Do not index election series (KXPRES, KXSENATE) in the settled-market listing
-
-The 2024 election, Fed, CPI, and financial bracket markets exist in the Kalshi
-database but are effectively unreachable via this API without a multi-day crawl.
-
----
-
-## 6. Stop Condition Met
-
-Per the backtest specification: "If the Kalshi API blocks or rate-limits the
-historical fetch so hard that the universe is too small to analyze
-(< 5,000 usable markets), stop and report that as the finding rather than
-analyzing an inadequate sample."
-
-**Usable markets with price data in 80–97¢ range: 0** (out of 5,000+ scanned).
-This is below the 5,000 threshold, and the analysis is stopped.
+Run with: `uv run pytest tests/test_kalshi_backtest.py`
 
 ---
 
-## 7. What Would Be Required to Proceed
+## 6. How to Run
 
-1. **Kalshi bulk historical download** — Kalshi publishes complete market history
-   at https://kalshi.com/stats/historical-data (downloadable ZIP archives).
-   These contain all settled markets with their full price histories, bypassing
-   the API pagination problem entirely. This is the primary recommended path.
+```bash
+cd backend
 
-2. **Deep API crawl** — Theoretically possible but impractical: filter by specific
-   series (KXBTCD, KXTEMPNYCH, etc.) and crawl page by page until reaching 2024 data.
-   Estimated 1,700–3,400+ pages, ~7–14 hours of runtime, and only for series that
-   the API indexes. Election series (KXPRES, KXFOMC) are not available via this path.
+# Set credentials (for settlement API lookups only)
+export KALSHI_API_KEY_ID=...
+export KALSHI_PRIVATE_KEY_PATH=...
 
-3. **Sufficient universe** — need ≥ 5,000 markets where the YES ask price was
-   in the 80-97¢ range at some point in the final 72h before close, with
-   a clear binary settlement. The bulk download likely contains this data.
+# Full ingest + calibration + reports
+uv run python -m kalshi_backtest.ingest_s3
+```
+
+Expected runtime: ~2–4h for 740+ days of S3 downloads (4-parallel, ~3s/day each).
+Reports regenerated in-place when complete.
 
 ---
 
-## 8. Module Status
-
-The full pipeline is implemented and tested:
-
-- `ingest.py` — pagination, resume, rate-limit handling, volume filter, category derivation
-- `calibration.py` — implied vs realized by bucket/horizon/category, exact Kalshi fee, Wilson CI, momentum split
-- `simulate.py` — walk-forward bankroll sim, cells selected on selection window only
-- `report.py` — REPORT.md + RESULTS_SUMMARY.md
-- **34 tests, all green** (exact fee computation, Wilson CI, bucketing fixture with planted bias, sim accounting invariant, pagination/resume/rate-limit mocks)
-
-The module is ready to run against real data once the data source issue is resolved.
-API authentication, signing, and candlestick endpoint parameters have been fully
-debugged and documented.
+_Awaiting first full data run. Results will appear here automatically._
