@@ -30,7 +30,8 @@ logger = logging.getLogger("kalshi_backtest.ingest")
 # Constants
 # ---------------------------------------------------------------------------
 
-BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+_API_PATH_PREFIX = "/trade-api/v2"
 DATA_DIR = Path(__file__).parent / "data"
 MARKETS_DIR = DATA_DIR / "markets"
 CANDLES_DIR = DATA_DIR / "candles"
@@ -39,7 +40,7 @@ INGEST_START = datetime(2024, 6, 1, tzinfo=timezone.utc)
 MIN_VOLUME = 500          # contracts — initial floor; raised if universe too large
 CANDLE_PERIOD_SEC = 3600  # 1h candlesticks
 LOOKBACK_HOURS = 72       # hours of candles to fetch before close
-TARGET_PERIOD_SEC = 3600  # 1h
+TARGET_PERIOD_MIN = 60    # 1h in minutes (Kalshi uses period_interval in minutes)
 
 # Rate-limit safety
 _REQUEST_DELAY_SEC = 0.25   # between requests
@@ -67,9 +68,15 @@ def _load_creds() -> tuple[str, bytes]:
 
 def _sign_request(method: str, path: str, ts_ms: int, key_id: str,
                   pem_bytes: bytes) -> dict[str, str]:
-    """Build Authorization + KALSHI-Access-* headers using RSA-PSS."""
+    """Build KALSHI-ACCESS-* headers using RSA-PSS.
+
+    The signed message is: timestamp_ms + METHOD_UPPER + full_path_with_prefix.
+    full_path must start with /trade-api/v2 — Kalshi 401s if you sign only the suffix.
+    """
     ts_str = str(ts_ms)
-    msg = ts_str + method.upper() + path
+    # Ensure the full /trade-api/v2 prefix is in the signed path
+    full_path = path if path.startswith(_API_PATH_PREFIX) else _API_PATH_PREFIX + path
+    msg = ts_str + method.upper() + full_path
     private_key = serialization.load_pem_private_key(pem_bytes, password=None)
     sig = private_key.sign(
         msg.encode(),
@@ -79,10 +86,11 @@ def _sign_request(method: str, path: str, ts_ms: int, key_id: str,
     )
     sig_b64 = base64.b64encode(sig).decode()
     return {
-        "KALSHI-Access-Key": key_id,
-        "KALSHI-Access-Timestamp": ts_str,
-        "KALSHI-Access-Signature": sig_b64,
+        "KALSHI-ACCESS-KEY": key_id,
+        "KALSHI-ACCESS-TIMESTAMP": ts_str,
+        "KALSHI-ACCESS-SIGNATURE": sig_b64,
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
 
@@ -98,8 +106,7 @@ class KalshiClient:
 
     def get(self, path: str, params: dict | None = None) -> dict:
         ts_ms = int(time.time() * 1000)
-        headers = _sign_request("GET", "/trade-api/v2" + path, ts_ms,
-                                 self._key_id, self._pem)
+        headers = _sign_request("GET", path, ts_ms, self._key_id, self._pem)
         for attempt, delay in enumerate([0] + _RETRY_DELAYS):
             if delay:
                 logger.debug("Retry %d after %ds", attempt, delay)
@@ -113,8 +120,7 @@ class KalshiClient:
                 logger.warning("Rate-limited; sleeping %ds", retry_after)
                 time.sleep(retry_after)
                 ts_ms = int(time.time() * 1000)
-                headers = _sign_request("GET", "/trade-api/v2" + path, ts_ms,
-                                         self._key_id, self._pem)
+                headers = _sign_request("GET", path, ts_ms, self._key_id, self._pem)
                 continue
             if resp.status_code >= 500:
                 logger.warning("Server error %d on %s", resp.status_code, path)
@@ -134,6 +140,39 @@ MARKETS_FIELDS = [
     "ticker", "event_ticker", "series_ticker", "category",
     "title", "close_time", "result", "volume", "open_interest", "liquidity",
 ]
+
+# Prefix → category mapping for tickers Kalshi doesn't expose in the markets endpoint
+_TICKER_PREFIX_TO_CATEGORY: dict[str, str] = {
+    "KXNBA": "sports", "KXNFL": "sports", "KXMLB": "sports",
+    "KXNHL": "sports", "KXNCAAF": "sports", "KXNCAAB": "sports",
+    "KXSOCCER": "sports", "KXMMA": "sports", "KXTENNIS": "sports",
+    "KXUFC": "sports", "KXgolf": "sports", "KXNASCAR": "sports",
+    "KXMLBHRR": "sports", "KXMLBTB": "sports",
+    "KXMVESPORTS": "sports", "KXMVECROSS": "sports",
+    "KXBTC": "financials", "KXETH": "financials", "KXSPY": "financials",
+    "KXNASDAQ": "financials", "KXSP": "financials", "KXDOW": "financials",
+    "KXGOLD": "financials", "KXOIL": "financials", "KXFED": "economics",
+    "KXFOMC": "economics", "KXCPI": "economics", "KXGDP": "economics",
+    "KXUNEMPLOYMENT": "economics", "KXJOBS": "economics",
+    "KXPRES": "politics", "KXELECTION": "politics", "KXCONGRESS": "politics",
+    "KXSENATE": "politics", "KXHOUSE": "politics",
+}
+
+
+def _derive_category(ticker: str) -> str:
+    """Best-effort category from ticker prefix."""
+    upper = ticker.upper()
+    for prefix, cat in _TICKER_PREFIX_TO_CATEGORY.items():
+        if upper.startswith(prefix):
+            return cat
+    return "other"
+
+
+def _derive_series_ticker(event_ticker: str) -> str:
+    """Extract series from event_ticker: 'KXNBA-24-BOS' → 'KXNBA'."""
+    if not event_ticker:
+        return ""
+    return event_ticker.split("-")[0]
 
 
 def _month_shard_path(year: int, month: int) -> Path:
@@ -206,21 +245,27 @@ def fetch_settled_markets(client: KalshiClient,
             result = m.get("result", "")
             if result not in ("yes", "no"):
                 continue
-            vol = int(m.get("volume", 0) or 0)
-            if vol < volume_floor:
+            # API uses volume_fp (string float) not volume
+            vol_fp = float(m.get("volume_fp") or m.get("volume") or 0)
+            if vol_fp < volume_floor:
                 continue
 
+            event_ticker = m.get("event_ticker", "")
+            series_ticker = (m.get("series_ticker")
+                             or _derive_series_ticker(event_ticker))
+            category = ((m.get("category") or "").lower()
+                        or _derive_category(ticker))
             row = {
                 "ticker": ticker,
-                "event_ticker": m.get("event_ticker", ""),
-                "series_ticker": m.get("series_ticker", ""),
-                "category": (m.get("category") or "other").lower(),
+                "event_ticker": event_ticker,
+                "series_ticker": series_ticker,
+                "category": category,
                 "title": m.get("title", "")[:200],
                 "close_time": m.get("close_time", ""),
                 "result": result,
-                "volume": vol,
-                "open_interest": int(m.get("open_interest", 0) or 0),
-                "liquidity": float(m.get("liquidity", 0) or 0),
+                "volume": round(vol_fp, 2),
+                "open_interest": float(m.get("open_interest_fp") or m.get("open_interest") or 0),
+                "liquidity": float(m.get("liquidity_dollars") or m.get("liquidity") or 0),
             }
             fetched_this_run.append(row)
             existing.add(ticker)
@@ -320,7 +365,7 @@ def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
     params = {
         "start_ts": start_ts,
         "end_ts": end_ts,
-        "period_seconds": TARGET_PERIOD_SEC,
+        "period_interval": TARGET_PERIOD_MIN,
     }
     try:
         data = client.get(path, params=params)
@@ -335,14 +380,16 @@ def fetch_candles(client: KalshiClient, market: dict) -> list[dict] | None:
     rows = []
     for c in candles_raw:
         ts = c.get("end_period_ts") or c.get("ts") or 0
-        yes_bid = float(c.get("yes", {}).get("close") or c.get("close") or 0)
-        yes_ask_raw = c.get("yes_ask", {})
-        if isinstance(yes_ask_raw, dict):
-            yes_ask = float(yes_ask_raw.get("close", yes_bid))
-        else:
-            yes_ask = yes_bid
-        price = float(c.get("price", {}).get("close", yes_bid)
-                      if isinstance(c.get("price"), dict) else c.get("price", yes_bid) or yes_bid)
+        # Kalshi returns prices as dicts with "close_dollars" (string) or "close" (numeric)
+        def _price_from_nested(obj: dict, fallback: float) -> float:
+            if not isinstance(obj, dict):
+                return float(obj or fallback)
+            val = obj.get("close_dollars") or obj.get("close")
+            return float(val) if val is not None else fallback
+
+        yes_bid = _price_from_nested(c.get("yes_bid", {}) or c.get("yes", {}), 0.0)
+        yes_ask = _price_from_nested(c.get("yes_ask", {}), yes_bid)
+        price = _price_from_nested(c.get("price", {}), yes_bid)
         vol = int(c.get("volume", 0) or 0)
         rows.append({
             "ticker": ticker,
