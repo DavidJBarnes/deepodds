@@ -127,10 +127,10 @@ def _download_day_records(d: date) -> list[dict] | None:
     tmp = Path(tempfile.mktemp(suffix=".json"))
     try:
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=300) as resp:
             with open(tmp, "wb") as f:
                 while True:
-                    chunk = resp.read(1 << 16)  # 64KB chunks
+                    chunk = resp.read(1 << 18)  # 256KB chunks
                     if not chunk:
                         break
                     f.write(chunk)
