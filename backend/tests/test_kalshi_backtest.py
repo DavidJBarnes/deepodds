@@ -242,11 +242,15 @@ class TestCalibrationBucketing:
 def _make_sim_dataset(n_trades: int, ask: float, realized_rate: float,
                       window: str = "validation") -> pd.DataFrame:
     import random
+    from datetime import datetime, timedelta
     random.seed(99)
     rows = []
-    close_time = "2025-09-01T00:00:00Z" if window == "validation" else "2024-11-01T00:00:00Z"
+    base = datetime(2025, 9, 1) if window == "validation" else datetime(2024, 11, 1)
     for i in range(n_trades):
         resolved = 1 if random.random() < realized_rate else 0
+        # Stagger settlements across days so capital recycles (positions don't
+        # all lock concurrently against the cash ceiling).
+        close_time = (base + timedelta(days=i)).strftime("%Y-%m-%dT00:00:00Z")
         rows.append({
             "ticker": f"SIM-{i:04d}",
             "category": "sports",
@@ -288,14 +292,16 @@ class TestSimAccountingInvariant:
 
     def test_momentum_filter_reduces_trades(self):
         import random
+        from datetime import datetime, timedelta
         random.seed(1)
         rows = []
+        base = datetime(2025, 9, 1)
         for i in range(200):
             mom = 0.01 if i % 2 == 0 else -0.01
             rows.append({
                 "ticker": f"MOM-{i:04d}",
                 "category": "sports",
-                "close_time": "2025-09-01T00:00:00Z",
+                "close_time": (base + timedelta(days=i)).strftime("%Y-%m-%dT00:00:00Z"),
                 "horizon_h": 24,
                 "ask_price": 0.91,
                 "bucket": "90–93¢",

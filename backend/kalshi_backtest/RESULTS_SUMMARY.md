@@ -29,14 +29,14 @@
 | KC | Threshold | Actual | Verdict |
 |----|-----------|--------|---------|
 | KC-1 non-sports/big-sports net+ CI-excl | ≥1 cell | 14 cells | PASS |
-| KC-2 validated ROI ($8k) | ≥5%/yr | 8590.77%/yr | PASS |
-| KC-3 max drawdown | ≤15% | 15.95% | FAIL |
-| KC-4 capacity (trades/yr) | ≥200 | 7564/yr | PASS |
-| KC-5 fee-doubled ROI > 0 | >0% | 4486.77%/yr | PASS |
+| KC-2 validated ROI ($8k) | ≥5%/yr | 1078.56%/yr | PASS |
+| KC-3 max drawdown | ≤15% | 16.93% | FAIL |
+| KC-4 capacity (trades/yr) | ≥200 | 5608/yr | PASS |
+| KC-5 fee-doubled ROI > 0 | >0% | 639.02%/yr | PASS |
 
 ### Validated bankroll sim ($8k, 1¢ haircut)
-- Ann. ROI: 8590.77% | Trades: 3790 | Hit rate: 97.0% | MaxDD: 15.95% | Fees-doubled ROI: 4486.77%
-- Capacity: 0 trades skipped (cash floor) | Peak concurrent exposure: $1526.28
+- Ann. ROI: 1078.56% | Trades: 2810 | Hit rate: 96.7% | MaxDD: 16.93% | Fees-doubled ROI: 639.02%
+- Capacity: 980 trades skipped (cash floor) | Peak concurrent exposure: $26920.62
 
 ### Adverse-selection finding
 Rising-momentum favorites: mean net edge -0.0268. Falling-momentum favorites: mean net edge -0.1055 (worse). Falling-favorite cells have negative net edge (mean -0.1055). Entry rule should require non-negative 24h momentum to avoid buying into informed selling flow.
@@ -48,9 +48,9 @@ none reported
 | KC | Verdict |
 |----|--------|
 | KC-1 | PASS |
-| KC-2 ROI 356.42%/yr | PASS |
-| KC-3 MaxDD 22.44% | FAIL |
-| KC-4 1593 trades/yr | PASS |
-| KC-5 doubled-fee ROI 279.78%/yr | PASS |
+| KC-2 ROI 300.79%/yr | PASS |
+| KC-3 MaxDD 23.14% | FAIL |
+| KC-4 1557 trades/yr | PASS |
+| KC-5 doubled-fee ROI 233.27%/yr | PASS |
 | **Overall** | **FAIL** |
 

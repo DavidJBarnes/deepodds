@@ -1,6 +1,6 @@
 # Kalshi Favorites Backtest Report
 
-_Generated: 2026-06-14 04:15 UTC | Entry haircut: 1¢_
+_Generated: 2026-06-18 13:58 UTC | Entry haircut: 1¢_
 
 ---
 
@@ -98,23 +98,23 @@ _Generated: 2026-06-14 04:15 UTC | Entry haircut: 1¢_
 | KC | Criterion | Threshold | Actual | Verdict |
 |---|-----------|-----------|--------|---------|
 | KC-1 | Val cell net edge > 0, CI excl 0, non-sports or sports n≥1k | ≥1 | 14 cells net+ CI-excl-zero (non-sports OR sports n≥1k) | **PASS** |
-| KC-2 | Validated bankroll ROI ($8k) | ≥5%/yr | 8590.77%/yr | **PASS** |
-| KC-3 | Max drawdown (validation) | ≤15% | 15.95% | **FAIL** |
-| KC-4 | Capacity (trades/yr) | ≥200 | 7564/yr | **PASS** |
-| KC-5 | Fee-doubled ROI still > 0 | >0% | 4486.77%/yr | **PASS** |
+| KC-2 | Validated bankroll ROI ($8k) | ≥5%/yr | 1078.56%/yr | **PASS** |
+| KC-3 | Max drawdown (validation) | ≤15% | 16.93% | **FAIL** |
+| KC-4 | Capacity (trades/yr) | ≥200 | 5608/yr | **PASS** |
+| KC-5 | Fee-doubled ROI still > 0 | >0% | 639.02%/yr | **PASS** |
 
 **Overall verdict:** ONE OR MORE KILL CRITERIA FAILED — see above.
 
 ## 5. Validated Bankroll Simulation ($8k)
 
-- **Annualized ROI:** 8590.77%
-- **Total trades:** 3790
-- **Hit rate:** 97.0%
-- **Max drawdown:** 15.95%
-- **Total fees paid:** $8092.25
-- **Peak concurrent exposure:** $1526.28
-- **Skipped (cash floor):** 0
-- **Fees-doubled ROI:** 4486.77%
+- **Annualized ROI:** 1078.56%
+- **Total trades:** 2810
+- **Hit rate:** 96.7%
+- **Max drawdown:** 16.93%
+- **Total fees paid:** $3054.09
+- **Peak concurrent exposure:** $26920.62
+- **Skipped (cash floor):** 980
+- **Fees-doubled ROI:** 639.02%
 
 ## 6. Adverse Selection
 
