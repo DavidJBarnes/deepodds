@@ -1,3 +1,5 @@
 kalshi_backtest/run_scoped.log
 kalshi_backtest/recompute.log
+kalshi_backtest/ingest_low.log
+kalshi_backtest/resolve_low.log
 kalshi_backtest/data/
