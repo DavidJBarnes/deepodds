@@ -22,6 +22,7 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
 COPY backend/carry ./carry
+COPY backend/longshot ./longshot
 COPY backend/entrypoint.sh ./
 RUN chmod +x entrypoint.sh
 RUN uv sync --no-dev

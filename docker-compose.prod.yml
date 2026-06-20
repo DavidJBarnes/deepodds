@@ -11,8 +11,13 @@ services:
       - CARRY_STATE=/data/state.json
       - CARRY_HISTORY=/data/history.jsonl
       - CARRY_HEARTBEAT=/data/heartbeat.json
+      # Read-only access to the longshot harness state for GET /api/v1/longshot/status.
+      - LONGSHOT_STATE=/longshot-data/state.json
+      - LONGSHOT_HISTORY=/longshot-data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/longshot-data/heartbeat.json
     volumes:
       - /opt/deepodds/carry:/data:ro
+      - /opt/deepodds/longshot:/longshot-data:ro
 
   # Funding-carry paper harness (Hyperliquid perp + Coinbase spot). Independent
   # of the Kalshi api/scanner. State persists in a host bind-mount (NOT a named
@@ -30,6 +35,23 @@ services:
       - CARRY_HEARTBEAT=/data/heartbeat.json
     volumes:
       - /opt/deepodds/carry:/data:z   # :z relabels for SELinux hosts; no-op elsewhere
+
+  # Longshot-short paper harness (sell overpriced 1-12c Kalshi longshots near
+  # settlement, vs the live order book). Same self-contained pattern as carry:
+  # state persists in a host bind-mount so prune --volumes never wipes it.
+  longshot:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-longshot
+    command: python -m longshot.loop --interval 3600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - LONGSHOT_STATE=/data/state.json
+      - LONGSHOT_HISTORY=/data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+    volumes:
+      - /opt/deepodds/longshot:/data:z
 
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"
