@@ -6,6 +6,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import CarryPage from "@/pages/CarryPage";
+import LongshotPage from "@/pages/LongshotPage";
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -21,6 +22,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           <Route index element={<CarryPage />} />
+          <Route path="longshot" element={<LongshotPage />} />
         </Route>
       </Route>
     </Routes>

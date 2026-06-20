@@ -1,7 +1,10 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
-const navItems = [{ to: "/", label: "Funding Carry" }];
+const navItems = [
+  { to: "/", label: "Funding Carry" },
+  { to: "/longshot", label: "Longshot Short" },
+];
 
 export default function Layout() {
   const user = useAuthStore((s) => s.user);

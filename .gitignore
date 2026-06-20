@@ -28,3 +28,11 @@ backend/app/core/models/**/v_*.json
 
 # Platt scaler coefficients — refitted at runtime from settled signals.
 backend/app/core/climate_platt.json
+
+# Backtest data cache and results (large binary/CSV, not committed)
+backend/backtest/data/
+backend/backtest/results/
+backend/backtest/REPORT_equity.png
+
+# Kalshi backtest data + output (large CSV, not committed)
+backend/kalshi_backtest/data/
