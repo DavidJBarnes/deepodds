@@ -7,19 +7,27 @@ from pathlib import Path
 
 def load_kalshi_creds() -> tuple[str, bytes]:
     """
-    (api_key_id, pem_bytes). Prod sets KALSHI_PRIVATE_KEY_PEM inline in the env
-    file; local dev may use KALSHI_PRIVATE_KEY_PATH (a file). PEM takes priority.
+    (api_key_id, pem_bytes). Priority for the private key:
+      1. KALSHI_PRIVATE_KEY_PEM_B64 — base64 of the raw PEM (prod: no newline
+         escaping pain, safe through env files / SSM).
+      2. KALSHI_PRIVATE_KEY_PEM     — inline PEM (literal \n or real newlines).
+      3. KALSHI_PRIVATE_KEY_PATH    — PEM file path (local dev).
     """
+    import base64
+
     key_id = os.environ.get("KALSHI_API_KEY_ID", "").strip()
+    pem_b64 = os.environ.get("KALSHI_PRIVATE_KEY_PEM_B64", "").strip()
     pem_inline = os.environ.get("KALSHI_PRIVATE_KEY_PEM", "")
     key_path = os.environ.get("KALSHI_PRIVATE_KEY_PATH", "").strip()
-    if not key_id or not (pem_inline or key_path):
+    if not key_id or not (pem_b64 or pem_inline or key_path):
         raise SystemExit(
             "[longshot] Missing credentials. Set KALSHI_API_KEY_ID and one of "
-            "KALSHI_PRIVATE_KEY_PEM (inline PEM) or KALSHI_PRIVATE_KEY_PATH (file)."
+            "KALSHI_PRIVATE_KEY_PEM_B64 (base64 PEM), KALSHI_PRIVATE_KEY_PEM "
+            "(inline PEM), or KALSHI_PRIVATE_KEY_PATH (file)."
         )
-    if pem_inline:
-        # env files often store newlines as literal \n — normalise both forms.
+    if pem_b64:
+        pem = base64.b64decode(pem_b64)
+    elif pem_inline:
         pem = pem_inline.replace("\\n", "\n").encode()
     else:
         pem = Path(key_path).read_bytes()
