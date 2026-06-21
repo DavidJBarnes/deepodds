@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # The API serves auth + the carry status surface. The funding-carry strategy
-    # runs in its own container (backend/carry/, deepodds-carry). No scanner /
-    # scheduler here anymore (the Kalshi stack was retired).
+    # The API serves auth + the longshot status surface. The longshot-short
+    # strategy runs in its own container (backend/longshot/, deepodds-longshot).
+    # No scanner / scheduler here.
     yield
     await engine.dispose()
 

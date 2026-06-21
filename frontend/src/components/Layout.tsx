@@ -2,8 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
 const navItems = [
-  { to: "/", label: "Funding Carry" },
-  { to: "/longshot", label: "Longshot Short" },
+  { to: "/", label: "Longshot Short" },
 ];
 
 export default function Layout() {

@@ -121,10 +121,11 @@ export default function LongshotPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
         <StatCard label="Equity" value={latest ? fmtUsd(latest.equity) : "—"} />
         <StatCard label="Realized P&L" value={latest ? fmtUsd(latest.realized_pnl) : "—"}
           positive={latest ? latest.realized_pnl >= 0 : undefined} />
+        <StatCard label="Collateral" value={latest ? fmtUsd(latest.deployed_collateral) : "—"} />
         <StatCard label="Open" value={latest ? String(latest.open_positions) : "—"} />
         <StatCard label="Settled" value={latest ? String(latest.settled_positions) : "—"} />
         <StatCard label="Hit-rate (NO)" value={latest ? fmtPct(latest.hit_rate_no) : "—"} />
@@ -162,6 +163,8 @@ export default function LongshotPage() {
         </div>
       </div>
 
+      {/* Recently settled + Open positions, side by side on large screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Recently settled — where things landed */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-800">
@@ -239,6 +242,7 @@ export default function LongshotPage() {
             </tbody>
           </table>
         </div>
+      </div>
       </div>
     </div>
   );
