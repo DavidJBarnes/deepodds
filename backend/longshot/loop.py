@@ -1,4 +1,4 @@
-"""Continuous longshot paper loop. Mirrors carry/loop.py: interval ticks,
+"""Continuous longshot paper loop: interval ticks,
 graceful SIGTERM/SIGINT, per-tick error isolation, heartbeat + append-only
 JSONL history. State persists in a host bind-mount (NOT a named volume) so the
 deploy's `docker system prune --volumes` never wipes it.
