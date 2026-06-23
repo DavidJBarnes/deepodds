@@ -50,6 +50,7 @@ class PortfolioRisk:
     deployed_collateral: float
     open_positions: int
     realized_pnl_today: float
+    available_balance: float | None = None   # real Kalshi cash; None in paper
 
 
 class RiskGate:
@@ -81,4 +82,9 @@ class RiskGate:
             return Decision(False,
                             f"deployed {pr.deployed_collateral + collateral:.2f} > cap "
                             f"{self.cfg.max_deployed_collateral:.2f}")
+        # Never try to deploy more collateral than the real account actually holds.
+        if pr.available_balance is not None and pr.deployed_collateral + collateral > pr.available_balance:
+            return Decision(False,
+                            f"deployed {pr.deployed_collateral + collateral:.2f} > balance "
+                            f"{pr.available_balance:.2f}")
         return Decision(True)

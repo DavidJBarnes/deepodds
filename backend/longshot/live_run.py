@@ -49,16 +49,21 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
             logger.error("%d orphan position(s) adopted this tick", adopted)
 
         # --- 2. Risk pre-tick (kill switch / daily loss) -------------------
+        # Capital base is the REAL Kalshi balance — never the hardcoded account.
+        balance = truth.get("balance_dollars")
         have = {p["ticker"] for p in state["positions"]}
         deployed = sum(p.get("collateral") or 0 for p in _open_positions(state))
         pr = PortfolioRisk(deployed_collateral=deployed,
                            open_positions=len(_open_positions(state)),
-                           realized_pnl_today=reconcile.realized_pnl_today(state, now))
+                           realized_pnl_today=reconcile.realized_pnl_today(state, now),
+                           available_balance=balance)
         pre = gate.pretick(pr)
+        if balance is None:
+            logger.warning("no Kalshi balance this tick — skipping discovery (can't size safely)")
 
-        # --- 3. Discover + place (only if allowed) -------------------------
-        if pre.allow:
-            for c in discover_candidates(cfg, client, now, have, deployed):
+        # --- 3. Discover + place (only if allowed AND balance is known) ----
+        if pre.allow and balance is not None:
+            for c in discover_candidates(cfg, client, now, have, deployed, account=balance):
                 d = gate.check_order(pr, contracts=c["size"], collateral=c["collateral"])
                 if not d.allow:
                     logger.info("risk skip %s: %s", c["ticker"], d.reason)

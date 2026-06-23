@@ -51,10 +51,16 @@ def _resolve(cfg, client, state, now) -> int:
     return settled
 
 
-def discover_candidates(cfg, client, now, exclude: set, deployed: float) -> list[dict]:
+def discover_candidates(cfg, client, now, exclude: set, deployed: float,
+                        account: float | None = None) -> list[dict]:
     """Shared discovery + sizing — the strategy signal, identical for paper and
     live. Reads the live book and returns sized candidates; performs NO fill and
-    mutates no state. Paper simulates the fill; live executes it."""
+    mutates no state. Paper simulates the fill; live executes it.
+
+    `account` is the capital base for sizing + the deployed guard. Paper passes
+    None (uses the simulated cfg.account); LIVE passes the REAL Kalshi balance so
+    no made-up account size influences real orders."""
+    acct = account if account is not None else cfg.account
     have = set(exclude)
     cands: list[dict] = []
     for series in sorted(set(cfg.whitelist)):
@@ -79,10 +85,10 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float) -> list
             if hrs <= 0 or hrs > cfg.max_hours_to_close:
                 continue
             collat_per = 1.0 - yb
-            n = int(cfg.account * cfg.trade_fraction / collat_per) if collat_per > 0 else 0
+            n = int(acct * cfg.trade_fraction / collat_per) if collat_per > 0 else 0
             n = max(1, min(n, int(cfg.max_depth_frac * bs)))
             collat = collat_per * n
-            if collat < 0.01 or deployed + collat > cfg.account:
+            if collat < 0.01 or deployed + collat > acct:
                 continue
             cands.append({
                 "ticker": tk, "series": series, "close_time": ct,
