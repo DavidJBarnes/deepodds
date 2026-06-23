@@ -51,10 +51,12 @@ def _resolve(cfg, client, state, now) -> int:
     return settled
 
 
-def _discover(cfg, client, state, now) -> int:
-    have = {p["ticker"] for p in state["positions"]}
-    deployed = sum(p["collateral"] for p in state["positions"] if p["status"] == "open")
-    opened = 0
+def discover_candidates(cfg, client, now, exclude: set, deployed: float) -> list[dict]:
+    """Shared discovery + sizing — the strategy signal, identical for paper and
+    live. Reads the live book and returns sized candidates; performs NO fill and
+    mutates no state. Paper simulates the fill; live executes it."""
+    have = set(exclude)
+    cands: list[dict] = []
     for series in sorted(set(cfg.whitelist)):
         try:
             r = client.get("/markets", params={"series_ticker": series,
@@ -82,19 +84,31 @@ def _discover(cfg, client, state, now) -> int:
             collat = collat_per * n
             if collat < 0.01 or deployed + collat > cfg.account:
                 continue
-            state["positions"].append({
-                "ticker": tk, "series": series,
-                "entry_ts": now.isoformat(), "close_time": ct,
-                "sell_price": yb, "size": n, "fee": round(fee(yb, n), 4),
-                "collateral": round(collat, 2), "bid_depth_at_entry": bs,
-                "status": "open", "result": None, "pnl": None,
+            cands.append({
+                "ticker": tk, "series": series, "close_time": ct,
+                "sell_price": yb, "size": n, "bid_depth": bs,
+                "collateral": round(collat, 2), "fee": round(fee(yb, n), 4),
             })
             deployed += collat
             have.add(tk)
-            opened += 1
-            logger.info("PAPER SELL %-34s %d @ %.2f (depth %.0f, close %s)",
-                        tk, n, yb, bs, ct[:16])
-    return opened
+    return cands
+
+
+def _discover(cfg, client, state, now) -> int:
+    have = {p["ticker"] for p in state["positions"]}
+    deployed = sum(p["collateral"] for p in state["positions"] if p["status"] == "open")
+    cands = discover_candidates(cfg, client, now, have, deployed)
+    for c in cands:
+        state["positions"].append({
+            "ticker": c["ticker"], "series": c["series"],
+            "entry_ts": now.isoformat(), "close_time": c["close_time"],
+            "sell_price": c["sell_price"], "size": c["size"], "fee": c["fee"],
+            "collateral": c["collateral"], "bid_depth_at_entry": c["bid_depth"],
+            "status": "open", "result": None, "pnl": None,
+        })
+        logger.info("PAPER SELL %-34s %d @ %.2f (depth %.0f, close %s)",
+                    c["ticker"], c["size"], c["sell_price"], c["bid_depth"], c["close_time"][:16])
+    return len(cands)
 
 
 def run_once(cfg: LongshotConfig | None = None) -> dict:

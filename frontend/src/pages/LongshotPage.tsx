@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import {
   getLongshotStatus,
+  getLongshotLiveStatus,
   type LongshotStatus,
   type LongshotSeriesPoint,
 } from "@/api/bot";
@@ -43,6 +44,45 @@ function StatCard({ label, value, positive }: { label: string; value: string; po
   );
 }
 
+function LiveTradingPanel({ live }: { live: LongshotStatus | null }) {
+  const hb = live?.heartbeat ?? null;
+  const latest = live?.latest ?? null;
+  const armed = !!hb && hb.status === "ok" && !!latest && !latest.dry_run;
+  const dryRun = !!latest?.dry_run;
+  const killed = !!latest?.killed;
+
+  const badge = killed
+    ? { text: "KILLED", cls: "bg-red-600/20 text-red-400 border-red-800" }
+    : armed
+    ? { text: "LIVE — ARMED", cls: "bg-red-600/20 text-red-400 border-red-800" }
+    : dryRun
+    ? { text: "LIVE — DRY-RUN", cls: "bg-amber-600/20 text-amber-400 border-amber-800" }
+    : { text: "LIVE — NOT ARMED", cls: "bg-slate-700/40 text-slate-400 border-slate-700" };
+
+  const slip = latest?.slippage;
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${badge.cls}`}>
+          {badge.text}
+        </span>
+        {!hb && <span className="text-sm text-slate-500">Real-money harness not running yet — paper shadow is the control.</span>}
+        {hb && <span className="text-sm text-slate-400">last tick {formatAgo(hb.wall_ts)}</span>}
+        {latest?.balance != null && (
+          <span className="text-sm text-slate-300">balance <span className="font-semibold text-white">{fmtUsd(latest.balance)}</span></span>
+        )}
+        {slip && slip.orders > 0 && (
+          <>
+            <span className="text-sm text-slate-300">fill-rate <span className="font-semibold text-white">{slip.fill_rate == null ? "—" : fmtPct(slip.fill_rate)}</span></span>
+            <span className="text-sm text-slate-300">avg slippage <span className={`font-semibold ${(slip.avg_slippage_c ?? 0) > 0 ? "text-red-400" : "text-emerald-400"}`}>{slip.avg_slippage_c == null ? "—" : `${slip.avg_slippage_c.toFixed(2)}¢`}</span></span>
+            <span className="text-xs text-slate-500">({slip.orders} live orders)</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: { payload: LongshotSeriesPoint }[] }) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
@@ -58,6 +98,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { paylo
 
 export default function LongshotPage() {
   const [status, setStatus] = useState<LongshotStatus | null>(null);
+  const [live, setLive] = useState<LongshotStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -75,6 +116,10 @@ export default function LongshotPage() {
         })
         .catch(() => active && setError("Failed to load longshot status"))
         .finally(() => active && setLoading(false));
+      // Live harness — may be empty/absent until armed (Phase 3); ignore errors.
+      getLongshotLiveStatus()
+        .then((d) => active && setLive(d))
+        .catch(() => active && setLive(null));
     };
     load();
     const id = setInterval(load, REFRESH_MS);
@@ -120,6 +165,9 @@ export default function LongshotPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">Longshot Short <span className="text-sm font-normal text-slate-500">(paper)</span></h1>
       </div>
+
+      {/* Live-trading status (separate real-money harness; paper above is the control) */}
+      <LiveTradingPanel live={live} />
 
       {/* Liveness banner */}
       <div className={`flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 ${
