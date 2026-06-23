@@ -101,6 +101,19 @@ export default function LongshotPage() {
   const bannerOk = !bannerError && hb?.status === "ok";
   // most-recent settled first
   const recentSettled = [...settled].sort((a, b) => b.close_time.localeCompare(a.close_time)).slice(0, 30);
+  // one x-axis tick per distinct day (series is hourly, so labels would otherwise repeat)
+  const dayTicks = (() => {
+    const seen = new Set<string>();
+    const ticks: string[] = [];
+    for (const p of series) {
+      const label = fmtDay(p.ts);
+      if (!seen.has(label)) {
+        seen.add(label);
+        ticks.push(p.ts);
+      }
+    }
+    return ticks;
+  })();
 
   return (
     <div className="space-y-6">
@@ -147,8 +160,8 @@ export default function LongshotPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                <XAxis dataKey="ts" tickFormatter={fmtDay} tick={{ fontSize: 11, fill: "#64748b" }}
-                  axisLine={{ stroke: "#334155" }} tickLine={false} />
+                <XAxis dataKey="ts" tickFormatter={fmtDay} ticks={dayTicks} tick={{ fontSize: 11, fill: "#64748b" }}
+                  axisLine={{ stroke: "#334155" }} tickLine={false} minTickGap={20} />
                 <YAxis tickFormatter={(v: number) => `$${v}`} tick={{ fontSize: 11, fill: "#64748b" }}
                   axisLine={false} tickLine={false} width={64} domain={["dataMin - 5", "dataMax + 5"]} />
                 <Tooltip content={<ChartTooltip />} contentStyle={{ backgroundColor: "transparent", border: "none" }} />
