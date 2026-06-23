@@ -13,6 +13,12 @@ export interface LongshotHeartbeat {
   error: string | null;
 }
 
+export interface LongshotSlippage {
+  orders: number;
+  fill_rate: number | null;
+  avg_slippage_c: number | null;
+}
+
 export interface LongshotLatest {
   ts: string;
   equity: number;
@@ -24,6 +30,12 @@ export interface LongshotLatest {
   hit_rate_no: number | null;
   roi_on_settled_collateral: number | null;
   deployed_collateral: number;
+  // live-mode only (undefined for paper)
+  mode?: string;
+  balance?: number | null;
+  killed?: boolean;
+  dry_run?: boolean;
+  slippage?: LongshotSlippage;
 }
 
 export interface LongshotSeriesPoint {
@@ -58,6 +70,13 @@ export interface LongshotStatus {
 
 export async function getLongshotStatus() {
   const { data } = await client.get<LongshotStatus>("/longshot/status", {
+    params: { _t: Date.now() },
+  });
+  return data;
+}
+
+export async function getLongshotLiveStatus() {
+  const { data } = await client.get<LongshotStatus>("/longshot/live/status", {
     params: { _t: Date.now() },
   });
   return data;

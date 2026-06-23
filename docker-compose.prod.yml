@@ -11,8 +11,13 @@ services:
       - LONGSHOT_STATE=/longshot-data/state.json
       - LONGSHOT_HISTORY=/longshot-data/history.jsonl
       - LONGSHOT_HEARTBEAT=/longshot-data/heartbeat.json
+      # Read-only access to the LIVE harness state for GET /api/v1/longshot/live/status.
+      - LONGSHOT_LIVE_STATE=/longshot-live-data/state.json
+      - LONGSHOT_LIVE_HISTORY=/longshot-live-data/history.jsonl
+      - LONGSHOT_LIVE_HEARTBEAT=/longshot-live-data/heartbeat.json
     volumes:
       - /opt/deepodds/longshot:/longshot-data:ro
+      - /opt/deepodds/longshot-live:/longshot-live-data:ro
 
   # Longshot-short paper harness (sell overpriced 1-12c Kalshi longshots near
   # settlement, vs the live order book). Self-contained: state persists in a
@@ -30,6 +35,36 @@ services:
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
     volumes:
       - /opt/deepodds/longshot:/data:z
+
+  # Longshot-short LIVE harness (real Kalshi orders). Same signal as the paper
+  # container above, which keeps running untouched as the control. Ships SAFE:
+  # LONGSHOT_DRY_RUN=true => it reconciles + reads Kalshi truth + logs INTENDED
+  # orders but places NOTHING (Phase 1/2). To arm (Phase 3): fund the account,
+  # load a trading-scoped key into .env, set LONGSHOT_DRY_RUN=false, ensure no
+  # /opt/deepodds/longshot-live/KILL file. Emergency stop at any time:
+  # `touch /opt/deepodds/longshot-live/KILL`.
+  longshot-live:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-longshot-live
+    command: python -m longshot.loop --interval 3600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - LONGSHOT_MODE=live
+      - LONGSHOT_DRY_RUN=true          # SAFE DEFAULT — flip to false only to arm
+      - LONGSHOT_STATE=/data/state.json
+      - LONGSHOT_HISTORY=/data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+      - LONGSHOT_KILL_FILE=/data/KILL
+      # Canary caps ($100-250 phase): 1 contract/trade, $200 max deployed, $25 daily-loss kill.
+      - LONGSHOT_ACCOUNT=250
+      - LONGSHOT_MAX_DEPLOYED=200
+      - LONGSHOT_MAX_PER_TRADE=1
+      - LONGSHOT_MAX_OPEN=40
+      - LONGSHOT_MAX_DAILY_LOSS=25
+    volumes:
+      - /opt/deepodds/longshot-live:/data:z
 
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"

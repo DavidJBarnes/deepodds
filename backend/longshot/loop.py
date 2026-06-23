@@ -14,7 +14,7 @@ import signal
 import time
 
 from longshot.config import LongshotConfig
-from longshot.paper_run import print_snapshot, run_once
+from longshot import paper_run, live_run
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("longshot.loop")
@@ -53,16 +53,20 @@ def _write_heartbeat(path: str, snap: dict, status: str, err: str | None = None)
 def run_loop(cfg: LongshotConfig, interval: int, max_ticks: int | None = None) -> int:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-    logger.info("longshot loop start: interval=%ss max_ticks=%s whitelist=%d series",
-                interval, max_ticks, len(cfg.whitelist))
+    logger.info("longshot loop start: mode=%s dry_run=%s interval=%ss max_ticks=%s whitelist=%d series",
+                cfg.mode, cfg.dry_run if cfg.is_live else "n/a", interval, max_ticks, len(cfg.whitelist))
     ticks = 0
     while not _STOP:
         t0 = time.monotonic()
         try:
-            snap = run_once(cfg)
+            if cfg.is_live:
+                snap = live_run.run_once(cfg, dry_run=cfg.dry_run)
+                logger.info("live tick: %s", snap)
+            else:
+                snap = paper_run.run_once(cfg)
+                paper_run.print_snapshot(snap)
             _append_history(cfg.history_file, snap)
             _write_heartbeat(cfg.heartbeat_file, snap, "ok")
-            print_snapshot(snap)
         except Exception as e:
             logger.exception("tick failed")
             _write_heartbeat(cfg.heartbeat_file, {}, "error", repr(e))
