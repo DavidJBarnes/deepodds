@@ -270,6 +270,30 @@ def test_realized_pnl_today():
     assert reconcile.realized_pnl_today(state, now) == -15.0
 
 
+def test_live_equity_comes_from_kalshi_not_account(tmp_path):
+    cfg = _cfg(tmp_path)          # cfg.account is the simulated number
+    state = {"positions": [{"status": "open", "collateral": 0.9}]}
+    snap = reconcile.live_snapshot(cfg, state, {"balance_dollars": 5.22})
+    assert snap["balance"] == 5.22
+    assert snap["equity"] == 6.12          # balance + deployed collateral
+    assert snap["equity"] != cfg.account   # never the made-up account size
+
+
+def test_live_equity_null_when_kalshi_unreachable(tmp_path):
+    snap = reconcile.live_snapshot(_cfg(tmp_path), {"positions": []}, {"balance_dollars": None})
+    assert snap["balance"] is None and snap["equity"] is None   # no fabricated number
+
+
+def test_available_balance_caps_orders(tmp_path):
+    g = RiskGate(_cfg(tmp_path))
+    over = PortfolioRisk(deployed_collateral=5.0, open_positions=1,
+                         realized_pnl_today=0, available_balance=5.22)
+    assert not g.check_order(over, contracts=1, collateral=0.9).allow   # 5.9 > 5.22
+    ok = PortfolioRisk(deployed_collateral=4.0, open_positions=1,
+                       realized_pnl_today=0, available_balance=5.22)
+    assert g.check_order(ok, contracts=1, collateral=0.9).allow         # 4.9 <= 5.22
+
+
 def test_slippage_stats():
     state = {"positions": [
         {"intended_price": 0.10, "avg_fill_price": 0.10, "intended_size": 5, "filled_size": 5},

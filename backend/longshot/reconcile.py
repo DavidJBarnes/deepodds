@@ -159,11 +159,17 @@ def live_snapshot(cfg, state: dict, truth: dict, now: datetime | None = None) ->
     wins = sum(1 for p in settled if p.get("result") == "no")
     bal = truth.get("balance_dollars")
     deployed = round(sum(p.get("collateral") or 0 for p in openp), 2)
+    # Equity is the REAL Kalshi account value — never a hardcoded account size.
+    # balance (available cash) + collateral locked in open shorts reconstructs the
+    # total. If Kalshi is unreachable this tick, report null rather than a made-up
+    # number. (Collateral treatment vs Kalshi's displayed portfolio value is
+    # confirmed against the first open live position — Phase 1.)
+    equity = round(bal + deployed, 2) if bal is not None else None
     return {
         "ts": now.isoformat(),
         "mode": "live",
         "balance": bal,
-        "equity": round((bal + deployed), 2) if bal is not None else round(cfg.account + realized, 2),
+        "equity": equity,
         "realized_pnl": realized,
         "open_positions": len(openp),
         "settled_positions": len(settled),
