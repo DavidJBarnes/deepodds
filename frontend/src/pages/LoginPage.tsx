@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
 export default function LoginPage() {
@@ -73,12 +73,13 @@ export default function LoginPage() {
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
+          {/* registration disabled (single-tenant) — re-enable with multi-tenant work
           <p className="text-sm text-slate-400 text-center">
             Don't have an account?{" "}
             <Link to="/register" className="text-emerald-400 hover:underline">
               Register
             </Link>
-          </p>
+          </p> */}
         </form>
       </div>
     </div>
