@@ -67,8 +67,7 @@ def test_post_does_not_retry_by_default():
     # POST that 500s must raise immediately — never auto-retried (double-submit risk).
     c = _client([FakeResp(500, {})])
     with pytest.raises(httpx.HTTPStatusError):
-        c.create_order(ticker="T", action="sell", side="yes", count=1,
-                       yes_price=5, client_order_id="x")
+        c.create_order(ticker="T", side="ask", count=1, price=0.05, client_order_id="x")
     assert len(c._client.calls) == 1
 
 
@@ -83,12 +82,14 @@ def test_get_retries_on_500_then_succeeds():
 
 def test_create_order_body_and_path():
     c = _client([FakeResp(201, {"order": {"order_id": "o1"}})])
-    c.create_order(ticker="KXHIGH-1", action="sell", side="yes", count=3,
-                   yes_price=11, client_order_id="ls-KXHIGH-1-42")
+    c.create_order(ticker="KXHIGH-1", side="ask", count=3, price=0.11,
+                   client_order_id="ls-KXHIGH-1-42")
     method, path, body = c._client.calls[0]
-    assert method == "POST" and path == "/portfolio/orders"
-    assert body["action"] == "sell" and body["side"] == "yes"
-    assert body["yes_price"] == 11 and body["count"] == 3
+    assert method == "POST" and path == "/portfolio/events/orders"   # V2, not deprecated v1
+    assert body["side"] == "ask"                                      # sell YES
+    assert body["count"] == "3.00" and body["price"] == "0.1100"      # fixed-point strings
+    assert body["time_in_force"] == "immediate_or_cancel"            # marketable take + auto-cancel
+    assert body["self_trade_prevention_type"] == "taker_at_cross"
     assert body["client_order_id"] == "ls-KXHIGH-1-42"
 
 
@@ -133,7 +134,8 @@ def test_dry_run_places_nothing():
     assert r.status == "dryrun" and r.filled_count == 0 and not broker.cancelled
 
 
-def test_partial_fill_books_actual_and_cancels_remainder():
+def test_partial_fill_books_actual_no_explicit_cancel():
+    # IOC auto-cancels the unfilled remainder — we must NOT issue a cancel.
     broker = FakeBroker(
         create={"order": {"order_id": "o9"}},
         fills=[{"count": 2, "yes_price": 10}],   # asked 5, only 2 filled
@@ -142,7 +144,7 @@ def test_partial_fill_books_actual_and_cancels_remainder():
     r = ex.place_short(ticker="T", sell_price=0.10, count=5, tick_epoch=1)
     assert r.status == "partial" and r.filled_count == 2
     assert abs(r.avg_price - 0.10) < 1e-9
-    assert broker.cancelled == ["o9"]          # remainder cancelled
+    assert broker.cancelled == []              # IOC handles the remainder
 
 
 def test_full_fill_no_cancel():
