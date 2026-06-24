@@ -52,7 +52,7 @@ services:
     env_file: /opt/deepodds/.env
     environment:
       - LONGSHOT_MODE=live
-      - LONGSHOT_DRY_RUN=true          # SAFE DEFAULT — flip to false only to arm
+      - LONGSHOT_DRY_RUN=false         # ARMED (canary, 2026-06-24) — places real 1-contract orders; kill: touch /opt/deepodds/longshot-live/KILL
       - LONGSHOT_STATE=/data/state.json
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
