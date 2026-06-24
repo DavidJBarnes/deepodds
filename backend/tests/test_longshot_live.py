@@ -127,6 +127,14 @@ def test_client_order_id_is_deterministic():
     assert ex.client_order_id("KXHIGHNY-X", 100) != ex.client_order_id("KXHIGHNY-X", 101)
 
 
+def test_client_order_id_strips_dot():
+    # Kalshi 400s on client_order_id containing '.' (B-bracket tickers like B89.5).
+    ex = Executor(FakeBroker(), "ls")
+    coid = ex.client_order_id("KXHIGHDEN-26JUN24-B89.5", 495085)
+    assert "." not in coid
+    assert coid == ex.client_order_id("KXHIGHDEN-26JUN24-B89.5", 495085)  # deterministic
+
+
 def test_dry_run_places_nothing():
     broker = FakeBroker()
     ex = Executor(broker, "ls", dry_run=True)

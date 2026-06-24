@@ -17,6 +17,7 @@ Safety invariants:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, asdict
 
@@ -54,8 +55,12 @@ class Executor:
         self.dry_run = dry_run
 
     def client_order_id(self, ticker: str, tick_epoch: int) -> str:
-        """Idempotency key: same (ticker, tick) -> same id -> no double-submit."""
-        return f"{self.prefix}-{ticker}-{tick_epoch}"
+        """Idempotency key: same (ticker, tick) -> same id -> no double-submit.
+        Strip non-alphanumerics from the ticker: Kalshi rejects a client_order_id
+        containing '.' (400 invalid_parameters) — e.g. temp 'between' brackets like
+        B89.5. Deterministic, so idempotency is preserved."""
+        clean = re.sub(r"[^A-Za-z0-9]", "", ticker)
+        return f"{self.prefix}-{clean}-{tick_epoch}"
 
     def place_short(self, *, ticker: str, sell_price: float, count: int,
                     tick_epoch: int) -> FillResult:
