@@ -51,11 +51,38 @@ def _resolve(cfg, client, state, now) -> int:
     return settled
 
 
+def size_candidate(cfg, m: dict, series: str, now, acct: float, deployed: float) -> dict | None:
+    """Per-market filter + sizing (pure). Returns a sized candidate or None.
+    Shared by paper discovery and live placement so the signal is identical."""
+    ya, yb, bs, ct = (m.get("yes_ask_dollars"), m.get("yes_bid_dollars"),
+                      m.get("yes_bid_size_fp"), m.get("close_time"))
+    if None in (ya, yb, bs, ct):
+        return None
+    ya, yb, bs = float(ya), float(yb), float(bs)
+    if not (cfg.band[0] <= ya <= cfg.band[1]) or yb <= 0:
+        return None
+    hrs = (datetime.fromisoformat(ct.replace("Z", "+00:00")) - now).total_seconds() / 3600
+    if hrs <= 0 or hrs > cfg.max_hours_to_close:
+        return None
+    collat_per = 1.0 - yb
+    n = int(acct * cfg.trade_fraction / collat_per) if collat_per > 0 else 0
+    n = max(1, min(n, int(cfg.max_depth_frac * bs)))
+    collat = collat_per * n
+    if collat < 0.01 or deployed + collat > acct:
+        return None
+    return {
+        "ticker": m["ticker"], "series": series, "close_time": ct,
+        "sell_price": yb, "size": n, "bid_depth": bs,
+        "collateral": round(collat, 2), "fee": round(fee(yb, n), 4),
+    }
+
+
 def discover_candidates(cfg, client, now, exclude: set, deployed: float,
                         account: float | None = None) -> list[dict]:
     """Shared discovery + sizing — the strategy signal, identical for paper and
     live. Reads the live book and returns sized candidates; performs NO fill and
-    mutates no state. Paper simulates the fill; live executes it.
+    mutates no state. Paper simulates the fill; live executes it (interleaving
+    fetch+place per series to avoid stale prices — see live_run).
 
     `account` is the capital base for sizing + the deployed guard. Paper passes
     None (uses the simulated cfg.account); LIVE passes the REAL Kalshi balance so
@@ -71,32 +98,13 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
             logger.debug("%s: %s", series, e)
             continue
         for m in r.get("markets", []):
-            tk = m["ticker"]
-            if tk in have:
+            if m["ticker"] in have:
                 continue
-            ya, yb, bs, ct = (m.get("yes_ask_dollars"), m.get("yes_bid_dollars"),
-                              m.get("yes_bid_size_fp"), m.get("close_time"))
-            if None in (ya, yb, bs, ct):
-                continue
-            ya, yb, bs = float(ya), float(yb), float(bs)
-            if not (cfg.band[0] <= ya <= cfg.band[1]) or yb <= 0:
-                continue
-            hrs = (datetime.fromisoformat(ct.replace("Z", "+00:00")) - now).total_seconds() / 3600
-            if hrs <= 0 or hrs > cfg.max_hours_to_close:
-                continue
-            collat_per = 1.0 - yb
-            n = int(acct * cfg.trade_fraction / collat_per) if collat_per > 0 else 0
-            n = max(1, min(n, int(cfg.max_depth_frac * bs)))
-            collat = collat_per * n
-            if collat < 0.01 or deployed + collat > acct:
-                continue
-            cands.append({
-                "ticker": tk, "series": series, "close_time": ct,
-                "sell_price": yb, "size": n, "bid_depth": bs,
-                "collateral": round(collat, 2), "fee": round(fee(yb, n), 4),
-            })
-            deployed += collat
-            have.add(tk)
+            c = size_candidate(cfg, m, series, now, acct, deployed)
+            if c:
+                cands.append(c)
+                deployed += c["collateral"]
+                have.add(m["ticker"])
     return cands
 
 

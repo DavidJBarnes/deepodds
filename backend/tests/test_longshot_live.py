@@ -147,6 +147,20 @@ def test_partial_fill_books_actual_no_explicit_cancel():
     assert broker.cancelled == []              # IOC handles the remainder
 
 
+def test_fill_parsed_from_v2_response_inline():
+    # V2 returns fill_count/average_fill_price/average_fee_paid inline — use it,
+    # don't depend on polling get_fills.
+    broker = FakeBroker(create={"order": {
+        "order_id": "o1", "fill_count": "1.00",
+        "average_fill_price": "0.1100", "average_fee_paid": "0.0069",
+        "remaining_count": "0.00"}}, fills=[])   # fills empty on purpose
+    ex = Executor(broker, "ls")
+    r = ex.place_short(ticker="T", sell_price=0.11, count=1, tick_epoch=1)
+    assert r.status == "filled" and r.filled_count == 1
+    assert r.avg_price == 0.11
+    assert r.fee == 0.0069                       # real raw fee, not ceil-to-cent
+
+
 def test_full_fill_no_cancel():
     broker = FakeBroker(create={"order": {"order_id": "o1"}},
                         fills=[{"count": 3, "yes_price": 11}])

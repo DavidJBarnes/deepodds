@@ -92,10 +92,17 @@ class Executor:
         order_id = order.get("order_id") or order.get("id")
         base.order_id = order_id
 
-        # IOC auto-cancels any unfilled remainder — no explicit cancel needed.
-        filled, avg_px, fee = self._settle_order(order_id, ticker)
+        # V2 returns the fill inline (IOC auto-cancels any unfilled remainder).
+        # Fee is the REAL per-contract amount (not ceil-to-cent like our formula).
+        if order.get("fill_count") is not None:
+            filled = int(float(order["fill_count"]))
+            avg_px = float(order.get("average_fill_price") or sell_price)
+            fee = round(float(order.get("average_fee_paid") or 0) * filled, 4)
+        else:
+            # timeout-confirmed orders may lack inline fill — poll fills.
+            filled, avg_px, fee = self._settle_order(order_id, ticker)
         base.filled_count = filled
-        base.avg_price = avg_px
+        base.avg_price = round(avg_px, 4) if filled else 0.0
         base.fee = fee
         base.status = "filled" if filled >= count else ("partial" if filled > 0 else "unfilled")
         logger.info("LIVE SELL %-34s intended %d @ %.2f -> filled %d @ %.4f fee %.2f [%s]",
