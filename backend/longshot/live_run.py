@@ -18,7 +18,7 @@ from longshot.kalshi_client import KalshiClient
 from longshot.execution import Executor
 from longshot.risk import RiskGate, PortfolioRisk, is_killed
 from longshot import reconcile
-from longshot.paper_run import _load_state, _save_state, discover_candidates
+from longshot.paper_run import _load_state, _save_state, size_candidate
 
 logger = logging.getLogger("longshot.live_run")
 
@@ -61,36 +61,51 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         if balance is None:
             logger.warning("no Kalshi balance this tick — skipping discovery (can't size safely)")
 
-        # --- 3. Discover + place (only if allowed AND balance is known) ----
+        # --- 3. Discover + place, INTERLEAVED per series ------------------
+        # Fetch each series and place its orders immediately, so the price we
+        # send is the price we just read (avoids the stale-quote 400s that the
+        # fetch-all-then-place pattern caused).
         if pre.allow and balance is not None:
-            for c in discover_candidates(cfg, client, now, have, deployed, account=balance):
-                d = gate.check_order(pr, contracts=c["size"], collateral=c["collateral"])
-                if not d.allow:
-                    logger.info("risk skip %s: %s", c["ticker"], d.reason)
+            for series in sorted(set(cfg.whitelist)):
+                try:
+                    r = client.get("/markets", params={"series_ticker": series,
+                                                       "status": "open", "limit": 100})
+                except Exception as e:
+                    logger.debug("%s: %s", series, e)
                     continue
-                res = executor.place_short(ticker=c["ticker"], sell_price=c["sell_price"],
-                                           count=c["size"], tick_epoch=tick_epoch)
-                if res.status in ("filled", "partial"):
-                    collat = round((1 - res.avg_price) * res.filled_count, 2)
-                    state["positions"].append({
-                        "ticker": c["ticker"], "series": c["series"],
-                        "entry_ts": now.isoformat(), "close_time": c["close_time"],
-                        "sell_price": res.avg_price, "size": res.filled_count,
-                        "filled_size": res.filled_count, "fee": res.fee,
-                        "collateral": collat, "bid_depth_at_entry": c["bid_depth"],
-                        "status": "open", "result": None, "pnl": None,
-                        # intended-vs-actual for the slippage gate
-                        "intended_price": c["sell_price"], "intended_size": c["size"],
-                        "avg_fill_price": res.avg_price,
-                        "client_order_id": res.client_order_id, "order_id": res.order_id,
-                    })
-                    pr.deployed_collateral += collat
-                    pr.open_positions += 1
-                    opened += 1
-                elif res.status == "dryrun":
-                    opened += 1   # count intents in dry-run for visibility
-                else:
-                    logger.warning("no fill for %s: %s", c["ticker"], res.status)
+                for m in r.get("markets", []):
+                    if m["ticker"] in have:
+                        continue
+                    c = size_candidate(cfg, m, series, now, balance, pr.deployed_collateral)
+                    if not c:
+                        continue
+                    d = gate.check_order(pr, contracts=c["size"], collateral=c["collateral"])
+                    if not d.allow:
+                        logger.info("risk skip %s: %s", c["ticker"], d.reason)
+                        continue
+                    res = executor.place_short(ticker=c["ticker"], sell_price=c["sell_price"],
+                                               count=c["size"], tick_epoch=tick_epoch)
+                    have.add(c["ticker"])
+                    if res.status in ("filled", "partial"):
+                        collat = round((1 - res.avg_price) * res.filled_count, 2)
+                        state["positions"].append({
+                            "ticker": c["ticker"], "series": c["series"],
+                            "entry_ts": now.isoformat(), "close_time": c["close_time"],
+                            "sell_price": res.avg_price, "size": res.filled_count,
+                            "filled_size": res.filled_count, "fee": res.fee,
+                            "collateral": collat, "bid_depth_at_entry": c["bid_depth"],
+                            "status": "open", "result": None, "pnl": None,
+                            "intended_price": c["sell_price"], "intended_size": c["size"],
+                            "avg_fill_price": res.avg_price,
+                            "client_order_id": res.client_order_id, "order_id": res.order_id,
+                        })
+                        pr.deployed_collateral += collat
+                        pr.open_positions += 1
+                        opened += 1
+                    elif res.status == "dryrun":
+                        opened += 1
+                    else:
+                        logger.warning("no fill for %s: %s", c["ticker"], res.status)
         else:
             logger.warning("pretick blocked: %s", pre.reason)
 
