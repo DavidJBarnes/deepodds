@@ -90,19 +90,28 @@ class KalshiClient:
         return self._request("DELETE", path, retry=True)
 
     # -- orders -------------------------------------------------------------
-    def create_order(self, *, ticker: str, action: str, side: str, count: int,
-                     type: str = "limit", yes_price: int | None = None,
-                     no_price: int | None = None, client_order_id: str,
+    def create_order(self, *, ticker: str, side: str, count: int, price: float,
+                     client_order_id: str,
+                     time_in_force: str = "immediate_or_cancel",
+                     self_trade_prevention_type: str = "taker_at_cross",
                      **extra) -> dict:
-        """POST /portfolio/orders. Prices are integer cents. Not auto-retried."""
-        body = {"ticker": ticker, "action": action, "side": side,
-                "count": count, "type": type, "client_order_id": client_order_id}
-        if yes_price is not None:
-            body["yes_price"] = int(yes_price)
-        if no_price is not None:
-            body["no_price"] = int(no_price)
+        """V2 create order — POST /portfolio/events/orders. The legacy
+        /portfolio/orders endpoint returns 410 (deprecated_v1_order_endpoint).
+
+        side: 'ask' (sell) | 'bid' (buy). price in DOLLARS, count in CONTRACTS —
+        both sent as fixed-point strings per the V2 contract. Not auto-retried.
+        Default IOC = marketable take + auto-cancel of any unfilled remainder."""
+        body = {
+            "ticker": ticker,
+            "side": side,
+            "count": f"{float(count):.2f}",
+            "price": f"{price:.4f}",
+            "time_in_force": time_in_force,
+            "self_trade_prevention_type": self_trade_prevention_type,
+            "client_order_id": client_order_id,
+        }
         body.update(extra)
-        return self.post("/portfolio/orders", body)
+        return self.post("/portfolio/events/orders", body)
 
     def cancel_order(self, order_id: str) -> dict:
         return self.delete(f"/portfolio/orders/{order_id}")

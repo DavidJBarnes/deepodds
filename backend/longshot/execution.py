@@ -59,23 +59,23 @@ class Executor:
 
     def place_short(self, *, ticker: str, sell_price: float, count: int,
                     tick_epoch: int) -> FillResult:
-        """Sell `count` YES contracts at the current bid (`sell_price`, dollars)."""
+        """Sell `count` YES contracts at the current bid (`sell_price`, dollars)
+        as a marketable IOC ask: take what's resting now, auto-cancel the rest."""
         coid = self.client_order_id(ticker, tick_epoch)
-        price_cents = int(round(sell_price * 100))
         base = FillResult(client_order_id=coid, ticker=ticker, status="error",
                           intended_count=count, intended_price=sell_price)
 
         if self.dry_run:
-            logger.info("DRY-RUN would SELL %-34s %d @ %dc (coid=%s)",
-                        ticker, count, price_cents, coid)
+            logger.info("DRY-RUN would SELL %-34s %d @ %.0fc (coid=%s)",
+                        ticker, count, sell_price * 100, coid)
             base.status = "dryrun"
             return base
 
         # --- place (never auto-retried) ------------------------------------
         try:
             resp = self.client.create_order(
-                ticker=ticker, action="sell", side="yes", count=count,
-                type="limit", yes_price=price_cents, client_order_id=coid)
+                ticker=ticker, side="ask", count=count, price=sell_price,
+                client_order_id=coid, time_in_force="immediate_or_cancel")
             order = resp.get("order", resp)
         except (httpx.TimeoutException, httpx.TransportError) as e:
             # Ambiguous: the order MAY have landed. Confirm before doing anything.
@@ -92,14 +92,8 @@ class Executor:
         order_id = order.get("order_id") or order.get("id")
         base.order_id = order_id
 
-        # --- resolve the fill, cancel any remainder ------------------------
+        # IOC auto-cancels any unfilled remainder — no explicit cancel needed.
         filled, avg_px, fee = self._settle_order(order_id, ticker)
-        if filled < count and order_id:
-            try:
-                self.client.cancel_order(order_id)
-            except Exception:
-                logger.debug("cancel remainder failed for %s (likely already gone)", order_id)
-
         base.filled_count = filled
         base.avg_price = avg_px
         base.fee = fee
