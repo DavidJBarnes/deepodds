@@ -256,11 +256,12 @@ def test_apply_settlements_books_real_outcome():
         {"ticker": "B", "status": "open", "sell_price": 0.1, "size": 10, "fee": 0.07,
          "result": None, "pnl": None},
     ]}
-    settlements = [{"ticker": "A", "market_result": "no", "revenue": 100}]  # cents
+    settlements = [{"ticker": "A", "market_result": "no", "revenue": 100}]  # gross payout, ignored
     n = reconcile.apply_settlements(state, settlements)
     a = state["positions"][0]
     assert n == 1 and a["status"] == "settled" and a["result"] == "no"
-    assert a["pnl"] == 1.0 and a["settled_ts"]
+    # NET P&L (premium kept - fee), NOT Kalshi's gross $1/contract revenue
+    assert a["pnl"] == pytest.approx(0.93) and a["settled_ts"]  # 0.1*10 - 0.07
     assert state["positions"][1]["status"] == "open"   # B not settled
 
 
