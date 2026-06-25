@@ -80,11 +80,16 @@ def apply_settlements(state: dict, settlements: list[dict]) -> int:
         res = _settle_result(s)
         if res not in ("yes", "no"):
             continue
-        pnl = _settle_pnl_dollars(s)
-        if pnl is None:
-            # fall back to our convention if Kalshi didn't hand us the money
-            sp, sz, fee = p["sell_price"], p.get("filled_size", p["size"]), p.get("fee", 0)
+        # NET P&L (matches the paper convention) — NOT Kalshi's gross settlement
+        # `revenue` (which is the $1/contract payout, not profit). For a short YES:
+        # win (NO) keeps the premium; loss (YES) loses the collateral; minus fee.
+        sp, sz, fee = p.get("sell_price"), p.get("filled_size") or p.get("size") or 0, p.get("fee") or 0
+        if sp is not None:
             pnl = (sp * sz - fee) if res == "no" else (-(1 - sp) * sz - fee)
+        else:
+            # adopted orphan (unknown entry): net = gross revenue - collateral - fee
+            rev, collat = _settle_pnl_dollars(s), p.get("collateral") or 0
+            pnl = (rev - collat - fee) if rev is not None else 0.0
         p["status"] = "settled"
         p["result"] = res
         p["pnl"] = round(pnl, 4)
