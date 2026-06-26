@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from longshot.kalshi_client import KalshiClient, kalshi_fee_per_contract as fee
 from longshot.config import LongshotConfig, load_kalshi_creds
+from longshot.reconcile import net_pnl
 
 logger = logging.getLogger("longshot.paper_run")
 
@@ -42,11 +43,10 @@ def _resolve(cfg, client, state, now) -> int:
         res = (m.get("result") or "").lower()
         if res not in ("yes", "no"):
             continue
-        n, sp = p["size"], p["sell_price"]
-        p["pnl"] = round((sp * n - p["fee"]) if res == "no"
-                         else (-(1 - sp) * n - p["fee"]), 4)
+        p["pnl"] = net_pnl(p["sell_price"], p["size"], p["fee"], res)
         p["status"] = "settled"
         p["result"] = res
+        p["settled_ts"] = now.isoformat()   # enables time-windowed live-vs-paper reporting
         settled += 1
     return settled
 

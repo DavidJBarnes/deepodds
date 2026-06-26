@@ -46,6 +46,42 @@ def _settle_pnl_dollars(s: dict) -> float | None:
     return None
 
 
+def net_pnl(sell_price: float, size: float, fee: float, result: str) -> float:
+    """Canonical NET P&L for a short-YES position (the paper convention) — NOT
+    Kalshi's gross settlement `revenue` ($1/contract payout). Win (NO) keeps the
+    premium; loss (YES) loses the collateral; both minus fee. Single source of
+    truth used by apply_settlements, heal_settled_pnl, and paper resolution."""
+    if result == "no":
+        return round(sell_price * size - fee, 4)
+    return round(-(1 - sell_price) * size - fee, 4)
+
+
+def heal_settled_pnl(state: dict) -> int:
+    """Idempotently re-derive settled P&L from the canonical formula. Self-corrects
+    records booked by OLDER reconcile logic: a position that settles in the window
+    before a fix deploys stays mis-booked forever, because apply_settlements only
+    touches OPEN positions. Running this every live tick makes that class of stale
+    record self-heal instead of needing a manual recompute (cf. the 2026-06-25
+    gross-revenue artifact). A no-op once values are correct.
+
+    Only heals positions with a known entry price; adopted orphans (sell_price None,
+    settled from gross revenue) are left untouched."""
+    n = 0
+    for p in state.get("positions", []):
+        if p.get("status") != "settled" or p.get("sell_price") is None:
+            continue
+        res = p.get("result")
+        if res not in ("yes", "no"):
+            continue
+        sz = p.get("filled_size") or p.get("size") or 0
+        want = net_pnl(p["sell_price"], sz, p.get("fee") or 0, res)
+        if p.get("pnl") is None or abs((p.get("pnl") or 0) - want) > 1e-6:
+            logger.warning("heal stale pnl %s: %s -> %s", p.get("ticker"), p.get("pnl"), want)
+            p["pnl"] = want
+            n += 1
+    return n
+
+
 def fetch_truth(client: KalshiClient) -> dict:
     """Read-only pull of everything Kalshi knows. Used in Phase 1/2 verification
     and every live tick."""
@@ -85,14 +121,14 @@ def apply_settlements(state: dict, settlements: list[dict]) -> int:
         # win (NO) keeps the premium; loss (YES) loses the collateral; minus fee.
         sp, sz, fee = p.get("sell_price"), p.get("filled_size") or p.get("size") or 0, p.get("fee") or 0
         if sp is not None:
-            pnl = (sp * sz - fee) if res == "no" else (-(1 - sp) * sz - fee)
+            pnl = net_pnl(sp, sz, fee, res)
         else:
             # adopted orphan (unknown entry): net = gross revenue - collateral - fee
             rev, collat = _settle_pnl_dollars(s), p.get("collateral") or 0
-            pnl = (rev - collat - fee) if rev is not None else 0.0
+            pnl = round((rev - collat - fee), 4) if rev is not None else 0.0
         p["status"] = "settled"
         p["result"] = res
-        p["pnl"] = round(pnl, 4)
+        p["pnl"] = pnl
         p["settled_ts"] = datetime.now(timezone.utc).isoformat()
         n += 1
     return n
