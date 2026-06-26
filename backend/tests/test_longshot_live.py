@@ -329,3 +329,66 @@ def test_slippage_stats():
     assert s["fill_rate"] == pytest.approx(7 / 9, abs=1e-3)
     # slippage cents: (0.10-0.10)*100=0 and (0.11-0.09)*100=2 -> mean 1.0
     assert s["avg_slippage_c"] == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------
+# Canonical net-pnl + self-healing (the 2026-06-25 gross-revenue artifact)
+# --------------------------------------------------------------------------
+def test_net_pnl_win_and_loss():
+    assert reconcile.net_pnl(0.10, 10, 0.07, "no") == pytest.approx(0.93)    # keep premium
+    assert reconcile.net_pnl(0.10, 10, 0.07, "yes") == pytest.approx(-9.07)  # lose collateral
+
+
+def test_heal_settled_pnl_corrects_gross_and_is_idempotent():
+    # A win mis-booked as Kalshi gross ($1/ct) instead of the net premium.
+    state = {"positions": [
+        {"ticker": "STALE", "status": "settled", "result": "no",
+         "sell_price": 0.01, "size": 1, "fee": 0.001, "pnl": 2.0},          # phantom
+        {"ticker": "OK", "status": "settled", "result": "no",
+         "sell_price": 0.05, "size": 1, "fee": 0.003, "pnl": 0.047},        # already correct
+    ]}
+    n = reconcile.heal_settled_pnl(state)
+    assert n == 1                                                            # only STALE healed
+    assert state["positions"][0]["pnl"] == pytest.approx(0.009)             # 0.01 - 0.001
+    assert reconcile.heal_settled_pnl(state) == 0                            # idempotent
+
+
+def test_heal_skips_open_and_adopted():
+    state = {"positions": [
+        {"ticker": "OPEN", "status": "open", "sell_price": 0.1, "size": 1, "fee": 0.0, "pnl": None},
+        {"ticker": "ORPH", "status": "settled", "result": "no",             # adopted: no entry px
+         "sell_price": None, "size": 3, "fee": 0.0, "pnl": 0.5},
+    ]}
+    assert reconcile.heal_settled_pnl(state) == 0
+    assert state["positions"][1]["pnl"] == 0.5                              # untouched
+
+
+def test_settled_win_pnl_never_exceeds_premium():
+    # Invariant guard: a healed short-YES win can never profit more than the premium.
+    state = {"positions": [
+        {"ticker": "W", "status": "settled", "result": "no",
+         "sell_price": 0.08, "size": 2, "fee": 0.01, "pnl": 5.0},
+    ]}
+    reconcile.heal_settled_pnl(state)
+    p = state["positions"][0]
+    assert p["pnl"] <= p["sell_price"] * p["size"] + 1e-9
+
+
+def test_paper_resolve_sets_settled_ts_and_net_pnl():
+    from datetime import datetime, timezone
+    from longshot import paper_run
+
+    class FakeClient:
+        def get(self, path, **kw):
+            return {"market": {"result": "no"}}
+
+    now = datetime(2026, 6, 26, 12, tzinfo=timezone.utc)
+    state = {"positions": [
+        {"ticker": "KXHIGHNY-X", "status": "open", "close_time": "2026-06-26T04:59:00+00:00",
+         "sell_price": 0.1, "size": 3, "fee": 0.02, "result": None, "pnl": None},
+    ]}
+    n = paper_run._resolve(None, FakeClient(), state, now)
+    p = state["positions"][0]
+    assert n == 1 and p["status"] == "settled" and p["result"] == "no"
+    assert p["pnl"] == pytest.approx(0.28)                  # 0.1*3 - 0.02, canonical net
+    assert p["settled_ts"] == now.isoformat()              # enables time-windowed reporting

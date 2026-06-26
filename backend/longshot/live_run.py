@@ -44,6 +44,9 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         # --- 1. Reconcile against Kalshi truth (settle + adopt orphans) -----
         truth = reconcile.fetch_truth(client)
         settled_now = reconcile.apply_settlements(state, truth["settlements"])
+        healed = reconcile.heal_settled_pnl(state)   # self-correct any stale-booked pnl
+        if healed:
+            logger.warning("healed %d stale settled-pnl record(s)", healed)
         adopted = reconcile.adopt_orphans(state, truth["positions"], now)
         if adopted:
             logger.error("%d orphan position(s) adopted this tick", adopted)
