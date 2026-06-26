@@ -33,6 +33,7 @@ services:
       - LONGSHOT_STATE=/data/state.json
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+      - LONGSHOT_MAX_OPEN=120         # match live so the paper control is apples-to-apples
     volumes:
       - /opt/deepodds/longshot:/data:z
 
@@ -58,10 +59,13 @@ services:
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
       # Canary caps ($100-250 phase): 1 contract/trade, $200 max deployed, $25 daily-loss kill.
+      # MAX_OPEN raised 40->120 (2026-06-26): book was pinned at 40 with only $38 of the
+      # $200 collateral deployed — more breadth (not bigger bets) to reach the Phase-4 gate
+      # faster. Size stays 1 ct; $200 deployed + $25 daily kill remain the real governors.
       - LONGSHOT_ACCOUNT=250
       - LONGSHOT_MAX_DEPLOYED=200
       - LONGSHOT_MAX_PER_TRADE=1
-      - LONGSHOT_MAX_OPEN=40
+      - LONGSHOT_MAX_OPEN=120
       - LONGSHOT_MAX_DAILY_LOSS=25
     volumes:
       - /opt/deepodds/longshot-live:/data:z
