@@ -37,6 +37,30 @@ services:
     volumes:
       - /opt/deepodds/longshot:/data:z
 
+  # Longshot-short paper harness WITH the low-OI selection filter ON (backtest
+  # #209: OI-bottom-40% ~4x per-ct edge, MaxDD 34%->5%, CI-clean). This is the
+  # A/B treatment arm vs the unfiltered `longshot` control above — both paper, no
+  # money. Same signal otherwise; the ONLY difference is LONGSHOT_OI_FILTER=true.
+  # Read the A/B with: fill_diff --oi-max 968 across the two paper state files, or
+  # just compare each container's settled c/ct. Promote to live only after this
+  # arm beats the control over ~1-2 weeks of settlements.
+  longshot-paper-oi:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-longshot-paper-oi
+    command: python -m longshot.loop --interval 3600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - LONGSHOT_STATE=/data/state.json
+      - LONGSHOT_HISTORY=/data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+      - LONGSHOT_MAX_OPEN=120          # match control + live so it's apples-to-apples
+      - LONGSHOT_OI_FILTER=true        # the treatment: trade only low open-interest longshots
+      - LONGSHOT_OI_MAX=968            # backtest sweet-spot threshold (OI bottom ~40%)
+    volumes:
+      - /opt/deepodds/longshot-paper-oi:/data:z
+
   # Longshot-short LIVE harness (real Kalshi orders). Same signal as the paper
   # container above, which keeps running untouched as the control. Ships SAFE:
   # LONGSHOT_DRY_RUN=true => it reconciles + reads Kalshi truth + logs INTENDED
