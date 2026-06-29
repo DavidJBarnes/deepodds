@@ -76,6 +76,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.environ.get(name, "").strip().lower()
+    if not v:
+        return default
+    return v not in ("0", "false", "no", "off")
+
+
 @dataclass
 class LongshotConfig:
     whitelist: tuple = field(default_factory=lambda: tuple(
@@ -85,6 +92,15 @@ class LongshotConfig:
     account: float = field(default_factory=lambda: _env_float("LONGSHOT_ACCOUNT", 8_000.0))
     trade_fraction: float = field(default_factory=lambda: _env_float("LONGSHOT_TRADE_FRACTION", 0.005))
     max_depth_frac: float = 0.25       # max fraction of standing bid we take
+
+    # ----- low-OI selection filter (backtest #209; default OFF) -------------
+    # Open interest is a clean mispricing signal: low-OI longshots carry fatter
+    # premium at the same YES rate (OI-bottom-40% ~4x per-ct edge, MaxDD 34%->5%,
+    # CI-clean). When enabled, skip any candidate whose entry open_interest_fp
+    # exceeds oi_max. Default OFF so LIVE behavior is unchanged until a paper A/B
+    # earns the promotion. entry_oi is always RECORDED regardless of this flag.
+    oi_filter_enabled: bool = field(default_factory=lambda: _env_bool("LONGSHOT_OI_FILTER", False))
+    oi_max: float = field(default_factory=lambda: _env_float("LONGSHOT_OI_MAX", 968.0))
 
     # ----- live-trading mode -----------------------------------------------
     # "paper" (default): read the book, simulate fills/settlement/PnL — no orders.

@@ -97,6 +97,7 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                             "sell_price": res.avg_price, "size": res.filled_count,
                             "filled_size": res.filled_count, "fee": res.fee,
                             "collateral": collat, "bid_depth_at_entry": c["bid_depth"],
+                            "entry_oi": c["open_interest"],
                             "status": "open", "result": None, "pnl": None,
                             "intended_price": c["sell_price"], "intended_size": c["size"],
                             "avg_fill_price": res.avg_price,

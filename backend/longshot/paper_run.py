@@ -61,6 +61,11 @@ def size_candidate(cfg, m: dict, series: str, now, acct: float, deployed: float)
     ya, yb, bs = float(ya), float(yb), float(bs)
     if not (cfg.band[0] <= ya <= cfg.band[1]) or yb <= 0:
         return None
+    # Open interest at entry — always recorded; only filters when explicitly enabled
+    # (low-OI selection, backtest #209). Default OFF so live behavior is unchanged.
+    oi = float(m.get("open_interest_fp") or 0.0)
+    if cfg.oi_filter_enabled and oi > cfg.oi_max:
+        return None
     hrs = (datetime.fromisoformat(ct.replace("Z", "+00:00")) - now).total_seconds() / 3600
     if hrs <= 0 or hrs > cfg.max_hours_to_close:
         return None
@@ -72,7 +77,7 @@ def size_candidate(cfg, m: dict, series: str, now, acct: float, deployed: float)
         return None
     return {
         "ticker": m["ticker"], "series": series, "close_time": ct,
-        "sell_price": yb, "size": n, "bid_depth": bs,
+        "sell_price": yb, "size": n, "bid_depth": bs, "open_interest": oi,
         "collateral": round(collat, 2), "fee": round(fee(yb, n), 4),
     }
 
@@ -118,6 +123,7 @@ def _discover(cfg, client, state, now) -> int:
             "entry_ts": now.isoformat(), "close_time": c["close_time"],
             "sell_price": c["sell_price"], "size": c["size"], "fee": c["fee"],
             "collateral": c["collateral"], "bid_depth_at_entry": c["bid_depth"],
+            "entry_oi": c["open_interest"],
             "status": "open", "result": None, "pnl": None,
         })
         logger.info("PAPER SELL %-34s %d @ %.2f (depth %.0f, close %s)",

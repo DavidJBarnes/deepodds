@@ -91,11 +91,49 @@ def matched_diff(paper_positions: list[dict], live_positions: list[dict]) -> dic
     }
 
 
-def report(live_state: dict, paper_state: dict) -> dict:
+def oi_split(positions: list[dict], oi_max: float) -> dict:
+    """Within-book A/B for the low-OI selection filter (backtest #209).
+
+    Splits SETTLED positions that carry entry_oi into KEPT (entry_oi <= oi_max,
+    what the filter would trade) vs DROPPED (what it would skip), and reports
+    net ¢/ct + YES-rate for each. A pure-selection A/B on the same universe — no
+    second container needed; the filter changes only WHICH markets are opened.
+    """
+    settled = [p for p in positions
+               if p.get("status") == "settled" and p.get("entry_oi") is not None
+               and p.get("sell_price") is not None]
+
+    def agg(rs):
+        n = len(rs)
+        ct = sum(p.get("size") or 0 for p in rs)
+        pnl = round(sum(p.get("pnl") or 0 for p in rs), 4)
+        yes = sum(1 for p in rs if p.get("result") == "yes")
+        return {
+            "n": n, "contracts": ct, "pnl": pnl,
+            "cents_ct": round(pnl / ct * 100, 4) if ct else None,
+            "yes_rate": round(yes / n, 4) if n else None,
+        }
+
+    kept = [p for p in settled if (p.get("entry_oi") or 0) <= oi_max]
+    dropped = [p for p in settled if (p.get("entry_oi") or 0) > oi_max]
     return {
+        "oi_max": oi_max,
+        "with_oi": len(settled),
+        "all": agg(settled),
+        "kept": agg(kept),       # the filtered strategy
+        "dropped": agg(dropped),  # what the filter would have avoided
+    }
+
+
+def report(live_state: dict, paper_state: dict, oi_max: float | None = None) -> dict:
+    out = {
         "live_fill_quality": live_fill_quality(live_state.get("positions", [])),
         "matched": matched_diff(paper_state.get("positions", []), live_state.get("positions", [])),
     }
+    if oi_max is not None:
+        out["paper_oi_split"] = oi_split(paper_state.get("positions", []), oi_max)
+        out["live_oi_split"] = oi_split(live_state.get("positions", []), oi_max)
+    return out
 
 
 def _print(rep: dict) -> None:
@@ -115,19 +153,32 @@ def _print(rep: dict) -> None:
     print(f"  shared: {m['shared']}  paper-only: {m['paper_only']}  live-only: {m['live_only']}")
     print(f"  mean entry price delta (live−paper): {m['mean_price_delta_cents']}¢")
     print(f"  resolved-outcome agreement:          {m['outcome_agreement']}")
+    for label, key in (("PAPER", "paper_oi_split"), ("LIVE", "live_oi_split")):
+        s = rep.get(key)
+        if not s:
+            continue
+        print(f"== {label} LOW-OI A/B (oi_max={s['oi_max']:.0f}, settled w/ OI={s['with_oi']}) ==")
+        for sub in ("all", "kept", "dropped"):
+            a = s[sub]
+            yr = f"{a['yes_rate']*100:.1f}%" if a['yes_rate'] is not None else "—"
+            cc = f"{a['cents_ct']:+.2f}¢" if a['cents_ct'] is not None else "—"
+            print(f"  {sub:8} n={a['n']:>4} ct={a['contracts']:>5} pnl=${a['pnl']:>+8.2f} "
+                  f"net={cc:>8} YES={yr}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--live", required=True, help="path to live state.json")
     ap.add_argument("--paper", required=True, help="path to paper state.json")
+    ap.add_argument("--oi-max", type=float, default=None,
+                    help="if set, also report the low-OI A/B split at this cap (e.g. 968)")
     ap.add_argument("--json", action="store_true", help="emit raw JSON instead of a summary")
     args = ap.parse_args()
     with open(args.live) as fh:
         live = json.load(fh)
     with open(args.paper) as fh:
         paper = json.load(fh)
-    rep = report(live, paper)
+    rep = report(live, paper, oi_max=args.oi_max)
     if args.json:
         print(json.dumps(rep, indent=2))
     else:
