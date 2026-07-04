@@ -59,6 +59,41 @@ def live_fill_quality(positions: list[dict]) -> dict:
     }
 
 
+def slippage_by_size(positions: list[dict], buckets=(1, 2, 5, 10, 25)) -> dict:
+    """The fill-at-size read: mean slippage + fill-rate bucketed by filled_size.
+
+    The whole reason we scale beyond 1 contract is to learn whether the book
+    actually absorbs size without the price moving against us. Groups live orders
+    by how many contracts filled and reports mean slippage (actual-intended, signed;
+    <0 = adverse) + fill ratio per bucket. If slippage stays ~0 as size climbs, the
+    paper edge is capturable at size; if it degrades, we've found the ceiling.
+    """
+    rows = []
+    for p in positions:
+        ip, isz, ap, fsz = (p.get("intended_price"), p.get("intended_size"),
+                            p.get("avg_fill_price"), p.get("filled_size"))
+        if None in (ip, isz, ap, fsz):
+            continue
+        rows.append((fsz, round((ap - ip) * 100, 4), fsz / isz if isz else None))
+    edges = list(buckets) + [float("inf")]
+    out = []
+    for lo, hi in zip(edges, edges[1:]):
+        grp = [r for r in rows if lo <= r[0] < hi]
+        if not grp:
+            continue
+        slips = [r[1] for r in grp]
+        fills = [r[2] for r in grp if r[2] is not None]
+        label = f"{int(lo)}" if hi == float("inf") else f"{int(lo)}-{int(hi)-1}"
+        out.append({
+            "size_bucket": label + ("+" if hi == float("inf") else "ct"),
+            "n": len(grp),
+            "mean_slip_cents": round(sum(slips) / len(slips), 4),
+            "worst_adverse_cents": min(slips),
+            "mean_fill_ratio": round(sum(fills) / len(fills), 4) if fills else None,
+        })
+    return {"n": len(rows), "buckets": out}
+
+
 def matched_diff(paper_positions: list[dict], live_positions: list[dict]) -> dict:
     """Compare the two books on markets both touched (matched by ticker)."""
     paper = {p["ticker"]: p for p in paper_positions if p.get("ticker")}
@@ -128,6 +163,7 @@ def oi_split(positions: list[dict], oi_max: float) -> dict:
 def report(live_state: dict, paper_state: dict, oi_max: float | None = None) -> dict:
     out = {
         "live_fill_quality": live_fill_quality(live_state.get("positions", [])),
+        "slippage_by_size": slippage_by_size(live_state.get("positions", [])),
         "matched": matched_diff(paper_state.get("positions", []), live_state.get("positions", [])),
     }
     if oi_max is not None:
@@ -148,6 +184,13 @@ def _print(rep: dict) -> None:
         print(f"  worst adverse slippage:  {fq['worst_adverse_slip_cents']:+.3f}¢")
     else:
         print("  (no live records carry intended/actual fill data yet)")
+    sz = rep.get("slippage_by_size")
+    if sz and sz["buckets"]:
+        print("== SLIPPAGE BY FILL SIZE (the fill-at-size read) ==")
+        for b in sz["buckets"]:
+            fr = f"{b['mean_fill_ratio']*100:.0f}%" if b["mean_fill_ratio"] is not None else "—"
+            print(f"  {b['size_bucket']:>6}: n={b['n']:>4} mean_slip={b['mean_slip_cents']:+.3f}¢ "
+                  f"worst={b['worst_adverse_cents']:+.3f}¢ fill={fr}")
     m = rep["matched"]
     print("== MATCHED LIVE vs PAPER (same markets) ==")
     print(f"  shared: {m['shared']}  paper-only: {m['paper_only']}  live-only: {m['live_only']}")

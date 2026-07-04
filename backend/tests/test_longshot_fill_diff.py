@@ -3,7 +3,7 @@
 Pure functions over state dicts — no network, no state mutation. Covers fill-rate
 and slippage accounting (the gate signal) and the live-vs-paper matched diff.
 """
-from longshot.fill_diff import live_fill_quality, matched_diff, report
+from longshot.fill_diff import live_fill_quality, matched_diff, report, slippage_by_size
 
 
 def _live(ticker, ip, isz, ap, fsz, **kw):
@@ -88,6 +88,25 @@ def test_matched_diff_ignores_unsettled_for_agreement():
     m = matched_diff(paper, live)
     assert m["shared"] == 1
     assert m["outcome_agreement"] is None  # nothing resolved on both sides
+
+
+def test_slippage_by_size_buckets_and_signs():
+    pos = [
+        _live("a", 0.05, 1, 0.05, 1),    # 1ct, 0 slip
+        _live("b", 0.05, 1, 0.05, 1),    # 1ct, 0 slip
+        _live("c", 0.06, 5, 0.04, 5),    # 5ct, -2c adverse
+        _live("d", 0.05, 12, 0.05, 12),  # 10-24ct bucket, 0 slip
+    ]
+    s = slippage_by_size(pos)
+    assert s["n"] == 4
+    b = {x["size_bucket"]: x for x in s["buckets"]}
+    assert b["1-1ct"]["n"] == 2 and b["1-1ct"]["mean_slip_cents"] == 0.0
+    assert b["5-9ct"]["n"] == 1 and b["5-9ct"]["worst_adverse_cents"] == -2.0
+    assert b["10-24ct"]["n"] == 1
+
+
+def test_slippage_by_size_ignores_records_without_fill_data():
+    assert slippage_by_size([{"ticker": "x", "sell_price": 0.05}])["n"] == 0
 
 
 def test_report_wires_both_views():

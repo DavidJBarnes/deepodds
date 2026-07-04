@@ -85,13 +85,18 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
-      # Canary caps ($100-250 phase): 1 contract/trade, $200 max deployed, $25 daily-loss kill.
-      # MAX_OPEN raised 40->120 (2026-06-26): book was pinned at 40 with only $38 of the
-      # $200 collateral deployed — more breadth (not bigger bets) to reach the Phase-4 gate
-      # faster. Size stays 1 ct; $200 deployed + $25 daily kill remain the real governors.
+      # FILL-AT-SIZE TEST (2026-07-04): scaled OFF 1-contract to actually deploy the
+      # $250 and learn whether the +1.67c/ct PAPER-forward edge survives at size — the
+      # one unknown between paper and real dollars. TRADE_FRACTION 0.005->0.02 (~4-5 ct
+      # on the ~$222 balance, still depth-capped so thin books size DOWN); MAX_PER_TRADE
+      # 1->10 (safety bound; depth+fraction govern real size). $200 deployed + $25 daily
+      # kill UNCHANGED = the real governors (max single-day loss ~11% of balance). Read
+      # the result with fill_diff slippage_by_size: slip ~0 as size climbs => edge is
+      # capturable; slip degrades => we found the capacity ceiling.
       - LONGSHOT_ACCOUNT=250
+      - LONGSHOT_TRADE_FRACTION=0.02
       - LONGSHOT_MAX_DEPLOYED=200
-      - LONGSHOT_MAX_PER_TRADE=1
+      - LONGSHOT_MAX_PER_TRADE=10
       - LONGSHOT_MAX_OPEN=120
       - LONGSHOT_MAX_DAILY_LOSS=25
     volumes:
