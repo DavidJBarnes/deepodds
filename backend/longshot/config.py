@@ -93,14 +93,19 @@ class LongshotConfig:
     trade_fraction: float = field(default_factory=lambda: _env_float("LONGSHOT_TRADE_FRACTION", 0.005))
     max_depth_frac: float = 0.25       # max fraction of standing bid we take
 
-    # ----- low-OI selection filter (backtest #209; default OFF) -------------
-    # Open interest is a clean mispricing signal: low-OI longshots carry fatter
-    # premium at the same YES rate (OI-bottom-40% ~4x per-ct edge, MaxDD 34%->5%,
-    # CI-clean). When enabled, skip any candidate whose entry open_interest_fp
-    # exceeds oi_max. Default OFF so LIVE behavior is unchanged until a paper A/B
-    # earns the promotion. entry_oi is always RECORDED regardless of this flag.
+    # ----- OI selection filter (default OFF) --------------------------------
+    # Open interest partitions the longshot universe at oi_max. Two directions:
+    #   oi_keep_high=False (LOW-OI): trade only oi <= oi_max  (skip oi > oi_max)
+    #   oi_keep_high=True  (HIGH-OI): trade only oi >  oi_max  (skip oi <= oi_max)
+    # Backtest #209 favored LOW-OI, but that backtest is biased (s3_markets_low is a
+    # cheap-selected ingest -> ~0% YES in temp -> it can't test loss-avoidance; see
+    # VERDICT_BACKTEST_BIAS.md). LIVE-forward data (which has real losses) says the
+    # opposite: HIGH-OI is the SAFER bucket (YES 1.3% vs 4.7%, +3.2c vs -1.0c).
+    # So the paper A/B now forward-tests HIGH-OI. Default OFF => LIVE unchanged.
+    # entry_oi is always RECORDED regardless of this flag.
     oi_filter_enabled: bool = field(default_factory=lambda: _env_bool("LONGSHOT_OI_FILTER", False))
     oi_max: float = field(default_factory=lambda: _env_float("LONGSHOT_OI_MAX", 968.0))
+    oi_keep_high: bool = field(default_factory=lambda: _env_bool("LONGSHOT_OI_KEEP_HIGH", False))
 
     # ----- live-trading mode -----------------------------------------------
     # "paper" (default): read the book, simulate fills/settlement/PnL — no orders.

@@ -238,3 +238,45 @@ def end_to_end():
         clean = "CLEAN+" if a["cents_ct"] - a["ci"] > 0 else ("CLEAN-" if a["cents_ct"] + a["ci"] < 0 else "")
         print(f"    {name:18} n={a['n']:5} YES={a['yes_rate']*100:4.1f}% sell={a['avg_sell']:.2f}c "
               f"net={a['cents_ct']:+.2f}c +/-{a['ci']:.2f} {clean}")
+
+
+def reconcile_temp():
+    """Why does live-forward temp say HIGH-OI wins while #209 said low-OI wins?
+    Slice the historical shards to KXHIGH temp, at the SAME oi_max=968 used live,
+    and by season (summer Jul-Aug vs fall Sep-Nov)."""
+    recs = [r for r in build_records() if r["ticker"].startswith("KXHIGH")]
+
+    def agg(rs):
+        pnls = [_pnl(r) * 100 for r in rs]
+        n = len(rs)
+        if not n:
+            return "n=0"
+        m = statistics.mean(pnls)
+        sem = statistics.stdev(pnls) / math.sqrt(n) if n > 1 else float("nan")
+        yes = sum(r["resolved_yes"] for r in rs)
+        sell = statistics.mean(r["sell_px"] for r in rs) * 100
+        clean = "CLEAN+" if m - 1.96 * sem > 0 else ("CLEAN-" if m + 1.96 * sem < 0 else "")
+        return f"n={n:4} net={m:+.2f}c +/-{1.96*sem:4.2f} YES={yes/n*100:4.1f}% sell={sell:.2f}c {clean}"
+
+    def season(r):
+        mo = int(r["entry_date"][5:7])
+        return "summer(JJA)" if mo in (6, 7, 8) else "fall(SON)"
+
+    print(f"\n############ RECONCILE: historical KXHIGH temp, oi_max=968 (live threshold) ############")
+    print(f"total KXHIGH n={len(recs)}")
+    for label, sub in (("ALL SEASONS", recs),
+                       ("SUMMER (Jul-Aug)", [r for r in recs if season(r) == "summer(JJA)"]),
+                       ("FALL (Sep-Nov)", [r for r in recs if season(r) == "fall(SON)"])):
+        kept = [r for r in sub if r["entry_oi"] <= 968]      # low-OI = what live filter TRADES
+        drop = [r for r in sub if r["entry_oi"] > 968]       # high-OI = what live filter SKIPS
+        print(f"\n  == {label} ==")
+        print(f"    KEPT  low-OI (<=968): {agg(kept)}")
+        print(f"    DROP  high-OI (>968): {agg(drop)}")
+
+    # finer: quintiles on KXHIGH only
+    print(f"\n  == KXHIGH OI quintiles (thin->thick) ==")
+    s = sorted(recs, key=lambda r: r["entry_oi"])
+    for i in range(5):
+        chunk = s[i*len(s)//5:(i+1)*len(s)//5]
+        lo, hi = chunk[0]["entry_oi"], chunk[-1]["entry_oi"]
+        print(f"    OI[{lo:7.0f},{hi:8.0f}]: {agg(chunk)}")
