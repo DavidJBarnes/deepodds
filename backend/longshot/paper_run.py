@@ -61,11 +61,14 @@ def size_candidate(cfg, m: dict, series: str, now, acct: float, deployed: float)
     ya, yb, bs = float(ya), float(yb), float(bs)
     if not (cfg.band[0] <= ya <= cfg.band[1]) or yb <= 0:
         return None
-    # Open interest at entry — always recorded; only filters when explicitly enabled
-    # (low-OI selection, backtest #209). Default OFF so live behavior is unchanged.
+    # Open interest at entry — always recorded; only filters when explicitly enabled.
+    # keep_high=False -> trade only LOW-OI (skip oi>oi_max); keep_high=True -> trade
+    # only HIGH-OI (skip oi<=oi_max). Default OFF so live behavior is unchanged.
     oi = float(m.get("open_interest_fp") or 0.0)
-    if cfg.oi_filter_enabled and oi > cfg.oi_max:
-        return None
+    if cfg.oi_filter_enabled:
+        skip = (oi <= cfg.oi_max) if cfg.oi_keep_high else (oi > cfg.oi_max)
+        if skip:
+            return None
     hrs = (datetime.fromisoformat(ct.replace("Z", "+00:00")) - now).total_seconds() / 3600
     if hrs <= 0 or hrs > cfg.max_hours_to_close:
         return None
