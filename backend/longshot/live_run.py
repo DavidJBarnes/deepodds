@@ -18,6 +18,7 @@ from longshot.kalshi_client import KalshiClient
 from longshot.execution import Executor
 from longshot.risk import RiskGate, PortfolioRisk, is_killed
 from longshot import reconcile
+from longshot import paper_run
 from longshot.paper_run import _load_state, _save_state, size_candidate
 
 logger = logging.getLogger("longshot.live_run")
@@ -68,6 +69,7 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         # Fetch each series and place its orders immediately, so the price we
         # send is the price we just read (avoids the stale-quote 400s that the
         # fetch-all-then-place pattern caused).
+        dbu = paper_run.deployed_by_underlying(state["positions"])  # per-correlation-group open collateral
         if pre.allow and balance is not None:
             for series in sorted(set(cfg.whitelist)):
                 try:
@@ -82,6 +84,11 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                     c = size_candidate(cfg, m, series, now, balance, pr.deployed_collateral)
                     if not c:
                         continue
+                    if cfg.max_underlying_collateral > 0:
+                        uk = paper_run.underlying_key(c["ticker"])
+                        if dbu.get(uk, 0.0) + c["collateral"] > cfg.max_underlying_collateral:
+                            logger.info("underlying cap skip %s (%s)", c["ticker"], uk)
+                            continue
                     d = gate.check_order(pr, contracts=c["size"], collateral=c["collateral"])
                     if not d.allow:
                         logger.info("risk skip %s: %s", c["ticker"], d.reason)
@@ -105,6 +112,8 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                         })
                         pr.deployed_collateral += collat
                         pr.open_positions += 1
+                        dbu[paper_run.underlying_key(c["ticker"])] = \
+                            dbu.get(paper_run.underlying_key(c["ticker"]), 0.0) + collat
                         opened += 1
                     elif res.status == "dryrun":
                         opened += 1
