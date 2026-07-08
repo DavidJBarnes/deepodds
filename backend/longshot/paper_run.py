@@ -8,17 +8,27 @@ from datetime import datetime, timezone
 from longshot.kalshi_client import KalshiClient, kalshi_fee_per_contract as fee
 from longshot.config import LongshotConfig, load_kalshi_creds
 from longshot.reconcile import net_pnl
-from vrp import kalshi_tail_oracle as _oracle
+
+# The oracle gate is optional. Import defensively so a missing/broken vrp package can
+# NEVER crash the core longshot containers (esp. the live canary) at module load — the
+# gate is default-OFF everywhere but the crypto arm, and stays fail-closed if unavailable.
+try:
+    from vrp import kalshi_tail_oracle as _oracle
+except Exception:  # pragma: no cover - exercised only in a minimal image
+    _oracle = None
 
 logger = logging.getLogger("longshot.paper_run")
 
 
 def _oracle_surfaces(cfg):
     """Deribit surfaces for the oracle gate. Returns None when the gate is OFF (no
-    filtering), a surfaces dict when ON, or [] as a FAIL-CLOSED sentinel when the
-    gate is on but Deribit is unreachable (caller places nothing that tick)."""
+    filtering), a surfaces dict when ON, or [] as a FAIL-CLOSED sentinel when the gate
+    is on but the oracle is unavailable/Deribit unreachable (caller places nothing)."""
     if not cfg.oracle_gate_enabled:
         return None
+    if _oracle is None:
+        logger.error("oracle gate enabled but vrp module unavailable -> placing nothing")
+        return []
     try:
         return _oracle.build_surfaces()
     except Exception as e:
