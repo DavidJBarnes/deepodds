@@ -164,6 +164,21 @@ services:
     volumes:
       - /opt/deepodds/oracle:/data:z
 
+  # Kalshi order-book recorder (2026-07-08) — free MM optionality. Kalshi MM is
+  # un-backtestable (no public historical book), so we start capturing now: depth
+  # snapshots of the top-OI markets every 5 min -> dated JSONL. COARSE v1 (REST);
+  # a websocket tick recorder is the follow-up for adverse-selection analysis.
+  # Read-only, places NO orders.
+  bookrec:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-bookrec
+    command: python -m vrp.kalshi_book_recorder --loop --interval 300 --out /data
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    volumes:
+      - /opt/deepodds/bookrec:/data:z
+
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"
     container_name: deepodds-nginx
