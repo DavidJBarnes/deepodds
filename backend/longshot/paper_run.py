@@ -85,8 +85,32 @@ def size_candidate(cfg, m: dict, series: str, now, acct: float, deployed: float)
     }
 
 
+def underlying_key(ticker: str) -> str:
+    """Correlation group for a market. All BTC tails (every strike/expiry) are the
+    SAME trade — one big BTC day resolves them together — so they collapse to 'BTC';
+    likewise ETH. Everything else groups by its event family (series prefix), which
+    is ~independent (temp cities, distinct games) so the cap barely binds there."""
+    t = (ticker or "").upper()
+    if t.startswith("KXBTC"):
+        return "BTC"
+    if t.startswith("KXETH"):
+        return "ETH"
+    return t.split("-")[0]
+
+
+def deployed_by_underlying(positions: list[dict]) -> dict:
+    """Open collateral grouped by correlation key — the state the cap reads."""
+    out: dict = {}
+    for p in positions:
+        if p.get("status") == "open":
+            k = underlying_key(p.get("ticker", ""))
+            out[k] = out.get(k, 0.0) + (p.get("collateral") or 0.0)
+    return out
+
+
 def discover_candidates(cfg, client, now, exclude: set, deployed: float,
-                        account: float | None = None) -> list[dict]:
+                        account: float | None = None,
+                        by_underlying: dict | None = None) -> list[dict]:
     """Shared discovery + sizing — the strategy signal, identical for paper and
     live. Reads the live book and returns sized candidates; performs NO fill and
     mutates no state. Paper simulates the fill; live executes it (interleaving
@@ -94,9 +118,15 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
 
     `account` is the capital base for sizing + the deployed guard. Paper passes
     None (uses the simulated cfg.account); LIVE passes the REAL Kalshi balance so
-    no made-up account size influences real orders."""
+    no made-up account size influences real orders.
+
+    `by_underlying` seeds the per-correlation-group deployed collateral; when
+    cfg.max_underlying_collateral > 0 a candidate is skipped if it would push its
+    group over the cap (defends against a single fat BTC day resolving every tail)."""
     acct = account if account is not None else cfg.account
+    cap = cfg.max_underlying_collateral
     have = set(exclude)
+    dbu = dict(by_underlying or {})
     cands: list[dict] = []
     for series in sorted(set(cfg.whitelist)):
         try:
@@ -109,17 +139,25 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
             if m["ticker"] in have:
                 continue
             c = size_candidate(cfg, m, series, now, acct, deployed)
-            if c:
-                cands.append(c)
-                deployed += c["collateral"]
-                have.add(m["ticker"])
+            if not c:
+                continue
+            if cap > 0:
+                uk = underlying_key(c["ticker"])
+                if dbu.get(uk, 0.0) + c["collateral"] > cap:
+                    logger.debug("underlying cap skip %s (%s)", c["ticker"], uk)
+                    continue
+                dbu[uk] = dbu.get(uk, 0.0) + c["collateral"]
+            cands.append(c)
+            deployed += c["collateral"]
+            have.add(m["ticker"])
     return cands
 
 
 def _discover(cfg, client, state, now) -> int:
     have = {p["ticker"] for p in state["positions"]}
     deployed = sum(p["collateral"] for p in state["positions"] if p["status"] == "open")
-    cands = discover_candidates(cfg, client, now, have, deployed)
+    cands = discover_candidates(cfg, client, now, have, deployed,
+                                by_underlying=deployed_by_underlying(state["positions"]))
     for c in cands:
         state["positions"].append({
             "ticker": c["ticker"], "series": c["series"],

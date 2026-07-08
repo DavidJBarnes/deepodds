@@ -120,6 +120,12 @@ class LongshotConfig:
     oi_max: float = field(default_factory=lambda: _env_float("LONGSHOT_OI_MAX", 968.0))
     oi_keep_high: bool = field(default_factory=lambda: _env_bool("LONGSHOT_OI_KEEP_HIGH", False))
 
+    # ----- per-underlying correlation cap (default OFF = 0) -----------------
+    # Max open collateral in one correlation group (all BTC tails = one trade; a
+    # single 10% BTC day resolves them together). 0 disables. Mandatory for the
+    # crypto-tails arm; barely binds on temp/sports (independent events).
+    max_underlying_collateral: float = field(default_factory=lambda: _env_float("LONGSHOT_MAX_UNDERLYING", 0.0))
+
     # ----- live-trading mode -----------------------------------------------
     # "paper" (default): read the book, simulate fills/settlement/PnL — no orders.
     # "live": place real orders on Kalshi; Kalshi balance/positions/fills are the
