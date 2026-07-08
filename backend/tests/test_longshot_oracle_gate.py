@@ -75,6 +75,15 @@ def test_discover_fail_closed_when_deribit_down(monkeypatch):
     assert cands == []          # fail-closed: no oracle -> no orders
 
 
+def test_fail_closed_when_vrp_module_unavailable(monkeypatch):
+    # simulate a minimal image where vrp didn't import: _oracle is None
+    monkeypatch.setattr(paper_run, "_oracle", None)
+    # gate OFF -> no filtering, unaffected
+    assert paper_run._oracle_surfaces(_cfg(False)) is None
+    # gate ON but no oracle -> fail-closed sentinel (place nothing)
+    assert paper_run._oracle_surfaces(_cfg(True)) == []
+
+
 def test_discover_gate_off_ignores_oracle(monkeypatch):
     # gate off -> build_surfaces never called, all band candidates admitted
     def boom():
