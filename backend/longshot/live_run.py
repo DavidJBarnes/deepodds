@@ -70,7 +70,10 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         # send is the price we just read (avoids the stale-quote 400s that the
         # fetch-all-then-place pattern caused).
         dbu = paper_run.deployed_by_underlying(state["positions"])  # per-correlation-group open collateral
-        if pre.allow and balance is not None:
+        surfaces = paper_run._oracle_surfaces(cfg)   # None=off, dict=on, []=fail-closed
+        if surfaces == []:
+            logger.warning("oracle gate on but Deribit unreachable — no discovery this tick")
+        if pre.allow and balance is not None and surfaces != []:
             for series in sorted(set(cfg.whitelist)):
                 try:
                     r = client.get("/markets", params={"series_ticker": series,
@@ -80,6 +83,8 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                     continue
                 for m in r.get("markets", []):
                     if m["ticker"] in have:
+                        continue
+                    if surfaces is not None and not paper_run._oracle.market_passes(surfaces, m, now, cfg.oracle_min_edge):
                         continue
                     c = size_candidate(cfg, m, series, now, balance, pr.deployed_collateral)
                     if not c:

@@ -75,6 +75,43 @@ def deribit_fair_prob(spot: float, calls: dict, K: float, close_dt: datetime, no
     return _norm_cdf(d2)
 
 
+def build_surfaces(currencies=("BTC", "ETH")) -> dict:
+    """Pre-fetch Deribit call surfaces once per discovery tick (network)."""
+    return {cur: deribit_call_surface(cur) for cur in currencies}
+
+
+def _currency_of(ticker: str) -> str | None:
+    t = (ticker or "").upper()
+    if t.startswith("KXBTC"):
+        return "BTC"
+    if t.startswith("KXETH"):
+        return "ETH"
+    return None
+
+
+def market_passes(surfaces: dict, m: dict, now: datetime, min_edge: float) -> bool:
+    """Oracle gate: True only for an upper-tail 'greater' market whose Kalshi mid
+    exceeds Deribit's risk-neutral fair by >= min_edge (i.e. Kalshi overprices the
+    tail vs the sharp options market). Everything else is skipped."""
+    if m.get("strike_type") != "greater":
+        return False
+    cur = _currency_of(m.get("ticker", ""))
+    if cur not in surfaces:
+        return False
+    K, yb, ya, ct = (m.get("floor_strike"), m.get("yes_bid_dollars"),
+                     m.get("yes_ask_dollars"), m.get("close_time"))
+    if None in (K, yb, ya, ct):
+        return False
+    K, mid = float(K), (float(yb) + float(ya)) / 2
+    spot, calls = surfaces[cur]
+    if K <= spot:
+        return False
+    fair = deribit_fair_prob(spot, calls, K, datetime.fromisoformat(ct.replace("Z", "+00:00")), now)
+    if fair is None:
+        return False
+    return (mid - fair) >= min_edge
+
+
 def scan(client, series="KXBTCD", currency="BTC", band=(0.01, 0.12), now=None) -> list[dict]:
     """One snapshot: for each cheap upper-tail Kalshi threshold, the Kalshi price,
     the Deribit-fair prob, the gap, and the sell-EV vs Deribit. Mutates nothing."""

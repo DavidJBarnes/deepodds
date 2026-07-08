@@ -8,8 +8,22 @@ from datetime import datetime, timezone
 from longshot.kalshi_client import KalshiClient, kalshi_fee_per_contract as fee
 from longshot.config import LongshotConfig, load_kalshi_creds
 from longshot.reconcile import net_pnl
+from vrp import kalshi_tail_oracle as _oracle
 
 logger = logging.getLogger("longshot.paper_run")
+
+
+def _oracle_surfaces(cfg):
+    """Deribit surfaces for the oracle gate. Returns None when the gate is OFF (no
+    filtering), a surfaces dict when ON, or [] as a FAIL-CLOSED sentinel when the
+    gate is on but Deribit is unreachable (caller places nothing that tick)."""
+    if not cfg.oracle_gate_enabled:
+        return None
+    try:
+        return _oracle.build_surfaces()
+    except Exception as e:
+        logger.warning("oracle surfaces fetch failed -> placing nothing this tick: %s", e)
+        return []
 
 
 def _load_state(path: str) -> dict:
@@ -127,6 +141,9 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
     cap = cfg.max_underlying_collateral
     have = set(exclude)
     dbu = dict(by_underlying or {})
+    surfaces = _oracle_surfaces(cfg)   # None unless the gate is enabled; [] sentinel = fail-closed
+    if surfaces == []:
+        return []
     cands: list[dict] = []
     for series in sorted(set(cfg.whitelist)):
         try:
@@ -137,6 +154,8 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
             continue
         for m in r.get("markets", []):
             if m["ticker"] in have:
+                continue
+            if surfaces is not None and not _oracle.market_passes(surfaces, m, now, cfg.oracle_min_edge):
                 continue
             c = size_candidate(cfg, m, series, now, acct, deployed)
             if not c:

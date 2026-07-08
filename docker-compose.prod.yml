@@ -86,6 +86,31 @@ services:
     volumes:
       - /opt/deepodds/longshot-paper-sports:/data:z
 
+  # Crypto-tails paper arm (GO-A, 2026-07-08) — the most promising new vein. Sells
+  # 1-12c upper tails of Kalshi daily BTC/ETH markets, but ONLY when Kalshi overprices
+  # them vs Deribit's risk-neutral fair (oracle gate) — "rent the sharper venue's
+  # price". Correlation-capped per underlying (all BTC tails are one trade). Pure
+  # paper. Snapshot edge was +1.18c/ct vs Deribit; this forward-validates it through
+  # settlement alongside the oracle daemon's dataset.
+  longshot-paper-crypto:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-longshot-paper-crypto
+    command: python -m longshot.loop --interval 3600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - LONGSHOT_STATE=/data/state.json
+      - LONGSHOT_HISTORY=/data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+      - LONGSHOT_MAX_OPEN=120
+      - LONGSHOT_WHITELIST=KXBTCD,KXETHD
+      - LONGSHOT_ORACLE_GATE=true          # sell only tails Kalshi overprices vs Deribit
+      - LONGSHOT_ORACLE_MIN_EDGE=0.005      # require >= 0.5c Kalshi-over-Deribit gap
+      - LONGSHOT_MAX_UNDERLYING=400         # cap open collateral per underlying (~5% of sim $8k)
+    volumes:
+      - /opt/deepodds/longshot-paper-crypto:/data:z
+
   # Longshot-short LIVE harness (real Kalshi orders). Same signal as the paper
   # container above, which keeps running untouched as the control. Ships SAFE:
   # LONGSHOT_DRY_RUN=true => it reconciles + reads Kalshi truth + logs INTENDED
