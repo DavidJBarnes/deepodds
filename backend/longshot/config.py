@@ -83,10 +83,23 @@ def _env_bool(name: str, default: bool) -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+# Default whitelist: temp (year-round) + sports props (seasonal).
+_DEFAULT_WHITELIST = tuple([f"KXHIGH{c}" for c in TEMP_CITIES] + list(SPORTS_SERIES))
+
+
+def _env_whitelist() -> tuple:
+    """LONGSHOT_WHITELIST (comma-separated) overrides the default whitelist so a
+    single image can run per-vein paper arms (e.g. sports-game tails, crypto tails)
+    without code changes. Empty/unset -> the validated default."""
+    v = os.environ.get("LONGSHOT_WHITELIST", "").strip()
+    if not v:
+        return _DEFAULT_WHITELIST
+    return tuple(s.strip().upper() for s in v.split(",") if s.strip())
+
+
 @dataclass
 class LongshotConfig:
-    whitelist: tuple = field(default_factory=lambda: tuple(
-        [f"KXHIGH{c}" for c in TEMP_CITIES] + list(SPORTS_SERIES)))
+    whitelist: tuple = field(default_factory=_env_whitelist)
     band: tuple = (0.01, 0.12)         # cheap longshot YES band ($)
     max_hours_to_close: float = 30.0   # ~1-day horizon
     account: float = field(default_factory=lambda: _env_float("LONGSHOT_ACCOUNT", 8_000.0))
