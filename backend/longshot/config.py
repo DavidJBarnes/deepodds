@@ -126,6 +126,14 @@ class LongshotConfig:
     # crypto-tails arm; barely binds on temp/sports (independent events).
     max_underlying_collateral: float = field(default_factory=lambda: _env_float("LONGSHOT_MAX_UNDERLYING", 0.0))
 
+    # ----- Deribit oracle gate (default OFF) -------------------------------
+    # For the crypto-tails arm: sell a Kalshi tail ONLY when its mid exceeds the
+    # Deribit risk-neutral fair by >= oracle_min_edge (rent the sharp venue's price;
+    # don't sell tails Deribit says are fairly priced). Fail-closed: if Deribit is
+    # unreachable, discovery places nothing. Default OFF => temp/sports/live unchanged.
+    oracle_gate_enabled: bool = field(default_factory=lambda: _env_bool("LONGSHOT_ORACLE_GATE", False))
+    oracle_min_edge: float = field(default_factory=lambda: _env_float("LONGSHOT_ORACLE_MIN_EDGE", 0.005))
+
     # ----- live-trading mode -----------------------------------------------
     # "paper" (default): read the book, simulate fills/settlement/PnL — no orders.
     # "live": place real orders on Kalshi; Kalshi balance/positions/fills are the
