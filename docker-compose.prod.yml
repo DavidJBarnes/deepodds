@@ -64,6 +64,28 @@ services:
     volumes:
       - /opt/deepodds/longshot-paper-oi:/data:z
 
+  # Longshot-short SPORTS-TAILS paper arm (GO-B, 2026-07-08). Sells 1-12c tails of
+  # in-season sports GAME markets — where the Kalshi fee curve is ~0 (fee peaks at
+  # 50c, near-zero at the tails) and sports is our fattest backtest category. Pure
+  # paper, own state dir, whitelist overridden to in-season game series. Caveat under
+  # forward test: sports tails resolve on discrete game events; in-game price paths
+  # may hand adverse fills (entry-timing from temp/crypto may not transfer).
+  longshot-paper-sports:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-longshot-paper-sports
+    command: python -m longshot.loop --interval 3600
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - LONGSHOT_STATE=/data/state.json
+      - LONGSHOT_HISTORY=/data/history.jsonl
+      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
+      - LONGSHOT_MAX_OPEN=120
+      - LONGSHOT_WHITELIST=KXMLBGAME,KXWNBAGAME,KXATPMATCH,KXWTAMATCH
+    volumes:
+      - /opt/deepodds/longshot-paper-sports:/data:z
+
   # Longshot-short LIVE harness (real Kalshi orders). Same signal as the paper
   # container above, which keeps running untouched as the control. Ships SAFE:
   # LONGSHOT_DRY_RUN=true => it reconciles + reads Kalshi truth + logs INTENDED
