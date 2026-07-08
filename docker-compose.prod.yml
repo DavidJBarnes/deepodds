@@ -125,6 +125,20 @@ services:
     volumes:
       - /opt/deepodds/longshot-live:/data:z
 
+  # Deribit-oracle capture daemon (GO-A data foundation, 2026-07-08). Read-only:
+  # snapshots KXBTCD/KXETHD tails + Deribit-fair each hour and backfills settlement
+  # -> the unbiased forward dataset that proves the +1.18c tail edge holds through
+  # resolution. Places NO orders. Own volume; uses the shared Kalshi key in .env.
+  oracle:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-oracle
+    command: python -m vrp.oracle_daemon --loop --interval 3600 --out /data
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    volumes:
+      - /opt/deepodds/oracle:/data:z
+
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"
     container_name: deepodds-nginx
