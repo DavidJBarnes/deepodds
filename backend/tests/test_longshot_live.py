@@ -309,6 +309,27 @@ def test_live_equity_null_when_kalshi_unreachable(tmp_path):
     assert snap["balance"] is None and snap["equity"] is None   # no fabricated number
 
 
+def test_equity_invariant_to_placing_order(tmp_path):
+    # Placing a short moves cash->collateral 1:1, so total equity must be UNCHANGED.
+    # The live_run bug paired a stale (pre-fill) balance with fresh (post-fill) deployed,
+    # double-counting the new order's collateral. This pins the invariant + the fix:
+    cfg = _cfg(tmp_path)
+    pre = reconcile.live_snapshot(cfg, {"positions": [{"status": "open", "collateral": 50.0}]},
+                                  {"balance_dollars": 200.0})["equity"]
+    # after placing a $30 short: correct post-fill balance 170 + deployed 80 -> still 250
+    post_correct = reconcile.live_snapshot(
+        cfg, {"positions": [{"status": "open", "collateral": 50.0},
+                            {"status": "open", "collateral": 30.0}]},
+        {"balance_dollars": 170.0})["equity"]
+    assert pre == 250.0 and post_correct == 250.0        # invariant holds w/ post-fill balance
+    # the bug: stale balance 200 + post-fill deployed 80 -> 280 (inflated by the $30)
+    bug = reconcile.live_snapshot(
+        cfg, {"positions": [{"status": "open", "collateral": 50.0},
+                            {"status": "open", "collateral": 30.0}]},
+        {"balance_dollars": 200.0})["equity"]
+    assert bug == 280.0                                    # what the stale balance produced
+
+
 def test_available_balance_caps_orders(tmp_path):
     g = RiskGate(_cfg(tmp_path))
     over = PortfolioRisk(deployed_collateral=5.0, open_positions=1,
