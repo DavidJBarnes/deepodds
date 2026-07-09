@@ -127,6 +127,16 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         else:
             logger.warning("pretick blocked: %s", pre.reason)
 
+        # Re-fetch balance AFTER placing orders. The start-of-tick balance predates this
+        # tick's fills; placing a short moves cash->collateral 1:1, so pairing the stale
+        # (higher) balance with the fresh (higher) deployed collateral double-counts each
+        # new order and INFLATES equity. Re-read so equity = post-fill cash + deployed.
+        if opened and not dry_run:
+            try:
+                truth["balance_dollars"] = float(client.get_balance().get("balance", 0)) / 100.0
+            except Exception as e:
+                logger.debug("post-fill balance refetch failed, keeping start-of-tick: %s", e)
+
         snap = reconcile.live_snapshot(cfg, state, truth, now)
         snap["opened_this_tick"] = opened
         snap["settled_this_tick"] = settled_now
