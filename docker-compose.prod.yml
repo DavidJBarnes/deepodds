@@ -92,7 +92,8 @@ services:
       - LONGSHOT_WHITELIST=KXBTCD,KXETHD
       - LONGSHOT_ORACLE_GATE=true          # sell only tails Kalshi overprices vs Deribit
       - LONGSHOT_ORACLE_MIN_EDGE=0.005      # require >= 0.5c Kalshi-over-Deribit gap
-      - LONGSHOT_MAX_UNDERLYING=400         # cap open collateral per underlying (~5% of sim $8k)
+      - LONGSHOT_ORACLE_MIN_OTM=0.04        # REFINED 07-10: only tails >=4% OTM (exclude near-money poison)
+      - LONGSHOT_MAX_UNDERLYING=150         # REFINED 07-10: 400->150, tighter correlation cap (~2% of sim $8k)
     volumes:
       - /opt/deepodds/longshot-paper-crypto:/data:z
 
