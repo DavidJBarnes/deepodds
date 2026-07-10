@@ -133,6 +133,11 @@ class LongshotConfig:
     # unreachable, discovery places nothing. Default OFF => temp/sports/live unchanged.
     oracle_gate_enabled: bool = field(default_factory=lambda: _env_bool("LONGSHOT_ORACLE_GATE", False))
     oracle_min_edge: float = field(default_factory=lambda: _env_float("LONGSHOT_ORACLE_MIN_EDGE", 0.005))
+    # Model-free tail-distance floor: only sell tails at least this fraction OTM (strike
+    # vs spot). Near-money short-horizon crypto tails are POISON — our BS Deribit-fair has
+    # no jump term so it underprices them, the gate wrongly clears them, and a normal ~2%
+    # move resolves them YES (the 2026-07-10 -$100 day was all ~2%-OTM tails). Default 0.
+    oracle_min_otm: float = field(default_factory=lambda: _env_float("LONGSHOT_ORACLE_MIN_OTM", 0.0))
 
     # ----- live-trading mode -----------------------------------------------
     # "paper" (default): read the book, simulate fills/settlement/PnL — no orders.

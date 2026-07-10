@@ -84,7 +84,8 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                 for m in r.get("markets", []):
                     if m["ticker"] in have:
                         continue
-                    if surfaces is not None and not paper_run._oracle.market_passes(surfaces, m, now, cfg.oracle_min_edge):
+                    if surfaces is not None and not paper_run._oracle.market_passes(
+                            surfaces, m, now, cfg.oracle_min_edge, cfg.oracle_min_otm):
                         continue
                     c = size_candidate(cfg, m, series, now, balance, pr.deployed_collateral)
                     if not c:

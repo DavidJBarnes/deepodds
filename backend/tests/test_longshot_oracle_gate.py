@@ -38,6 +38,17 @@ def test_market_fails_non_greater_and_below_spot():
     assert kto.market_passes(SURF, _mkt(55000.0, 0.05), NOW, 0.005) is False   # K<=spot
 
 
+def test_min_otm_floor_excludes_near_money():
+    # A far tail that clears the edge (fair ~0) passes with NO floor...
+    far = _mkt(72000.0, 0.05)          # 20% OTM, Deribit ~0 -> edge passes
+    assert kto.market_passes(SURF, far, NOW, min_edge=0.005, min_otm=0.0) is True
+    # ...but a 4% floor (needs K > 62400) still admits the 72k far tail,
+    assert kto.market_passes(SURF, far, NOW, min_edge=0.005, min_otm=0.04) is True
+    # while a near tail inside the floor is rejected purely by the OTM floor
+    near = _mkt(62000.0, 0.05)         # ~3.3% OTM, below the 4% floor
+    assert kto.market_passes(SURF, near, NOW, min_edge=0.005, min_otm=0.04) is False
+
+
 def test_default_gate_off():
     assert LongshotConfig().oracle_gate_enabled is False
 

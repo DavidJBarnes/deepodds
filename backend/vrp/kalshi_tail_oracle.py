@@ -89,10 +89,11 @@ def _currency_of(ticker: str) -> str | None:
     return None
 
 
-def market_passes(surfaces: dict, m: dict, now: datetime, min_edge: float) -> bool:
-    """Oracle gate: True only for an upper-tail 'greater' market whose Kalshi mid
-    exceeds Deribit's risk-neutral fair by >= min_edge (i.e. Kalshi overprices the
-    tail vs the sharp options market). Everything else is skipped."""
+def market_passes(surfaces: dict, m: dict, now: datetime, min_edge: float, min_otm: float = 0.0) -> bool:
+    """Oracle gate: True only for an upper-tail 'greater' market that is (a) at least
+    `min_otm` fraction OTM (strike vs spot — a MODEL-FREE floor that excludes near-money
+    short-horizon tails our BS fair can't price), AND (b) whose Kalshi mid exceeds
+    Deribit's risk-neutral fair by >= min_edge. Everything else is skipped."""
     if m.get("strike_type") != "greater":
         return False
     cur = _currency_of(m.get("ticker", ""))
@@ -104,7 +105,7 @@ def market_passes(surfaces: dict, m: dict, now: datetime, min_edge: float) -> bo
         return False
     K, mid = float(K), (float(yb) + float(ya)) / 2
     spot, calls = surfaces[cur]
-    if K <= spot:
+    if K <= spot * (1.0 + min_otm):           # near-money exclusion (and K>spot)
         return False
     fair = deribit_fair_prob(spot, calls, K, datetime.fromisoformat(ct.replace("Z", "+00:00")), now)
     if fair is None:

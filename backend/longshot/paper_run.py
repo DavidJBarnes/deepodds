@@ -165,7 +165,8 @@ def discover_candidates(cfg, client, now, exclude: set, deployed: float,
         for m in r.get("markets", []):
             if m["ticker"] in have:
                 continue
-            if surfaces is not None and not _oracle.market_passes(surfaces, m, now, cfg.oracle_min_edge):
+            if surfaces is not None and not _oracle.market_passes(
+                    surfaces, m, now, cfg.oracle_min_edge, cfg.oracle_min_otm):
                 continue
             c = size_candidate(cfg, m, series, now, acct, deployed)
             if not c:
