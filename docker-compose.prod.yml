@@ -118,18 +118,17 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
-      # FILL-AT-SIZE + CONCENTRATION TEST. 07-04: TRADE_FRACTION 0.005->0.02 proved fills
-      # clean at 2-4 ct (0.000c slip, 100%). But 2-4 ct did NOT lift live's edge toward the
-      # PAPER-forward +1.85c: paper earns it by CONCENTRATING ~20 ct/position into fat-
-      # premium (8-12c) deep markets; $250 at 2-4 ct can't concentrate that way. 07-07:
-      # TRADE_FRACTION 0.02->0.04 (~9 ct on ~$223 bal, depth-capped) to test whether
-      # concentration closes the gap AND stress fills past 4 ct. MAX_PER_TRADE 10, $200
-      # deployed + $25 daily kill UNCHANGED (worst single loss ~$8). If live c/ct climbs
-      # toward paper's +1.85c => edge is capital-gated (fund $2-8k, fills now proven);
-      # if it stays ~0 => edge isn't capturable at small scale.
+      # SIZE-UP 2x (2026-07-11): live is GREEN (+0.43c all-time), fills proven clean to 9ct,
+      # but the book was UNDER-deployed ($75 of $200 cap, $178 cash idle, 54 in-band markets
+      # sat unused) — bet size, not the deployed cap, was the ceiling. TRADE_FRACTION
+      # 0.04->0.08 (~$10-12/position) pulls idle cash into the available markets; MAX_DEPLOYED
+      # 200->240 so the deployed cap doesn't become the new artificial bottleneck (~full
+      # equity headroom). MAX_DAILY_LOSS $25 UNCHANGED = the real governor (worst day ~10% of
+      # equity). MAX_PER_TRADE 10 unchanged. (History: 0.005->0.02->0.04 proved fills clean
+      # at 2-9ct with 0.000c slippage; this deploys the idle capital now that live is positive.)
       - LONGSHOT_ACCOUNT=250
-      - LONGSHOT_TRADE_FRACTION=0.04
-      - LONGSHOT_MAX_DEPLOYED=200
+      - LONGSHOT_TRADE_FRACTION=0.08
+      - LONGSHOT_MAX_DEPLOYED=240
       - LONGSHOT_MAX_PER_TRADE=10
       - LONGSHOT_MAX_OPEN=120
       - LONGSHOT_MAX_DAILY_LOSS=25
