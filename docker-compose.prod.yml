@@ -127,9 +127,13 @@ services:
       # equity). MAX_PER_TRADE 10 unchanged. (History: 0.005->0.02->0.04 proved fills clean
       # at 2-9ct with 0.000c slippage; this deploys the idle capital now that live is positive.)
       - LONGSHOT_ACCOUNT=250
+      # 2026-07-12: MAX_PER_TRADE 10->25 completes the approved 2x — the diagnosis showed
+      # fraction wants ~14ct but the cap of 10 clipped 58% of trades (per-trade cap was the
+      # real ceiling, not capital/depth). Depth cap still protects thin brackets; $25 daily
+      # kill UNCHANGED = the hard floor. NOT a further escalation, just lets the 2x land.
       - LONGSHOT_TRADE_FRACTION=0.08
       - LONGSHOT_MAX_DEPLOYED=240
-      - LONGSHOT_MAX_PER_TRADE=10
+      - LONGSHOT_MAX_PER_TRADE=25
       - LONGSHOT_MAX_OPEN=120
       - LONGSHOT_MAX_DAILY_LOSS=25
     volumes:
