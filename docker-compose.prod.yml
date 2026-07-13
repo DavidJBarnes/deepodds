@@ -118,22 +118,18 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
-      # SIZE-UP 2x (2026-07-11): live is GREEN (+0.43c all-time), fills proven clean to 9ct,
-      # but the book was UNDER-deployed ($75 of $200 cap, $178 cash idle, 54 in-band markets
-      # sat unused) — bet size, not the deployed cap, was the ceiling. TRADE_FRACTION
-      # 0.04->0.08 (~$10-12/position) pulls idle cash into the available markets; MAX_DEPLOYED
-      # 200->240 so the deployed cap doesn't become the new artificial bottleneck (~full
-      # equity headroom). MAX_DAILY_LOSS $25 UNCHANGED = the real governor (worst day ~10% of
-      # equity). MAX_PER_TRADE 10 unchanged. (History: 0.005->0.02->0.04 proved fills clean
-      # at 2-9ct with 0.000c slippage; this deploys the idle capital now that live is positive.)
+      # SIZE-UP REVERTED (2026-07-13): the 2x DEPLOYED cleanly (avg trade 2.5->7.4ct,
+      # deployed $76->$156) but the edge did NOT survive — live fell -0.30 -> -0.52c/ct as
+      # size rose (bigger bets on the same thin summer-temp brackets = bigger negative-skew
+      # bites). Hypothesis tested + FALSIFIED: live temp does not hold edge at size; its
+      # capacity ceiling is low (paper control stays +1.34c only via ~$8k diversification).
+      # Revert to the flat-to-slightly-positive small size to minimize bleed while summer
+      # temp is the only game. Real capacity unlock = DIVERSIFICATION (Sept football props,
+      # already whitelisted), not bigger temp bets. $25 daily kill unchanged.
       - LONGSHOT_ACCOUNT=250
-      # 2026-07-12: MAX_PER_TRADE 10->25 completes the approved 2x — the diagnosis showed
-      # fraction wants ~14ct but the cap of 10 clipped 58% of trades (per-trade cap was the
-      # real ceiling, not capital/depth). Depth cap still protects thin brackets; $25 daily
-      # kill UNCHANGED = the hard floor. NOT a further escalation, just lets the 2x land.
-      - LONGSHOT_TRADE_FRACTION=0.08
-      - LONGSHOT_MAX_DEPLOYED=240
-      - LONGSHOT_MAX_PER_TRADE=25
+      - LONGSHOT_TRADE_FRACTION=0.04
+      - LONGSHOT_MAX_DEPLOYED=200
+      - LONGSHOT_MAX_PER_TRADE=10
       - LONGSHOT_MAX_OPEN=120
       - LONGSHOT_MAX_DAILY_LOSS=25
     volumes:
