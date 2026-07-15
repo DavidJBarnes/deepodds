@@ -6,6 +6,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import LoginPage from "@/pages/LoginPage";
 // import RegisterPage from "@/pages/RegisterPage";  // registration disabled (single-tenant)
 import LongshotPage from "@/pages/LongshotPage";
+import EdgeExplorerPage from "@/pages/EdgeExplorerPage";
 
 export default function App() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -23,6 +24,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<LongshotPage />} />
           <Route path="longshot" element={<LongshotPage />} />
+          <Route path="edge" element={<EdgeExplorerPage />} />
         </Route>
       </Route>
     </Routes>

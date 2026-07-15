@@ -15,9 +15,12 @@ services:
       - LONGSHOT_LIVE_STATE=/longshot-live-data/state.json
       - LONGSHOT_LIVE_HISTORY=/longshot-live-data/history.jsonl
       - LONGSHOT_LIVE_HEARTBEAT=/longshot-live-data/heartbeat.json
+      # Read-only access to the Edge Explorer digest/ledger for GET /api/v1/explorer/*.
+      - EXPLORER_DIR=/explorer-data
     volumes:
       - /opt/deepodds/longshot:/longshot-data:ro
       - /opt/deepodds/longshot-live:/longshot-live-data:ro
+      - /opt/deepodds/explorer:/explorer-data:ro
 
   # Longshot-short paper harness (sell overpriced 1-12c Kalshi longshots near
   # settlement, vs the live order book). Self-contained: state persists in a
@@ -163,6 +166,34 @@ services:
     env_file: /opt/deepodds/.env
     volumes:
       - /opt/deepodds/bookrec:/data:z
+
+  # Edge Explorer daemon (2026-07-15) — a daily curiosity engine with a memory. Reads
+  # the data we already bank (oracle settlement record, longshot harness history, Deribit
+  # chain) and writes a ranked list of OBSERVATIONS worth investigating (never trade
+  # signals) to observations.jsonl + digest_*.json. Flags each metric vs its OWN trailing
+  # baseline, ranks by surprise x persistence, and surfaces broken sources (e.g. bookrec)
+  # as data-quality observations. Pure file I/O: mounts the source dirs read-only, writes
+  # its own :z volume. Places NO orders, touches no venue.
+  explorer:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-explorer
+    command: python -m explorer.daemon --loop --interval 86400 --out /data
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - EXPLORER_ORACLE_DIR=/oracle-data
+      - EXPLORER_LONGSHOT_PAPER_DIR=/longshot-data
+      - EXPLORER_LONGSHOT_LIVE_DIR=/longshot-live-data
+      - EXPLORER_DERIBIT_DIR=/vrp-data
+      - EXPLORER_BOOKREC_DIR=/bookrec-data
+    volumes:
+      - /opt/deepodds/explorer:/data:z
+      - /opt/deepodds/oracle:/oracle-data:ro
+      - /opt/deepodds/longshot:/longshot-data:ro
+      - /opt/deepodds/longshot-live:/longshot-live-data:ro
+      - /opt/deepodds/vrp-data:/vrp-data:ro
+      - /opt/deepodds/bookrec:/bookrec-data:ro
 
   frontend:
     image: "NGINX_IMAGE_PLACEHOLDER"

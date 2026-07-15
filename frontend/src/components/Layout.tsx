@@ -3,6 +3,7 @@ import { useAuthStore } from "@/stores/authStore";
 
 const navItems = [
   { to: "/", label: "Longshot Short" },
+  { to: "/edge", label: "Edge Explorer" },
 ];
 
 export default function Layout() {
