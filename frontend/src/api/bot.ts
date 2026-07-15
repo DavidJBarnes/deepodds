@@ -81,3 +81,49 @@ export async function getLongshotLiveStatus() {
   });
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Edge Explorer — daily observations worth investigating (not signals)
+// ---------------------------------------------------------------------------
+
+export interface Observation {
+  id: string;
+  rule_key: string;
+  metric_key: string;
+  value: number;
+  kind: string;            // "structural" | "deviation" | "data_quality"
+  status: string;          // "new" | "investigate" | ...
+  streak: number;
+  score: number;
+  what: string;
+  why_notable: string;
+  next_step: string;
+  caveat: string;
+  date?: string;           // present on ledger rows
+}
+
+export interface ExplorerDigest {
+  date: string | null;
+  generated_ts?: string;
+  n_metrics: number;
+  n_observations: number;
+  observations: Observation[];
+}
+
+export interface ExplorerLedger {
+  observations: Observation[];
+}
+
+export async function getExplorerDigest() {
+  const { data } = await client.get<ExplorerDigest>("/explorer/digest", {
+    params: { _t: Date.now() },
+  });
+  return data;
+}
+
+export async function getExplorerLedger() {
+  const { data } = await client.get<ExplorerLedger>("/explorer/ledger", {
+    params: { _t: Date.now() },
+  });
+  return data;
+}
