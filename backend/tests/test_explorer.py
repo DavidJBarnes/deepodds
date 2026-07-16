@@ -139,6 +139,30 @@ def test_generate_observations_fires_and_is_idempotent(monkeypatch, tmp_path):
     assert len(ledger2) == len(ledger)
 
 
+def test_resolution_drops_from_digest_but_keeps_history(monkeypatch, tmp_path):
+    _fake_sources(monkeypatch, resolved=_resolved())
+    observe.generate_observations(str(tmp_path), NOW)          # day 1: fires normally
+    n_obs_before = json.loads((tmp_path / f"digest_{NOW.date().isoformat()}.json").read_text())["n_observations"]
+
+    # mark the tail-thesis observation resolved
+    (tmp_path / "resolutions.json").write_text(json.dumps({
+        "oracle.tail_thesis_inverted": {"status": "resolved", "note": "de-bias falsified"}}))
+    ledger_lines_before = len((tmp_path / "observations.jsonl").read_text().splitlines())
+
+    day2 = datetime(2026, 7, 16, 2, 0, tzinfo=timezone.utc)
+    r = observe.generate_observations(str(tmp_path), day2)      # day 2: resolved rule excluded
+    digest = json.loads((tmp_path / "digest_2026-07-16.json").read_text())
+    keys = [o["rule_key"] for o in digest["observations"]]
+    assert "oracle.tail_thesis_inverted" not in keys           # gone from active digest
+    assert digest["n_resolved"] >= 1
+    assert r["n_observations"] == n_obs_before - 1             # one fewer active
+    # no new ledger row for the resolved rule on day 2
+    day2_rows = [json.loads(ln) for ln in (tmp_path / "observations.jsonl").read_text().splitlines()
+                 if json.loads(ln)["date"] == "2026-07-16"]
+    assert all(o["rule_key"] != "oracle.tail_thesis_inverted" for o in day2_rows)
+    assert len((tmp_path / "observations.jsonl").read_text().splitlines()) > ledger_lines_before  # other rules still logged
+
+
 def test_streak_increments_across_days(monkeypatch, tmp_path):
     _fake_sources(monkeypatch, resolved=_resolved())
     day1 = datetime(2026, 7, 14, 2, 0, tzinfo=timezone.utc)

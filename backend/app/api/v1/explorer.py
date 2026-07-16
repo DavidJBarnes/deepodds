@@ -27,9 +27,22 @@ def _read_json(path: str):
         return None
 
 
+def _resolutions(explorer_dir: str) -> dict:
+    return _read_json(os.path.join(explorer_dir, "resolutions.json")) or {}
+
+
 def _latest_digest(explorer_dir: str) -> dict | None:
     files = sorted(glob.glob(os.path.join(explorer_dir, "digest_*.json")))
-    return _read_json(files[-1]) if files else None
+    digest = _read_json(files[-1]) if files else None
+    if not digest:
+        return digest
+    # Drop resolved rules from the served digest so a mid-day verdict takes effect now,
+    # not just on the next daemon tick.
+    res = _resolutions(explorer_dir)
+    obs = [o for o in digest.get("observations", []) if o.get("rule_key") not in res]
+    digest["observations"] = obs
+    digest["n_observations"] = len(obs)
+    return digest
 
 
 def _read_ledger(explorer_dir: str, limit: int = 500) -> list[dict]:
@@ -40,6 +53,13 @@ def _read_ledger(explorer_dir: str, limit: int = 500) -> list[dict]:
         rows = [json.loads(ln) for ln in lines if ln.strip()]
     except Exception:
         return []
+    # Overlay recorded verdicts (non-destructive: observations.jsonl stays append-only).
+    res = _resolutions(explorer_dir)
+    for r in rows:
+        v = res.get(r.get("rule_key"))
+        if v:
+            r["status"] = v.get("status", "resolved")
+            r["resolution_note"] = v.get("note")
     rows.sort(key=lambda r: (r.get("date", ""), r.get("score", 0)), reverse=True)
     return rows
 
