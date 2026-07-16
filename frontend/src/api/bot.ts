@@ -99,7 +99,8 @@ export interface Observation {
   why_notable: string;
   next_step: string;
   caveat: string;
-  date?: string;           // present on ledger rows
+  date?: string;                 // present on ledger rows
+  resolution_note?: string;      // present when the observation has a recorded verdict
 }
 
 export interface ExplorerDigest {

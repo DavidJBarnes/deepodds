@@ -37,6 +37,8 @@ function statusStyle(status: string): string {
       return "bg-amber-600/20 text-amber-400";
     case "edge-candidate":
       return "bg-emerald-600/20 text-emerald-400";
+    case "resolved":
+      return "bg-emerald-600/20 text-emerald-400";
     case "dead":
       return "bg-red-600/20 text-red-400";
     case "structural-known":
@@ -91,7 +93,12 @@ function LedgerTable({ rows }: { rows: Observation[] }) {
             {rows.length > 0 ? rows.map((o) => (
               <tr key={o.id} className="border-t border-slate-800 align-top">
                 <td className="px-4 py-2 text-slate-400 whitespace-nowrap">{o.date ?? "—"}</td>
-                <td className="px-4 py-2 text-slate-300">{o.what}</td>
+                <td className="px-4 py-2 text-slate-300">
+                  {o.what}
+                  {o.resolution_note && (
+                    <span className="block mt-1 text-xs text-emerald-400/80"><span className="font-semibold">Verdict · </span>{o.resolution_note}</span>
+                  )}
+                </td>
                 <td className="px-4 py-2 text-center">
                   <span className={`inline-flex rounded px-1.5 py-0.5 text-xs font-semibold ${statusStyle(o.status)}`}>{o.status}</span>
                 </td>

@@ -62,6 +62,17 @@ def _dates_by_rule(ledger: list[dict]) -> dict[str, set]:
     return by
 
 
+def load_resolutions(out_dir: str) -> dict:
+    """Verdicts marked on observations: {rule_key: {status, note, resolved_ts}}. A
+    resolved rule stops surfacing in the daily digest (it's understood, not open) and
+    stops appending new ledger rows, but its history and verdict remain readable."""
+    try:
+        with open(os.path.join(out_dir, "resolutions.json")) as fh:
+            return json.load(fh) or {}
+    except Exception:
+        return {}
+
+
 def generate_observations(out_dir: str, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     today = now.date().isoformat()
@@ -87,7 +98,9 @@ def generate_observations(out_dir: str, now: datetime | None = None) -> dict:
         if obs:
             fired.append(obs)
 
-    # 3. streak + score, then append to the ledger (idempotent per date:rule_key)
+    # 3. streak + score, then append to the ledger (idempotent per date:rule_key).
+    # Resolved rules (a recorded verdict) drop out of the active flow entirely.
+    resolved = set(load_resolutions(out_dir))
     ledger = _load_ledger(out_dir)
     have_ids = {r.get("id") for r in ledger}
     by_rule = _dates_by_rule(ledger)
@@ -100,7 +113,7 @@ def generate_observations(out_dir: str, now: datetime | None = None) -> dict:
         rec = {"id": oid, "date": today, "streak": streak, "score": round(score, 3),
                "status": STATUS_DEFAULTS.get(rk, "new"),
                "created_ts": now.isoformat(), **obs}
-        if oid not in have_ids:
+        if oid not in have_ids and rk not in resolved:
             records.append(rec)
         # rank on the freshly computed values regardless of whether it's new to the ledger
         obs["_rank"] = {"streak": streak, "score": round(score, 3), "id": oid,
@@ -111,13 +124,16 @@ def generate_observations(out_dir: str, now: datetime | None = None) -> dict:
             for r in records:
                 fh.write(json.dumps(r) + "\n")
 
-    # 4. ranked digest for today (rewritten each run)
-    ranked = sorted(fired, key=lambda o: o["_rank"]["score"], reverse=True)[:DIGEST_TOP_N]
+    # 4. ranked digest for today (rewritten each run) — resolved rules excluded (they
+    # are understood, not open questions); they remain in the ledger with their verdict.
+    active = [o for o in fired if o["rule_key"] not in resolved]
+    ranked = sorted(active, key=lambda o: o["_rank"]["score"], reverse=True)[:DIGEST_TOP_N]
     digest = {
         "date": today,
         "generated_ts": now.isoformat(),
         "n_metrics": len(metrics),
-        "n_observations": len(fired),
+        "n_observations": len(active),
+        "n_resolved": len(fired) - len(active),
         "observations": [{
             "id": o["_rank"]["id"], "rule_key": o["rule_key"], "metric_key": o["metric_key"],
             "value": o["value"], "kind": o["kind"], "status": o["_rank"]["status"],
@@ -130,4 +146,4 @@ def generate_observations(out_dir: str, now: datetime | None = None) -> dict:
         json.dump(digest, fh, indent=2)
 
     return {"date": today, "n_metrics": len(metrics),
-            "n_observations": len(fired), "n_new_ledger": len(records)}
+            "n_observations": len(active), "n_new_ledger": len(records)}
