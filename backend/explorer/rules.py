@@ -91,11 +91,13 @@ def structural_rules(metric) -> list[dict]:
         out.append(_obs("dq.bookrec_broken", metric,
             what=(f"bookrec captured {c.get('populated',0)}/{c.get('total',0)} populated books in "
                   f"{c.get('file','?')} — {v:.0%} usable."),
-            why=("The order-book recorder is banking nulls: Kalshi migrated the depth endpoint to "
-                 "orderbook_fp {yes_dollars,no_dollars} and it returns null even for 700k-OI markets. "
-                 "Days of captures are unusable and every book-microstructure metric is blind."),
-            nxt=("Re-point bookrec to store market top-of-book (yes_bid_dollars / yes_ask_dollars / "
-                 "oi_fp), which the market-list endpoint DOES return, then build spread/liquidity metrics."),
+            why=("The order-book recorder is banking nulls, so every book-microstructure metric "
+                 "is blind. This fired once before (2026-07-29) as a client-side key mismatch: "
+                 "Kalshi renamed the depth payload orderbook -> orderbook_fp {yes_dollars,no_dollars} "
+                 "and bookrec kept reading the old key. The endpoint itself was healthy throughout."),
+            nxt=("Check the raw response keys FIRST — curl /markets/{ticker}/orderbook on a high-OI "
+                 "market and compare against what snapshot() reads. Assume a rename before assuming "
+                 "a dead endpoint; the depth is worth far more than the top-of-book fallback."),
             caveat="Data-quality flag, not a market signal.",
             surprise=STRUCTURAL_SALIENCE, kind="data_quality"))
 
