@@ -30,8 +30,35 @@ logger = logging.getLogger("vrp.kalshi_book_recorder")
 DEFAULT_SERIES = ("KXMLBGAME", "KXNBA", "KXWNBAGAME", "KXBTCD", "KXETHD", "KXATPMATCH")
 
 
-def top_oi_markets(client, series, top_n: int) -> list[str]:
-    """Tickers of the top-N open-interest open markets across the given series."""
+def _f(x) -> float | None:
+    """Kalshi's *_fp / *_dollars fields are decimal STRINGS ('0.4800'), not numbers."""
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _levels(raw) -> list[list[float]] | None:
+    """[['0.0100','68366.88'], ...] -> [[0.01, 68366.88], ...]. None if absent/empty."""
+    if not raw:
+        return None
+    out = []
+    for lvl in raw:
+        if not lvl or len(lvl) < 2:
+            continue
+        p, q = _f(lvl[0]), _f(lvl[1])
+        if p is not None and q is not None:
+            out.append([p, q])
+    return out or None
+
+
+def top_oi_markets(client, series, top_n: int) -> list[dict]:
+    """Top-N open-interest open markets across the given series, richest first.
+
+    Returns the market rows (not bare tickers) so the snapshot can carry top-of-book
+    and OI for free — we already paid for them here, and they are the only fields
+    that survive if the depth endpoint ever does go dark.
+    """
     rows = []
     for s in series:
         try:
@@ -40,35 +67,60 @@ def top_oi_markets(client, series, top_n: int) -> list[str]:
             logger.debug("%s: %s", s, e)
             continue
         for m in r.get("markets", []):
-            oi = float(m.get("open_interest_fp") or m.get("open_interest") or 0)
-            t = m.get("ticker")
-            if t:
-                rows.append((oi, t))
+            oi = _f(m.get("open_interest_fp")) or _f(m.get("open_interest")) or 0.0
+            if m.get("ticker"):
+                rows.append((oi, m))
     rows.sort(key=lambda x: x[0], reverse=True)
-    return [t for _, t in rows[:top_n]]
+    return [m for _, m in rows[:top_n]]
 
 
-def snapshot(client, ticker: str) -> dict:
-    ob = client.get(f"/markets/{ticker}/orderbook").get("orderbook", {})
-    return {"ticker": ticker, "yes": ob.get("yes"), "no": ob.get("no")}
+def snapshot(client, market: dict) -> dict:
+    """Full depth + top-of-book for one market.
+
+    The depth response is {"orderbook_fp": {"yes_dollars": [...], "no_dollars": [...]}}.
+    It was ONCE {"orderbook": {"yes": ..., "no": ...}}; reading the old key silently
+    banked nulls for weeks (the endpoint was fine all along), so accept both and keep
+    the stored field names stable across the rename.
+    """
+    ticker = market["ticker"]
+    r = client.get(f"/markets/{ticker}/orderbook")
+    ob = r.get("orderbook_fp") or r.get("orderbook") or {}
+    return {
+        "ticker": ticker,
+        "yes": _levels(ob.get("yes_dollars") if "yes_dollars" in ob else ob.get("yes")),
+        "no": _levels(ob.get("no_dollars") if "no_dollars" in ob else ob.get("no")),
+        # top-of-book from the market row — free, and independent of the depth endpoint
+        "yes_bid": _f(market.get("yes_bid_dollars")),
+        "yes_ask": _f(market.get("yes_ask_dollars")),
+        "yes_bid_size": _f(market.get("yes_bid_size_fp")),
+        "yes_ask_size": _f(market.get("yes_ask_size_fp")),
+        "oi": _f(market.get("open_interest_fp")),
+    }
 
 
 def run_once(client, out_dir: str, series=DEFAULT_SERIES, top_n: int = 30, now: datetime | None = None) -> int:
     now = now or datetime.now(timezone.utc)
     os.makedirs(out_dir, exist_ok=True)
     recs = []
-    for t in top_oi_markets(client, series, top_n):
+    for m in top_oi_markets(client, series, top_n):
         try:
-            s = snapshot(client, t)
+            s = snapshot(client, m)
             s["ts"] = now.isoformat()
             recs.append(s)
         except Exception as e:
-            logger.debug("book %s: %s", t, e)
+            logger.debug("book %s: %s", m.get("ticker"), e)
     if recs:
         with open(os.path.join(out_dir, f"book_{now:%Y%m%d}.jsonl"), "a") as fh:
             for r in recs:
                 fh.write(json.dumps(r) + "\n")
-    logger.info("book tick: %d markets snapshotted", len(recs))
+    # Populated count is the health signal: an all-null tick means the response shape
+    # moved again. Log it every tick so it shows up in `docker logs`, not weeks later.
+    pop = sum(1 for r in recs if r.get("yes") or r.get("no"))
+    if recs and not pop:
+        logger.error("book tick: %d markets snapshotted but 0 have depth — response "
+                     "shape may have changed; check /markets/{ticker}/orderbook keys", len(recs))
+    else:
+        logger.info("book tick: %d markets snapshotted, %d with depth", len(recs), pop)
     return len(recs)
 
 
