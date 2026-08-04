@@ -49,7 +49,15 @@ def load_kalshi_creds() -> tuple[str, bytes]:
 # Backtest-first follow-ups (NOT yet whitelisted): the KXHIGHT{city} temp
 # generation (ATL/BOS/SEA/DC/PHX/MIN/DAL/SFO exist) and crypto (KXBTC*, fattest
 # but BTC-correlated) each need their own backtest before inclusion.
-TEMP_CITIES = ("NY", "CHI", "LAX", "MIA", "AUS", "DEN", "PHIL", "HOU")
+# HOU removed 2026-08-04: KXHIGHHOU is DEAD (0 open markets; verified via the public
+# /series + /markets API). Kalshi migrated it to KXHIGHTHOU — same settlement oracle
+# (NWS CLI Houston, HGX) — but that belongs to the KXHIGHT* generation which BACKTESTED
+# SIGNIFICANTLY WORSE (-0.66c/ct pooled, YES 4.09% vs control 2.32%, p~0.03), so it is
+# NOT a drop-in swap and must be backtested on its own before any whitelist entry.
+# Leaving the dead string cost an API call per series per tick and, worse, made the
+# whitelist read as 8 cities while trading 7 — the same silent-failure class as the
+# KXNFLFIRST/KXNFLATD 404s that meant NFL never fired at all.
+TEMP_CITIES = ("NY", "CHI", "LAX", "MIA", "AUS", "DEN", "PHIL")
 SPORTS_SERIES = (
     "KXNCAAFGAME",    # NCAA football game  +2.01c  (already live; capacity king)
     "KXNFLFIRSTTD",   # NFL first TD         +3.43c  (was mis-named KXNFLFIRST → 404)
