@@ -121,30 +121,42 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
-      # SIZE-UP REVERTED (2026-07-13) — and that revert was WRONG (re-measured 2026-08-04).
-      # The "edge doesn't hold at size" call rested on 07-11..07-13: n=65, day-clustered CI
-      # [-7.64,+3.24] c/ct, i.e. no information at all. Meanwhile ALL 13 clip>=11 trades in
-      # live history settled PROFITABLE (13/13), and a worse day (-$16, 07-25) later landed
-      # at the REVERTED small size. Size was reverted on noise. Left at 10/0.04 for now
-      # anyway: raising MAX_PER_TRADE is the one genuinely untested step, and it should be
-      # staged deliberately (watch fill_rate 99.85% / slippage -0.04c after any raise),
-      # not folded into a bug-fix deploy. See project_kalshi_longshot memory.
+      # SCALED FOR $250 DEPOSIT (2026-08-04): account ~$275 -> ~$520.
+      #
+      # MAX_PER_TRADE 10 -> 25 is REQUIRED, not optional: replaying the sizing rule over
+      # 1069 real entries, acct=$520 with the cap at 10 is BYTE-IDENTICAL to acct=$275
+      # (188 cts/day, $180 collat/day). The deposit does literally nothing until it moves.
+      # 25 is the natural value — it is the smallest cap that never binds (0% of entries
+      # clipped), and 40 or uncapped give IDENTICAL output because the 0.25*bid depth
+      # limit takes over. So 25 buys full capacity with zero extra tail risk.
+      #   at 25: 348 cts/day, $334 collat/day, avg clip 13.4, p95 clip 22.
+      #
+      # This IS the #227 change (10->25) that #228 reverted. That revert was WRONG:
+      # it rested on 07-11..07-13, n=65, day-clustered CI [-7.64,+3.24] c/ct — no
+      # information — while ALL 13 clip>=11 trades in live history settled PROFITABLE
+      # (13/13), and a worse day (-$16, 07-25) later landed at the REVERTED small size.
+      #
+      # STILL THE UNTESTED AXIS: largest clip ever actually filled live is 15; p95 goes
+      # to 22 here. WATCH fill_rate (99.86%) and avg_slippage_c (-0.039) after this — they
+      # are the only honest read on whether the book supports bigger clips. Paper cannot
+      # answer it: paper fills the whole clip at the quoted bid and models no book walk.
+      # See project_kalshi_longshot memory for the depth-measured capacity curve.
       #
       # LONGSHOT_ACCOUNT is VESTIGIAL for live as of #234 — live sizes off real Kalshi
       # equity (balance + deployed) read fresh each tick. Paper still uses its own value.
       - LONGSHOT_ACCOUNT=250
       - LONGSHOT_TRADE_FRACTION=0.04
-      - LONGSHOT_MAX_DEPLOYED=200
-      - LONGSHOT_MAX_PER_TRADE=10
+      - LONGSHOT_MAX_DEPLOYED=400
+      - LONGSHOT_MAX_PER_TRADE=25
       - LONGSHOT_MAX_OPEN=120
       # Circuit breaker, NOT a risk budget: breaching it trips the kill sentinel and
       # halts ALL new orders until /opt/deepodds/longshot-live/KILL is deleted by hand.
-      # Raised 25 -> 50 on 2026-08-04 because #233/#234 roughly DOUBLE deployed collateral
-      # (~$114 -> ~$196/day) by fixing the free-cash double-count. The worst day in 41 days
-      # was -$16 at ~$94 deployed; the same-severity day at the new size is ~-$34, which
-      # would have tripped a $25 kill on an unremarkable day. $50 is ~25% of daily deployed,
-      # holding the old 27%-of-deployed ratio. Rescale this WITH any capital change.
-      - LONGSHOT_MAX_DAILY_LOSS=50
+      # Held at ~25% of expected daily deployed collateral. History: 25 (at ~$94/day) ->
+      # 50 (2026-08-04, when #233/#234 doubled deployment to ~$180/day) -> 85 (same day,
+      # for the $250 deposit taking expected deployment to ~$334/day). Worst day in 41
+      # days was -$16 at ~$94 deployed = -17% of deployed, so 25% clears a normal bad day
+      # and still catches an anomaly. ALWAYS rescale this WITH a capital change.
+      - LONGSHOT_MAX_DAILY_LOSS=85
     volumes:
       - /opt/deepodds/longshot-live:/data:z
 
