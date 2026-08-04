@@ -89,6 +89,28 @@ def test_robust_z_gate_and_value():
     assert baseline.robust_z(5.0, [1.0, 1.0]) is None            # < MIN_HISTORY
     z = baseline.robust_z(10.0, [1.0, 1.0, 1.0, 1.0])            # median 1, mad 0 -> floored
     assert z is not None and z["z"] > 0 and z["median"] == 1.0
+    assert z["z"] <= baseline.Z_CAP                               # never unbounded
+
+
+def test_robust_z_recovery_from_stuck_metric_is_not_a_billion_sigma():
+    """Regression: dq.bookrec.populated_frac sat at 0.0 for 15 days (dead recorder), then
+    #231 fixed it and it jumped to 1.0. MAD is 0 across a majority-constant baseline, so
+    the old epsilon divisor produced z=1e9 and that row owned digest rank 1 for five days.
+    A metric going *healthy* must not outrank every real observation."""
+    prior = [0.0] * 15 + [0.9991, 0.9994, 1.0, 1.0]
+    z = baseline.robust_z(1.0, prior)
+    assert z is not None and z["median"] == 0.0 and z["mad"] == 0.0
+    assert abs(z["z"]) < rules.Z_THRESHOLD                        # stays out of the digest
+    assert rules.deviation_rule(M.Metric("dq.bookrec.populated_frac", 1.0, {}), z) is None
+
+
+def test_robust_z_still_flags_a_real_outlier_against_a_flat_baseline():
+    """The floor must not blunt genuine anomalies: a stuck-at-zero metric that goes
+    sharply negative is still a real event and must clear the threshold."""
+    prior = [0.0] * 15 + [0.0, 0.0, 0.0, 0.0]
+    z = baseline.robust_z(-5.0, prior)
+    assert z is not None and z["z"] <= -rules.Z_THRESHOLD
+    assert abs(z["z"]) <= baseline.Z_CAP
 
 
 def test_prior_values_excludes_today():
