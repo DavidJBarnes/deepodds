@@ -121,20 +121,30 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
-      # SIZE-UP REVERTED (2026-07-13): the 2x DEPLOYED cleanly (avg trade 2.5->7.4ct,
-      # deployed $76->$156) but the edge did NOT survive — live fell -0.30 -> -0.52c/ct as
-      # size rose (bigger bets on the same thin summer-temp brackets = bigger negative-skew
-      # bites). Hypothesis tested + FALSIFIED: live temp does not hold edge at size; its
-      # capacity ceiling is low (paper control stays +1.34c only via ~$8k diversification).
-      # Revert to the flat-to-slightly-positive small size to minimize bleed while summer
-      # temp is the only game. Real capacity unlock = DIVERSIFICATION (Sept football props,
-      # already whitelisted), not bigger temp bets. $25 daily kill unchanged.
+      # SIZE-UP REVERTED (2026-07-13) — and that revert was WRONG (re-measured 2026-08-04).
+      # The "edge doesn't hold at size" call rested on 07-11..07-13: n=65, day-clustered CI
+      # [-7.64,+3.24] c/ct, i.e. no information at all. Meanwhile ALL 13 clip>=11 trades in
+      # live history settled PROFITABLE (13/13), and a worse day (-$16, 07-25) later landed
+      # at the REVERTED small size. Size was reverted on noise. Left at 10/0.04 for now
+      # anyway: raising MAX_PER_TRADE is the one genuinely untested step, and it should be
+      # staged deliberately (watch fill_rate 99.85% / slippage -0.04c after any raise),
+      # not folded into a bug-fix deploy. See project_kalshi_longshot memory.
+      #
+      # LONGSHOT_ACCOUNT is VESTIGIAL for live as of #234 — live sizes off real Kalshi
+      # equity (balance + deployed) read fresh each tick. Paper still uses its own value.
       - LONGSHOT_ACCOUNT=250
       - LONGSHOT_TRADE_FRACTION=0.04
       - LONGSHOT_MAX_DEPLOYED=200
       - LONGSHOT_MAX_PER_TRADE=10
       - LONGSHOT_MAX_OPEN=120
-      - LONGSHOT_MAX_DAILY_LOSS=25
+      # Circuit breaker, NOT a risk budget: breaching it trips the kill sentinel and
+      # halts ALL new orders until /opt/deepodds/longshot-live/KILL is deleted by hand.
+      # Raised 25 -> 50 on 2026-08-04 because #233/#234 roughly DOUBLE deployed collateral
+      # (~$114 -> ~$196/day) by fixing the free-cash double-count. The worst day in 41 days
+      # was -$16 at ~$94 deployed; the same-severity day at the new size is ~-$34, which
+      # would have tripped a $25 kill on an unremarkable day. $50 is ~25% of daily deployed,
+      # holding the old 27%-of-deployed ratio. Rescale this WITH any capital change.
+      - LONGSHOT_MAX_DAILY_LOSS=50
     volumes:
       - /opt/deepodds/longshot-live:/data:z
 
