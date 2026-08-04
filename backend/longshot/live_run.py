@@ -117,6 +117,7 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                             "client_order_id": res.client_order_id, "order_id": res.order_id,
                         })
                         pr.deployed_collateral += collat
+                        pr.deployed_this_tick += collat   # start-of-tick balance predates this fill
                         pr.open_positions += 1
                         dbu[paper_run.underlying_key(c["ticker"])] = \
                             dbu.get(paper_run.underlying_key(c["ticker"]), 0.0) + collat

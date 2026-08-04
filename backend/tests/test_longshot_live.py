@@ -331,13 +331,55 @@ def test_equity_invariant_to_placing_order(tmp_path):
 
 
 def test_available_balance_caps_orders(tmp_path):
-    g = RiskGate(_cfg(tmp_path))
-    over = PortfolioRisk(deployed_collateral=5.0, open_positions=1,
-                         realized_pnl_today=0, available_balance=5.22)
-    assert not g.check_order(over, contracts=1, collateral=0.9).allow   # 5.9 > 5.22
-    ok = PortfolioRisk(deployed_collateral=4.0, open_positions=1,
-                       realized_pnl_today=0, available_balance=5.22)
-    assert g.check_order(ok, contracts=1, collateral=0.9).allow         # 4.9 <= 5.22
+    """Free cash gates THIS order, not the whole open book.
+
+    Kalshi's balance is cash net of every open short's collateral (live_snapshot
+    rebuilds equity as balance + deployed_collateral), so an already-deployed book
+    must NOT be charged against free cash a second time.
+    """
+    g = RiskGate(_cfg(tmp_path, max_per_trade_contracts=25, max_open_positions=40))
+    # A large open book with plenty of free cash left: affordable, must be allowed.
+    big_book = PortfolioRisk(deployed_collateral=130.0, open_positions=25,
+                             realized_pnl_today=0, available_balance=131.0)
+    assert g.check_order(big_book, contracts=10, collateral=9.5).allow
+    # Genuinely unaffordable: this single order exceeds free cash.
+    broke = PortfolioRisk(deployed_collateral=130.0, open_positions=25,
+                          realized_pnl_today=0, available_balance=5.22)
+    assert not g.check_order(broke, contracts=10, collateral=9.5).allow
+
+
+def test_balance_gate_counts_only_this_ticks_fills(tmp_path):
+    """Within a tick the start-of-tick balance is stale, so fills placed earlier in
+    the SAME tick must still be charged — otherwise we'd oversell the free cash."""
+    g = RiskGate(_cfg(tmp_path, max_per_trade_contracts=25, max_open_positions=40))
+    pr = PortfolioRisk(deployed_collateral=130.0, open_positions=25,
+                       realized_pnl_today=0, available_balance=10.0)
+    assert g.check_order(pr, contracts=5, collateral=6.0).allow          # 6 <= 10
+    pr.deployed_collateral += 6.0
+    pr.deployed_this_tick += 6.0
+    assert not g.check_order(pr, contracts=5, collateral=6.0).allow      # 6+6=12 > 10
+    assert g.check_order(pr, contracts=3, collateral=3.5).allow          # 6+3.5=9.5 <= 10
+
+
+def test_balance_gate_regression_deferred_45pct_of_live_entries(tmp_path):
+    """Regression for the double-count that deferred 45% of live entries ~10h.
+
+    Reproduces the exact production state at the moment of a deferral (2026-08 live:
+    deployed ~$128, free balance ~$131, a ~$9.50 clip). The old gate computed
+    128 + 9.5 = 137.5 > 131 and skipped the order; live re-entered the same ticker a
+    tick or more later at a decayed price, giving up ~1.16c/contract for no reduction
+    in YES rate. With MAX_DEPLOYED still guarding total exposure, this must pass.
+    """
+    g = RiskGate(_cfg(tmp_path, max_deployed_collateral=200.0,
+                      max_per_trade_contracts=25, max_open_positions=40))
+    pr = PortfolioRisk(deployed_collateral=128.22, open_positions=28,
+                       realized_pnl_today=0, available_balance=131.49)
+    assert g.check_order(pr, contracts=10, collateral=9.5).allow
+    # ...but the absolute exposure cap is untouched and still fires.
+    pr_at_cap = PortfolioRisk(deployed_collateral=195.0, open_positions=28,
+                              realized_pnl_today=0, available_balance=131.49)
+    d = g.check_order(pr_at_cap, contracts=10, collateral=9.5)
+    assert not d.allow and "deployed" in d.reason
 
 
 def test_slippage_stats():

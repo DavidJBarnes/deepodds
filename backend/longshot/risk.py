@@ -51,6 +51,10 @@ class PortfolioRisk:
     open_positions: int
     realized_pnl_today: float
     available_balance: float | None = None   # real Kalshi cash; None in paper
+    # Collateral locked by orders filled EARLIER IN THIS TICK. `available_balance` is
+    # read once at the start of the tick and is not re-read per order, so it does not
+    # yet reflect these fills — this is the running correction. Reset to 0 each tick.
+    deployed_this_tick: float = 0.0
 
 
 class RiskGate:
@@ -83,8 +87,23 @@ class RiskGate:
                             f"deployed {pr.deployed_collateral + collateral:.2f} > cap "
                             f"{self.cfg.max_deployed_collateral:.2f}")
         # Never try to deploy more collateral than the real account actually holds.
-        if pr.available_balance is not None and pr.deployed_collateral + collateral > pr.available_balance:
+        #
+        # `available_balance` is Kalshi's FREE CASH — selling a short moves cash into
+        # collateral 1:1, so the balance already excludes every open position's
+        # collateral (this is exactly why live_snapshot reconstructs equity as
+        # balance + deployed_collateral). Testing `deployed_collateral + collateral`
+        # against it therefore charged the whole open book to free cash a second time,
+        # and the gate tightened as the book grew: it deferred 45% of all live entries
+        # (79% by 2026-08) to a later tick, ~10h late on average. Those deferrals cost
+        # 1.16c/contract of decayed premium for ZERO risk reduction (YES rate identical
+        # at 2.50% early vs late, n=480 paired) — about $35 of forgone premium against
+        # $26.61 of realized P&L. Same double-count class as #224, one layer down.
+        #
+        # The affordability question is only ever about THIS order plus what this tick
+        # has already spent. Total exposure stays capped by max_deployed_collateral above.
+        if pr.available_balance is not None and \
+                pr.deployed_this_tick + collateral > pr.available_balance:
             return Decision(False,
-                            f"deployed {pr.deployed_collateral + collateral:.2f} > balance "
+                            f"this-tick {pr.deployed_this_tick + collateral:.2f} > free balance "
                             f"{pr.available_balance:.2f}")
         return Decision(True)
