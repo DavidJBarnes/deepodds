@@ -40,32 +40,17 @@ services:
     volumes:
       - /opt/deepodds/longshot:/data:z
 
-  # Longshot-short paper harness WITH an OI selection filter ON — A/B treatment arm
-  # vs the unfiltered `longshot` control above (both paper, no money). Same signal
-  # otherwise. FLIPPED 2026-07-04 from LOW-OI to HIGH-OI (OI_KEEP_HIGH=true): the
-  # #209 low-OI backtest was biased (cheap-selected shards, ~0% temp YES, can't test
-  # loss-avoidance — see VERDICT_BACKTEST_BIAS.md); live-forward data (real losses)
-  # shows HIGH-OI is the safer/better bucket (YES 1.3% vs 4.7%, +3.2c vs -1.0c).
-  # This arm now forward-tests that where it can actually be measured. Read the A/B
-  # by comparing this container's settled c/ct vs the control. Promote to live only
-  # after this arm beats the control over ~1-2 weeks of real-loss settlements.
-  longshot-paper-oi:
-    image: "IMAGE_PLACEHOLDER"
-    container_name: deepodds-longshot-paper-oi
-    command: python -m longshot.loop --interval 3600
-    restart: unless-stopped
-    network_mode: host
-    env_file: /opt/deepodds/.env
-    environment:
-      - LONGSHOT_STATE=/data/state.json
-      - LONGSHOT_HISTORY=/data/history.jsonl
-      - LONGSHOT_HEARTBEAT=/data/heartbeat.json
-      - LONGSHOT_MAX_OPEN=120          # match control + live so it's apples-to-apples
-      - LONGSHOT_OI_FILTER=true        # the treatment: OI selection ON
-      - LONGSHOT_OI_MAX=968            # partition threshold (same cut as the analysis)
-      - LONGSHOT_OI_KEEP_HIGH=true     # trade only HIGH-OI (>968) — the safer bucket in live data
-    volumes:
-      - /opt/deepodds/longshot-paper-oi:/data:z
+  # RETIRED 2026-08-04: OI-filter A/B paper arm (deepodds-longshot-paper-oi). The
+  # question is ANSWERED — and the answer is "no difference". Day-clustered bootstrap
+  # over the LIVE book (the only sample with real losses): hi-OI +0.72 c/ct vs lo-OI
+  # +0.73 c/ct, CIs almost perfectly overlapping. The original #209 "low-OI is better"
+  # signal was a cheap-selection artifact (VERDICT_BACKTEST_BIAS.md); the 2026-07-04
+  # flip to HIGH-OI was chased on a small-n live read (YES 1.3% vs 4.7%) that has since
+  # washed out entirely. Nothing here to promote to live, so this arm was only burning a
+  # container on a 916MB box that has already thrashed itself dark once with this many
+  # services running. Host state left at /opt/deepodds/longshot-paper-oi for reference.
+  # Do NOT resurrect without a NEW hypothesis — re-running the same A/B just re-answers
+  # the same question.
 
   # RETIRED 2026-07-09: sports-tails paper arm. The in-season series (game moneylines:
   # KXMLBGAME/KXWNBAGAME/KX*MATCH) have NO 1-12c tails — they price 20-70c (one ~coin-
