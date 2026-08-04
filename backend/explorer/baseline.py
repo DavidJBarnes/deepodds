@@ -12,7 +12,11 @@ import json
 import os
 
 MIN_HISTORY = 3          # need at least this many prior days to score a deviation
-_MAD_FLOOR = 1e-9        # guard against zero-dispersion division
+_MAD_FLOOR = 1e-9        # below this a dispersion estimate counts as zero (see robust_z)
+_REL_FLOOR = 0.01        # last-resort scale: 1% of the metric's own magnitude
+_ABS_FLOOR = 1e-6        # ...and a hard floor for metrics whose median is ~0
+Z_CAP = 25.0             # ranking cap: past ~25 sigma "more extreme" carries no extra
+                         # information, but an uncapped z permanently owns rank 1
 
 
 def history_path(out_dir: str) -> str:
@@ -66,11 +70,38 @@ def _median(xs: list[float]) -> float:
     return s[m] if n % 2 else (s[m - 1] + s[m]) / 2
 
 
+def _stdev(xs: list[float], med: float) -> float:
+    """Population sigma about the median. Non-robust by design — only used when MAD has
+    degenerated to zero, where it is the *less* degenerate of the two estimators."""
+    if len(xs) < 2:
+        return 0.0
+    return (sum((x - med) ** 2 for x in xs) / len(xs)) ** 0.5
+
+
 def robust_z(value: float, prior: list[float]) -> dict | None:
-    """z of `value` vs the prior distribution via median/MAD. None if too little history."""
+    """z of `value` vs the prior distribution via median/MAD. None if too little history.
+
+    MAD is zero whenever *more than half* the baseline is one repeated value — routine
+    here, since a stuck metric (a dead recorder banking 0.0 for two weeks) is exactly the
+    condition we most want to score. Dividing by a bare epsilon in that case produced
+    z ~ 1e9: dq.bookrec.populated_frac went 0.0 -> 1.0 when the bookrec key rename was
+    fixed (#231) and pinned rank 1 of the digest at 2.6e9 for five straight days, burying
+    every real observation beneath a metric that had just gone *healthy*.
+
+    So the scale falls back in order — MAD, then sigma-about-the-median (degenerate only
+    for a truly constant series), then a floor relative to the metric's own magnitude —
+    and the result is capped. Recovery-from-stuck now scores ~2.4 sigma (under threshold,
+    correctly silent) instead of a billion.
+    """
     if len(prior) < MIN_HISTORY:
         return None
     med = _median(prior)
     mad = _median([abs(x - med) for x in prior])
-    scale = 1.4826 * mad if mad > _MAD_FLOOR else _MAD_FLOOR
-    return {"z": (value - med) / scale, "median": med, "mad": mad, "n": len(prior)}
+    scale = 1.4826 * mad
+    if scale <= _MAD_FLOOR:
+        scale = _stdev(prior, med)
+    if scale <= _MAD_FLOOR:                       # constant series: no dispersion at all
+        scale = max(_REL_FLOOR * abs(med), _ABS_FLOOR)
+    z = (value - med) / scale
+    z = max(-Z_CAP, min(Z_CAP, z))
+    return {"z": z, "median": med, "mad": mad, "n": len(prior)}
