@@ -70,3 +70,41 @@ def test_daily_loss_kill_still_binds_at_size(tmp_path):
     tripped = g.pretick(PortfolioRisk(0, 0, realized_pnl_today=-25.0))
     assert not tripped.allow                                          # at cap -> blocked + kill tripped
     assert (tmp_path / "KILL").exists()
+
+
+def test_exposure_test_is_against_the_account_not_free_cash():
+    """size_candidate's `deployed + collat > acct` is a TOTAL-EXPOSURE test, so `acct`
+    must be the account value. Passing free cash instead (live's old bug) double-counts
+    the open book and starves discovery exactly when the book is working.
+
+    Reproduces the mean production state at a real deferral: $128.22 deployed against
+    $131.49 free cash, i.e. equity $259.71. Sizing off free cash rejects the candidate
+    outright; sizing off equity admits it.
+    """
+    cfg = _cfg(0.04)
+    mkt = _market(bid_size=1000)
+    starved = size_candidate(cfg, mkt, "KXHIGHNY", NOW, 131.49, 128.22)   # acct = free cash
+    correct = size_candidate(cfg, mkt, "KXHIGHNY", NOW, 259.71, 128.22)   # acct = equity
+    assert starved is None                       # 128.22 + 4.75 > 131.49 -> no candidate
+    assert correct is not None                   # 128.22 + 9.50 <= 259.71 -> sized
+    # ...and the clip is sized off the whole account, not the shrinking cash balance:
+    # free cash would have bought 5 contracts, equity buys 10.
+    assert correct["size"] == int(259.71 * 0.04 / 0.95) == 10
+
+
+def test_sizing_off_free_cash_shrinks_clips_as_the_book_grows():
+    """The second-order effect: free cash falls 1:1 as collateral is locked, so sizing
+    off it makes each new clip smaller the more positions are open — a ratchet. Sizing
+    off equity holds the clip steady, which is the intended behaviour."""
+    cfg = _cfg(0.04)
+    mkt = _market(bid_size=10_000)
+    equity = 5000.0
+    sizes_cash, sizes_equity = [], []
+    for deployed in (0.0, 1000.0, 2000.0, 3000.0):
+        cash = equity - deployed
+        c1 = size_candidate(cfg, mkt, "KXHIGHNY", NOW, cash, deployed)
+        c2 = size_candidate(cfg, mkt, "KXHIGHNY", NOW, equity, deployed)
+        sizes_cash.append(c1["size"] if c1 else 0)
+        sizes_equity.append(c2["size"] if c2 else 0)
+    assert sizes_cash == sorted(sizes_cash, reverse=True) and sizes_cash[0] > sizes_cash[-1]
+    assert len(set(sizes_equity)) == 1           # constant clip regardless of book size

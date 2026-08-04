@@ -53,10 +53,22 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
             logger.error("%d orphan position(s) adopted this tick", adopted)
 
         # --- 2. Risk pre-tick (kill switch / daily loss) -------------------
-        # Capital base is the REAL Kalshi balance — never the hardcoded account.
+        # Capital base is the REAL Kalshi account — never the hardcoded LONGSHOT_ACCOUNT.
         balance = truth.get("balance_dollars")
         have = {p["ticker"] for p in state["positions"]}
         deployed = sum(p.get("collateral") or 0 for p in _open_positions(state))
+        # Account value = free cash + collateral locked in open shorts (the same identity
+        # live_snapshot reports as equity). This — NOT `balance` — is what discovery must
+        # size against: `balance` alone shrinks 1:1 as the book grows, so sizing off it
+        # made every clip smaller precisely when the book was working, and made
+        # size_candidate's `deployed + collat > acct` exposure test double-count the open
+        # book against free cash (the #233 defect, one layer earlier and rejecting the
+        # candidate before the risk gate ever saw it).
+        #
+        # Captured ONCE per tick: placing an order moves cash into collateral 1:1 and so
+        # leaves equity unchanged. Recomputing it mid-tick from the running
+        # pr.deployed_collateral would re-inflate it with every fill — the #224 bug.
+        equity = balance + deployed if balance is not None else None
         pr = PortfolioRisk(deployed_collateral=deployed,
                            open_positions=len(_open_positions(state)),
                            realized_pnl_today=reconcile.realized_pnl_today(state, now),
@@ -87,7 +99,7 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                     if surfaces is not None and not paper_run._oracle.market_passes(
                             surfaces, m, now, cfg.oracle_min_edge, cfg.oracle_min_otm):
                         continue
-                    c = size_candidate(cfg, m, series, now, balance, pr.deployed_collateral)
+                    c = size_candidate(cfg, m, series, now, equity, pr.deployed_collateral)
                     if not c:
                         continue
                     if cfg.max_underlying_collateral > 0:
