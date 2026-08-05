@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
+  Bar,
   CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -192,11 +197,130 @@ function EquityChart({ series, mounted }: { series: LongshotSeriesPoint[]; mount
   );
 }
 
+interface DailyPnl {
+  day: string;
+  pnl: number;
+  cum: number;
+  trades: number;
+  contracts: number;
+}
+
+/** Realized P&L bucketed by SETTLEMENT day.
+ *
+ * Derived from settled positions rather than from equity deltas in the tick series:
+ * a tick snapshot moves when collateral is locked/released too, so differencing it
+ * mixes cash-flow timing into what is supposed to be realized P&L. Grouping settled
+ * positions by close_time gives the day the money was actually won or lost. */
+function dailyPnl(settled: LongshotPosition[]): DailyPnl[] {
+  const by = new Map<string, { pnl: number; trades: number; contracts: number }>();
+  for (const p of settled) {
+    if (!p.close_time || p.pnl == null) continue;
+    const day = p.close_time.slice(0, 10);
+    const acc = by.get(day) ?? { pnl: 0, trades: 0, contracts: 0 };
+    acc.pnl += p.pnl;
+    acc.trades += 1;
+    acc.contracts += p.size ?? 0;
+    by.set(day, acc);
+  }
+  let cum = 0;
+  return [...by.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, a]) => {
+      cum += a.pnl;
+      return {
+        day,
+        pnl: Math.round(a.pnl * 100) / 100,
+        cum: Math.round(cum * 100) / 100,
+        trades: a.trades,
+        contracts: a.contracts,
+      };
+    });
+}
+
+function DailyPnlTooltip({ active, payload }: { active?: boolean; payload?: { payload: DailyPnl }[] }) {
+  if (!active || !payload?.[0]) return null;
+  const d = payload[0].payload;
+  const cpc = d.contracts ? (100 * d.pnl) / d.contracts : null;
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+      <p className="text-slate-300 font-medium mb-1">{fmtDay(`${d.day}T12:00:00Z`)}</p>
+      <p className={d.pnl >= 0 ? "text-emerald-400" : "text-red-400"}>Day: {fmtUsd(d.pnl)}</p>
+      <p className="text-sky-400">Cumulative: {fmtUsd(d.cum)}</p>
+      <p className="text-slate-400">
+        {d.trades} settled · {d.contracts} contracts
+        {cpc != null && ` · ${cpc >= 0 ? "+" : ""}${cpc.toFixed(2)}¢/ct`}
+      </p>
+    </div>
+  );
+}
+
+/** Daily gain/loss bars with the cumulative realized line over the top.
+ *
+ * Two Y axes on purpose: cumulative P&L outgrows a single day's swing over time,
+ * so on one shared axis the daily bars flatten into invisibility exactly as the
+ * history gets long enough to be worth reading. */
+function DailyPnlChart({ settled, mounted }: { settled: LongshotPosition[]; mounted: boolean }) {
+  const data = useMemo(() => dailyPnl(settled), [settled]);
+  const best = data.reduce((m, d) => (d.pnl > m ? d.pnl : m), 0);
+  const worst = data.reduce((m, d) => (d.pnl < m ? d.pnl : m), 0);
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6 space-y-4">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h3 className="text-sm font-semibold text-white">Daily realized P&L</h3>
+        {data.length > 0 && (
+          <span className="text-xs text-slate-500">
+            {data.length} days · best <span className="text-emerald-400">{fmtUsd(best)}</span> · worst{" "}
+            <span className="text-red-400">{fmtUsd(worst)}</span>
+          </span>
+        )}
+      </div>
+      <div className="h-56 min-w-0">
+        {mounted && data.length > 1 ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 5, right: 4, bottom: 5, left: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+              <XAxis dataKey="day" tickFormatter={(d: string) => fmtDay(`${d}T12:00:00Z`)}
+                tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#334155" }}
+                tickLine={false} minTickGap={24} />
+              <YAxis yAxisId="daily" tickFormatter={(v: number) => `$${v}`}
+                tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} width={52} />
+              <YAxis yAxisId="cum" orientation="right" tickFormatter={(v: number) => `$${v}`}
+                tick={{ fontSize: 11, fill: "#38bdf8" }} axisLine={false} tickLine={false} width={52} />
+              <Tooltip content={<DailyPnlTooltip />} cursor={{ fill: "#1e293b", fillOpacity: 0.4 }} />
+              <ReferenceLine yAxisId="daily" y={0} stroke="#475569" />
+              {/* Entry animation off: this page re-polls every 30s, and recharts replays
+                  the whole draw-on animation each time new data lands — the chart spends
+                  a chunk of every refresh unreadable. */}
+              <Bar yAxisId="daily" dataKey="pnl" radius={[2, 2, 0, 0]} maxBarSize={26}
+                isAnimationActive={false}>
+                {data.map((d) => (
+                  <Cell key={d.day} fill={d.pnl >= 0 ? "#34d399" : "#f87171"} />
+                ))}
+              </Bar>
+              <Line yAxisId="cum" type="monotone" dataKey="cum" stroke="#38bdf8" strokeWidth={2}
+                dot={false} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-slate-500 text-sm">Not enough settled days for a chart yet.</p>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-slate-500">
+        Bars = that day&apos;s realized gain/loss · <span className="text-sky-400">line</span> = cumulative.
+        Bucketed by settlement day.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // LIVE section — real money. Execution mode (dry-run / armed / killed) is the
 // sub-state; this is the primary view now that a real account is running.
 // ---------------------------------------------------------------------------
-function LiveSection({ live }: { live: LongshotStatus | null }) {
+function LiveSection({ live, mounted }: { live: LongshotStatus | null; mounted: boolean }) {
   const hb = live?.heartbeat ?? null;
   const latest = live?.latest ?? null;
   const open = live?.open_positions ?? [];
@@ -241,6 +365,7 @@ function LiveSection({ live }: { live: LongshotStatus | null }) {
               value={slip?.avg_slippage_c == null ? "—" : `${slip.avg_slippage_c.toFixed(2)}¢`}
               positive={slip?.avg_slippage_c == null ? undefined : slip.avg_slippage_c <= 0} />
           </div>
+          <DailyPnlChart settled={settled} mounted={mounted} />
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <RecentSettledTable settled={settled} />
             <OpenPositionsTable open={open} deployed={latest.deployed_collateral} />
@@ -256,10 +381,17 @@ function LiveSection({ live }: { live: LongshotStatus | null }) {
 }
 
 // ---------------------------------------------------------------------------
-// PAPER section — simulated $8k control / benchmark. Always running as the
-// shadow we compare live fills against.
+// PAPER section — simulated $8k control / benchmark. COLLAPSED BY DEFAULT since
+// live now carries its own daily-P&L chart and is the thing actually being read.
+//
+// Kept rather than deleted because paper is the CONTROL, not decoration: pairing
+// live against its paper twin on shared tickers is what exposed the 2026-08-04
+// balance double-count (live never entered a ticker earlier than paper, on any of
+// 1068 pairs). Losing the ability to eyeball that comparison would be a real loss.
+// The heartbeat stays visible while collapsed so a dead paper arm is still obvious.
 // ---------------------------------------------------------------------------
 function PaperSection({ status, error, mounted }: { status: LongshotStatus | null; error: string | null; mounted: boolean }) {
+  const [open_, setOpen] = useState(false);
   const hb = status?.heartbeat ?? null;
   const latest = status?.latest ?? null;
   const series = status?.series ?? [];
@@ -271,15 +403,35 @@ function PaperSection({ status, error, mounted }: { status: LongshotStatus | nul
   return (
     <section className="space-y-4 border-t border-slate-800 pt-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-bold text-white">Paper <span className="text-sm font-normal text-slate-500">· simulated control (benchmark)</span></h2>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open_}
+          aria-controls="paper-body"
+          className="group flex items-center gap-2 text-lg font-bold text-white hover:text-slate-300 transition-colors"
+        >
+          <svg viewBox="0 0 20 20" aria-hidden="true"
+            className={`w-4 h-4 text-slate-500 transition-transform ${open_ ? "rotate-90" : ""}`}
+            fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M7 4l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Paper
+          <span className="text-sm font-normal text-slate-500">· simulated control (benchmark)</span>
+        </button>
         <span className={`inline-flex h-2.5 w-2.5 rounded-full ${
           bannerOk ? "bg-emerald-400" : bannerError ? "bg-red-400" : "bg-amber-400"
         }`} />
-        <span className="text-sm text-slate-400">{hb ? hb.status : "no heartbeat"}</span>
+        {!open_ && latest && (
+          <span className="text-sm text-slate-400">
+            {fmtUsd(latest.realized_pnl)} realized · {latest.settled_positions} settled
+          </span>
+        )}
         {hb && <span className="text-sm text-slate-400">last tick {formatAgo(hb.wall_ts)}</span>}
         {bannerError && <span className="text-sm text-red-400">{bannerError}</span>}
       </div>
 
+      {!open_ ? null : (
+      <div id="paper-body" className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
         <StatCard label="Equity" value={latest ? fmtUsd(latest.equity) : "—"} />
         <StatCard label="Realized P&L" value={latest ? fmtUsd(latest.realized_pnl) : "—"}
@@ -292,12 +444,15 @@ function PaperSection({ status, error, mounted }: { status: LongshotStatus | nul
           positive={latest?.roi_on_settled_collateral != null ? latest.roi_on_settled_collateral >= 0 : undefined} />
       </div>
 
+      <DailyPnlChart settled={settled} mounted={mounted} />
       <EquityChart series={series} mounted={mounted} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RecentSettledTable settled={settled} />
         <OpenPositionsTable open={open} deployed={latest?.deployed_collateral ?? null} />
       </div>
+      </div>
+      )}
     </section>
   );
 }
@@ -345,7 +500,7 @@ export default function LongshotPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-xl font-bold text-white">Longshot Short</h1>
-      <LiveSection live={live} />
+      <LiveSection live={live} mounted={mounted} />
       <PaperSection status={status} error={error} mounted={mounted} />
     </div>
   );
