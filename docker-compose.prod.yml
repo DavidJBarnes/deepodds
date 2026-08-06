@@ -131,7 +131,21 @@ services:
       # equity (balance + deployed) read fresh each tick. Paper still uses its own value.
       - LONGSHOT_ACCOUNT=250
       - LONGSHOT_TRADE_FRACTION=0.04
-      - LONGSHOT_MAX_DEPLOYED=400
+      # Raised 200 -> 400 (2026-08-04, $250 deposit) -> 450 (2026-08-06). The 400 cap
+      # PERSISTENTLY bound: 22 of 48 consecutive ticks sat at >=395, pinned at 397.84 for
+      # 7 straight hours overnight while candidates were skipped ("deployed 418.08 > cap
+      # 400.00") and one bracket was deferred ~4h then re-entered at a decayed price — the
+      # same premium leak #233/#234 just fixed, re-created by a too-tight cap.
+      #
+      # Distinct from the #226-228 mistake: that changed SIZE off two days of P&L noise.
+      # The BINDING RATE is a mechanical fact, not a noisy estimate, so it can be acted on.
+      #
+      # 450 = ~85% of $532 equity, leaving ~$80 cash. Note deployed_collateral OVERSTATES
+      # true risk on temp: KXHIGH brackets are mutually exclusive, so at most ONE bracket
+      # per city-day can settle YES — worst case per event is the single worst bracket, not
+      # the sum. The real safety control is MAX_DAILY_LOSS (unchanged at 85), plus the #233
+      # per-tick free-cash gate, which throttles naturally as cash falls.
+      - LONGSHOT_MAX_DEPLOYED=450
       - LONGSHOT_MAX_PER_TRADE=25
       - LONGSHOT_MAX_OPEN=120
       # Circuit breaker, NOT a risk budget: breaching it trips the kill sentinel and
