@@ -82,6 +82,8 @@ jobs:
               "docker pull $IMAGE",
               "echo === Running migrations ===",
               "docker run --rm --network host --env-file '"$ENV_FILE"' $IMAGE alembic upgrade head",
+              "echo === Running Verbatim migrations (separate database) ===",
+              "docker run --rm --network host --env-file '"$ENV_FILE"' $IMAGE alembic -c alembic_verbatim.ini upgrade head",
               "echo === Writing compose file ===",
               "echo $COMPOSE_B64 | base64 -d | sed \"s|IMAGE_PLACEHOLDER|$IMAGE|g\" > /opt/deepodds/docker-compose.yml",
               "echo === Preserving frontend image if running ===",

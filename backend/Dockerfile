@@ -21,6 +21,11 @@ RUN uv sync --no-dev --no-install-project
 COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./
+# Verbatim runs a SECOND Alembic tree against its own database. Both the tree and
+# its .ini must be copied — omitting a needed path here is the failure mode that
+# crash-looped every container in 1e64d73 ("vrp not in image").
+COPY backend/alembic_verbatim ./alembic_verbatim
+COPY backend/alembic_verbatim.ini ./
 COPY backend/longshot ./longshot
 COPY backend/vrp ./vrp
 COPY backend/explorer ./explorer
