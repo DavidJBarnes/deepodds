@@ -50,6 +50,25 @@ jobs:
             --push \
             .
 
+      # Two production outages in one day came from prose in an `echo` inside the
+      # SSM commands array: `(` opens a subshell, so the assembled script died with
+      # "syntax error near unexpected token `('". That array is shell, not YAML —
+      # anything unquoted in it gets executed. Fail here, before touching the box.
+      #
+      # Only parens and backticks are checked: pipes and semicolons appear in
+      # legitimate echo pipelines here (e.g. `echo $COMPOSE_B64 | base64 -d`).
+      - name: Guard against shell metacharacters in echo strings
+        run: |
+          BAD=$(grep -nE '^[[:space:]]*"echo [^"]*[()`]' .github/workflows/deploy-backend.yml || true)
+          if [ -n "$BAD" ]; then
+            echo "Parentheses or backticks found in an echo command string:"
+            echo "$BAD"
+            echo "These are assembled into a shell script by SSM and will abort it."
+            echo "Use only letters, digits, spaces, = and - in echo prose."
+            exit 1
+          fi
+          echo "echo command strings are clean"
+
       - name: Deploy backend via SSM
         id: ssm
         env:
@@ -71,7 +90,7 @@ jobs:
               "echo === Ensuring docker compose is available ===",
               "mkdir -p /usr/local/lib/docker/cli-plugins",
               "docker compose version &>/dev/null || (ARCH=$(uname -m); if [ \"$ARCH\" = \"aarch64\" ]; then COMPOSE_ARCH=aarch64; else COMPOSE_ARCH=x86_64; fi; curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-${COMPOSE_ARCH} -o /usr/local/lib/docker/cli-plugins/docker-compose && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && echo compose installed)",
-              "echo === Freeing disk space (old containers still up, so the running image is protected from prune) ===",
+              "echo === Freeing disk space - old containers still up so the running image is protected from prune ===",
               "docker system prune -af --volumes 2>/dev/null || true",
               "echo === Pulling image ===",
               "aws ecr get-login-password --region '"$AWS_REGION"' | docker login --username AWS --password-stdin '"$ECR_REGISTRY"'",
