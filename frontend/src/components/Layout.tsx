@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 const navItems = [
   { to: "/", label: "Longshot Short" },
   { to: "/edge", label: "Edge Explorer" },
+  { to: "/verbatim", label: "Verbatim" },
 ];
 
 export default function Layout() {
