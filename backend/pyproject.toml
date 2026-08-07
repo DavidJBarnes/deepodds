@@ -30,6 +30,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.25",
     "ruff>=0.9",
+    # In-memory Verbatim DB for tests. Dev-only: the image runs `uv sync --no-dev`
+    # and never installs extras, so this stays out of production.
+    "aiosqlite>=0.20",
 ]
 
 [tool.ruff]
