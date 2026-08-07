@@ -159,6 +159,40 @@ services:
     volumes:
       - /opt/deepodds/longshot-live:/data:z
 
+  # Verbatim background tasks: Kalshi mention-market discovery + retention pruning.
+  #
+  # NOT in deploy-backend.yml's service lists, deliberately. This box has ~295MB
+  # free and has thrashed itself dark once at this container count; a 9th standing
+  # container earning nothing is poor value while no stream is armed and the
+  # tables are empty. Two ways to run it when you want it:
+  #
+  #   one-shot (no standing memory, good for a manual sweep):
+  #     docker compose -f /opt/deepodds/docker-compose.yml run --rm verbatim-tasks \
+  #       python -m app.services.verbatim.daemon --once
+  #
+  #   persistent: add `verbatim-tasks` to the stop/rm/down/up lists in
+  #     .github/workflows/deploy-backend.yml (all four).
+  #
+  # VERBATIM_WATCHLIST_ENABLED stays false until you have decided about the shared
+  # Kalshi key — discovery pages the whole open-market list, and a 429 landing on
+  # longshot-live's order tick silently skips that entry (post uses retry=False).
+  verbatim-tasks:
+    image: "IMAGE_PLACEHOLDER"
+    container_name: deepodds-verbatim-tasks
+    command: python -m app.services.verbatim.daemon
+    restart: unless-stopped
+    network_mode: host
+    env_file: /opt/deepodds/.env
+    environment:
+      - VERBATIM_WATCHLIST_ENABLED=false     # Kalshi discovery — OFF until decided
+      - VERBATIM_RETENTION_ENABLED=true      # pruning only touches our own tables
+      - VERBATIM_DISCOVERY_QUERY=say
+      - VERBATIM_DISCOVERY_INTERVAL_S=1800   # 30min, jittered so it never lands
+                                             # on the hour with longshot-live
+      - VERBATIM_RETENTION_INTERVAL_S=21600
+      - VERBATIM_TRANSCRIPT_RETENTION_HOURS=48
+      - VERBATIM_DELTA_RETENTION_DAYS=14
+
   # Deribit-oracle capture daemon (GO-A data foundation, 2026-07-08). Read-only:
   # snapshots KXBTCD/KXETHD tails + Deribit-fair each hour and backfills settlement
   # -> the unbiased forward dataset that proves the +1.18c tail edge holds through
