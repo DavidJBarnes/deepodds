@@ -106,6 +106,27 @@ services:
       - LONGSHOT_HISTORY=/data/history.jsonl
       - LONGSHOT_HEARTBEAT=/data/heartbeat.json
       - LONGSHOT_KILL_FILE=/data/KILL
+      # SPORTS GATE (2026-08-25) — LIVE trades TEMP ONLY until the 2026-10-26 review.
+      #
+      # The 6 sports series in the default whitelist have NEVER fired live: 0 non-temp
+      # positions in 62 days, because the whole live history is football off-season.
+      # NCAAF week 1 closes 08-29, so discovery would first pick them up ~08-28 16:00Z.
+      #
+      # Their only evidence is VERDICT_EDGE_BY_CATEGORY.md, which is edge_by_efficiency.py
+      # reading `s3_markets_low` — the cheap-selected ingest INVALIDATED 2026-07-04 by
+      # VERDICT_BACKTEST_BIAS.md for deleting YES-bound brackets (0.0% YES observed vs 8.0%
+      # true). It is the same source that turned a real ~+0.2c temp edge into a phantom
+      # +1.9c. Sports measured +0.72c/ct at 1.8% YES on it; corrected, it may be negative.
+      # So live money would enter an unvalidated series class at full sizing, on the one
+      # strategy that is not to be altered without evidence.
+      #
+      # The PAPER arm (deepodds-longshot) deliberately does NOT set this and keeps the
+      # default whitelist, so it trades the football season as the forward, unbiased
+      # sports sample — the same paper-as-control pairing that exposed the #233 balance
+      # double-count. Checkpoint ~09-15 (plumbing: has it opened ANY sports position?
+      # zero = bug, not verdict — cf. the KXNFLFIRST 404s and dead KXHIGHHOU). Decision
+      # 10-26. TO LIFT: delete this one line; the default whitelist already has sports.
+      - LONGSHOT_WHITELIST=KXHIGHNY,KXHIGHCHI,KXHIGHLAX,KXHIGHMIA,KXHIGHAUS,KXHIGHDEN,KXHIGHPHIL
       # SCALED FOR $250 DEPOSIT (2026-08-04): account ~$275 -> ~$520.
       #
       # MAX_PER_TRADE 10 -> 25 is REQUIRED, not optional: replaying the sizing rule over
