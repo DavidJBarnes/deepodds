@@ -94,6 +94,32 @@ def _env_bool(name: str, default: bool) -> bool:
 # Default whitelist: temp (year-round) + sports props (seasonal).
 _DEFAULT_WHITELIST = tuple([f"KXHIGH{c}" for c in TEMP_CITIES] + list(SPORTS_SERIES))
 
+# ---------------------------------------------------------------------------
+# SPORTS GATE (2026-08-25) — temp-only whitelist for the LIVE arm.
+#
+# Every per-series sports edge quoted in SPORTS_SERIES above (+2.01 .. +5.35c/ct)
+# comes from VERDICT_EDGE_BY_CATEGORY.md, which is `edge_by_efficiency.py` — and
+# that reads `s3_markets_low` (see its SHARD_DIR line). `s3_markets_low` is the
+# cheap-selected ingest INVALIDATED on 2026-07-04 by VERDICT_BACKTEST_BIAS.md: it
+# systematically drops YES-bound brackets (0.0% YES observed where the true rate
+# was 8.0%), so it counts premium against almost no losses and OVERSTATES every
+# short edge measured on it. That doc's own last open follow-up is to re-check
+# other conclusions drawn from `s3_markets_*`; the category map is one, and it was
+# never re-checked. Sports measured +0.72c/ct at 1.8% YES on that source — correct
+# for the bias and it may well be negative.
+#
+# This mattered starting 2026-08-28: sports have never fired live once (0 non-temp
+# positions in 62 days — the whole live history is off-season), and NCAAF week 1
+# closes 08-29, so discovery would first pick it up ~08-28 16:00Z. Live money would
+# have entered an unvalidated series class at full sizing.
+#
+# So: LIVE runs TEMP-ONLY, set via LONGSHOT_WHITELIST in docker-compose.prod.yml.
+# The PAPER arm deliberately keeps _DEFAULT_WHITELIST (sports included) and trades
+# the season as the forward, unbiased sports sample. Reviewed 2026-10-26 alongside
+# the temp extension's terminal read; lift by deleting the compose env line.
+# test_longshot_sports_gate.py holds compose and this module in sync.
+TEMP_ONLY_WHITELIST = tuple(f"KXHIGH{c}" for c in TEMP_CITIES)
+
 
 def _env_whitelist() -> tuple:
     """LONGSHOT_WHITELIST (comma-separated) overrides the default whitelist so a
