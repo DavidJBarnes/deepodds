@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 
 from longshot.config import LongshotConfig, load_kalshi_creds
-from longshot.kalshi_client import KalshiClient
+from longshot.kalshi_client import KalshiClient, kalshi_fee_per_contract as fee
 from longshot.execution import Executor
 from longshot.risk import RiskGate, PortfolioRisk, is_killed
 from longshot import reconcile
@@ -26,6 +26,24 @@ logger = logging.getLogger("longshot.live_run")
 
 def _open_positions(state):
     return [p for p in state.get("positions", []) if p.get("status") == "open"]
+
+
+def trim_to_cap(c: dict, cap: int) -> dict:
+    """Cut a sized candidate down to the per-trade contract cap.
+
+    Clip size is equity * trade_fraction / (1 - price), so it grows with the account.
+    The risk gate REJECTS a clip over the cap rather than trimming it, and the ticker is
+    re-sized to the same too-big clip every tick — so once equity crossed 650*(1-p) the
+    whole deep-book side of that price was dropped for good. On 2026-09-12 at $624 that
+    was every 4c+ bracket with >=104 bid; a deposit to ~$1k would have rejected nearly
+    all of them. Collateral and fee are recomputed at the trimmed size, exactly as
+    size_candidate prices a clip natively. Returns the input unchanged when under cap."""
+    if c["size"] <= cap:
+        return c
+    collat_per = 1.0 - c["sell_price"]
+    return {**c, "size": cap, "trimmed_from": c["size"],
+            "collateral": round(collat_per * cap, 2),
+            "fee": round(fee(c["sell_price"], cap), 4)}
 
 
 def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
@@ -72,7 +90,8 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         pr = PortfolioRisk(deployed_collateral=deployed,
                            open_positions=len(_open_positions(state)),
                            realized_pnl_today=reconcile.realized_pnl_today(state, now),
-                           available_balance=balance)
+                           available_balance=balance,
+                           equity=equity)
         pre = gate.pretick(pr)
         if balance is None:
             logger.warning("no Kalshi balance this tick — skipping discovery (can't size safely)")
@@ -102,6 +121,8 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                     c = size_candidate(cfg, m, series, now, equity, pr.deployed_collateral)
                     if not c:
                         continue
+                    # Trim BEFORE the correlation cap and the gate: both read collateral.
+                    c = trim_to_cap(c, cfg.max_per_trade_contracts)
                     if cfg.max_underlying_collateral > 0:
                         uk = paper_run.underlying_key(c["ticker"])
                         if dbu.get(uk, 0.0) + c["collateral"] > cfg.max_underlying_collateral:
@@ -125,6 +146,9 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
                             "entry_oi": c["open_interest"],
                             "status": "open", "result": None, "pnl": None,
                             "intended_price": c["sell_price"], "intended_size": c["size"],
+                            # set only when the per-trade cap bound: the staging read for
+                            # whether the ceiling is what's limiting deployment
+                            "trimmed_from": c.get("trimmed_from"),
                             "avg_fill_price": res.avg_price,
                             "client_order_id": res.client_order_id, "order_id": res.order_id,
                         })
@@ -156,6 +180,10 @@ def run_once(cfg: LongshotConfig | None = None, dry_run: bool = False) -> dict:
         snap["settled_this_tick"] = settled_now
         snap["killed"] = is_killed(cfg)
         snap["dry_run"] = dry_run
+        # The caps move with equity now, so a binding-rate read needs the cap that was
+        # actually in force at each tick — a fixed threshold in the analysis would lie.
+        snap["deployed_cap"] = round(gate.deployed_cap(pr), 2)
+        snap["daily_loss_cap"] = round(gate.daily_loss_cap(pr), 2)
         _save_state(cfg.state_file, state)
         return snap
     finally:

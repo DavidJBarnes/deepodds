@@ -55,25 +55,55 @@ class PortfolioRisk:
     # read once at the start of the tick and is not re-read per order, so it does not
     # yet reflect these fills — this is the running correction. Reset to 0 each tick.
     deployed_this_tick: float = 0.0
+    # Account value (free cash + open collateral), captured ONCE at the start of the
+    # tick. Placing an order moves cash into collateral 1:1 and leaves equity unchanged,
+    # so it is never updated mid-tick (the #224 class). None when Kalshi is unreachable.
+    equity: float | None = None
 
 
 class RiskGate:
     def __init__(self, cfg: LongshotConfig):
         self.cfg = cfg
 
+    def deployed_cap(self, pr: PortfolioRisk) -> float:
+        """Effective total-exposure cap. A fixed dollar cap goes stale the moment the
+        account grows — by deposit or by P&L — and then silently gates new capital
+        (2026-09-12: $450 bound on 73/168 ticks at $624 equity). With a fraction set it
+        tracks equity; the absolute stays as the ceiling and the no-equity fallback."""
+        cap = self.cfg.max_deployed_collateral
+        if self.cfg.max_deployed_frac > 0 and pr.equity is not None:
+            cap = min(cap, self.cfg.max_deployed_frac * pr.equity)
+        return cap
+
+    def daily_loss_cap(self, pr: PortfolioRisk) -> float:
+        """Effective circuit-breaker threshold (a positive number of dollars).
+
+        Realized losses come out of the balance, so live equity falls through a bad
+        day; a fraction of live equity would move the line toward you as you lose.
+        Adding today's realized P&L back gives start-of-day equity, which holds still."""
+        cap = abs(self.cfg.max_daily_loss)
+        if self.cfg.max_daily_loss_frac > 0 and pr.equity is not None:
+            start_of_day = pr.equity - pr.realized_pnl_today
+            cap = min(cap, self.cfg.max_daily_loss_frac * start_of_day)
+        return cap
+
     def pretick(self, pr: PortfolioRisk) -> Decision:
         """Run once per tick before discovering/placing anything. A daily-loss
         breach trips the kill switch so it persists across ticks."""
         if is_killed(self.cfg):
             return Decision(False, "kill switch engaged")
-        if pr.realized_pnl_today <= -abs(self.cfg.max_daily_loss):
-            trip_kill(self.cfg, f"daily loss {pr.realized_pnl_today:.2f} <= -{self.cfg.max_daily_loss:.2f}")
+        loss_cap = self.daily_loss_cap(pr)
+        if pr.realized_pnl_today <= -loss_cap:
+            trip_kill(self.cfg, f"daily loss {pr.realized_pnl_today:.2f} <= -{loss_cap:.2f}")
             return Decision(False, "daily loss limit hit — kill tripped")
         return Decision(True)
 
     def check_order(self, pr: PortfolioRisk, *, contracts: int, collateral: float) -> Decision:
         """Per-order gate. `pr` reflects exposure INCLUDING orders already placed
-        this tick (caller updates it incrementally)."""
+        this tick (caller updates it incrementally).
+
+        The per-trade test REJECTS; it does not trim. Live trims oversized clips to the
+        cap before calling this (live_run.trim_to_cap), so here it is only a backstop."""
         if is_killed(self.cfg):
             return Decision(False, "kill switch engaged")
         if contracts < 1:
@@ -82,10 +112,10 @@ class RiskGate:
             return Decision(False, f"per-trade {contracts} > cap {self.cfg.max_per_trade_contracts}")
         if pr.open_positions >= self.cfg.max_open_positions:
             return Decision(False, f"open {pr.open_positions} >= cap {self.cfg.max_open_positions}")
-        if pr.deployed_collateral + collateral > self.cfg.max_deployed_collateral:
+        cap = self.deployed_cap(pr)
+        if pr.deployed_collateral + collateral > cap:
             return Decision(False,
-                            f"deployed {pr.deployed_collateral + collateral:.2f} > cap "
-                            f"{self.cfg.max_deployed_collateral:.2f}")
+                            f"deployed {pr.deployed_collateral + collateral:.2f} > cap {cap:.2f}")
         # Never try to deploy more collateral than the real account actually holds.
         #
         # `available_balance` is Kalshi's FREE CASH — selling a short moves cash into
@@ -100,7 +130,7 @@ class RiskGate:
         # $26.61 of realized P&L. Same double-count class as #224, one layer down.
         #
         # The affordability question is only ever about THIS order plus what this tick
-        # has already spent. Total exposure stays capped by max_deployed_collateral above.
+        # has already spent. Total exposure stays capped by the deployed cap above.
         if pr.available_balance is not None and \
                 pr.deployed_this_tick + collateral > pr.available_balance:
             return Decision(False,
