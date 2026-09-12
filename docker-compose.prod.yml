@@ -166,8 +166,28 @@ services:
       # per city-day can settle YES — worst case per event is the single worst bracket, not
       # the sum. The real safety control is MAX_DAILY_LOSS (unchanged at 85), plus the #233
       # per-tick free-cash gate, which throttles naturally as cash falls.
-      - LONGSHOT_MAX_DEPLOYED=450
-      - LONGSHOT_MAX_PER_TRADE=25
+      #
+      # EQUITY-RELATIVE CAPS (2026-09-12) — so a deposit flows without another cap edit.
+      #
+      # By 09-12 equity had grown to $624 on P&L alone and both fixed caps were gating:
+      # deployed sat >=445 on 73/168 ticks (471 skips in 7d), and MAX_PER_TRADE REJECTED
+      # (never trimmed) any clip >25. Clip = equity*0.04/(1-p) crosses 25 at $572 (12c) to
+      # $644 (1c), so the 4c+ brackets with deep books were dropped outright, every tick. A
+      # deposit to ~$1k would have rejected nearly the entire deep book. Now live TRIMS to
+      # MAX_PER_TRADE, and:
+      #   deployed cap   = min(MAX_DEPLOYED,   MAX_DEPLOYED_FRAC   * equity)
+      #   daily-loss cap = min(MAX_DAILY_LOSS, MAX_DAILY_LOSS_FRAC * start-of-day equity)
+      # 0.85 is the ratio 450 was set at ($532). The absolutes are now CEILINGS — a forced
+      # review point near the ~$2.5k capacity elbow — not the working cap.
+      #
+      # MAX_PER_TRADE 25 -> 50 is STAGED, not "uncapped": 25 is the largest clip ever
+      # filled live (clean: fill 0.999, favorable slippage). 50 trims from ~$1.12k (12c)
+      # to ~$1.26k (1c) equity, just above the planned $250-500 deposit. Lift it again
+      # only after fill_rate / avg_slippage_c hold at clips >25; positions carry
+      # `trimmed_from` when the ceiling binds, and ticks log the effective caps.
+      - LONGSHOT_MAX_DEPLOYED=2000
+      - LONGSHOT_MAX_DEPLOYED_FRAC=0.85
+      - LONGSHOT_MAX_PER_TRADE=50
       - LONGSHOT_MAX_OPEN=120
       # Circuit breaker, NOT a risk budget: breaching it trips the kill sentinel and
       # halts ALL new orders until /opt/deepodds/longshot-live/KILL is deleted by hand.
@@ -176,7 +196,13 @@ services:
       # for the $250 deposit taking expected deployment to ~$334/day). Worst day in 41
       # days was -$16 at ~$94 deployed = -17% of deployed, so 25% clears a normal bad day
       # and still catches an anomaly. ALWAYS rescale this WITH a capital change.
-      - LONGSHOT_MAX_DAILY_LOSS=85
+      #
+      # 2026-09-12: now SCALES (see EQUITY-RELATIVE CAPS above), so "rescale with a capital
+      # change" happens by itself. 0.15 is the ratio in force at the 08-25 readout (85 on
+      # $568.71). Taken of START-OF-DAY equity so the line doesn't move toward you as the
+      # day's losses land. 250 is the ceiling, and the fallback if equity is unknown.
+      - LONGSHOT_MAX_DAILY_LOSS=250
+      - LONGSHOT_MAX_DAILY_LOSS_FRAC=0.15
     volumes:
       - /opt/deepodds/longshot-live:/data:z
 

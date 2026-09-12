@@ -193,6 +193,13 @@ class LongshotConfig:
     max_per_trade_contracts: int = field(default_factory=lambda: _env_int("LONGSHOT_MAX_PER_TRADE", 1))
     max_open_positions: int = field(default_factory=lambda: _env_int("LONGSHOT_MAX_OPEN", 40))
     max_daily_loss: float = field(default_factory=lambda: _env_float("LONGSHOT_MAX_DAILY_LOSS", 25.0))
+    # Equity-relative caps (default OFF = 0). When set, the working cap is
+    # min(absolute, frac * equity) so a deposit raises it without a config edit; the
+    # absolute becomes a ceiling (and the fallback when equity is unknown). The daily-
+    # loss fraction is taken of START-OF-DAY equity so the breaker doesn't tighten as
+    # the day's losses land. See RiskGate.deployed_cap / daily_loss_cap.
+    max_deployed_frac: float = field(default_factory=lambda: _env_float("LONGSHOT_MAX_DEPLOYED_FRAC", 0.0))
+    max_daily_loss_frac: float = field(default_factory=lambda: _env_float("LONGSHOT_MAX_DAILY_LOSS_FRAC", 0.0))
     # Sentinel kill file: if present, no new orders are placed. env LONGSHOT_KILL=1 also halts.
     kill_file: str = field(default_factory=lambda: os.environ.get("LONGSHOT_KILL_FILE", "/data/KILL"))
 
