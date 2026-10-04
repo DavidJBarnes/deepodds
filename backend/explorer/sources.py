@@ -76,6 +76,11 @@ def deribit_chain_latest(deribit_dir: str = DERIBIT_DIR) -> list[dict]:
     return _read_jsonl(f) if f else []
 
 
+def deribit_chain_for(day: str, deribit_dir: str = DERIBIT_DIR) -> list[dict]:
+    """The chain capture for a given ISO date (backfill); [] if that day is missing."""
+    return _read_jsonl(os.path.join(deribit_dir, f"chain_{day.replace('-', '')}.jsonl"))
+
+
 # -- bookrec (data-quality only in v1) --------------------------------------
 def bookrec_latest_stats(bookrec_dir: str = BOOKREC_DIR) -> dict:
     """Population stats on the most recent book file — used only to surface the

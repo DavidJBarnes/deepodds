@@ -30,9 +30,9 @@ def structural_rules(metric) -> list[dict]:
     out: list[dict] = []
 
     # -- Observation #1: founding crypto-tail thesis has inverted in settled data ----
-    if k == "oracle.tail.gap_settled_c" and v < -0.2:
+    if k == "oracle.tail14d.gap_settled_c" and v < -0.2:
         out.append(_obs("oracle.tail_thesis_inverted", metric,
-            what=(f"Over the last {c.get('n','?')} settled BTC/ETH tails, Kalshi sold at "
+            what=(f"Over {c.get('n','?')} BTC/ETH tails settled in the last 14 days, Kalshi sold at "
                   f"{c.get('kalshi_c','?')}c vs Deribit-fair {c.get('deribit_c','?')}c — "
                   f"Kalshi is priced BELOW Deribit ({v:+.2f}c)."),
             why=("The founding crypto-tails thesis was the exact opposite: Kalshi OVER-prices "
@@ -47,10 +47,10 @@ def structural_rules(metric) -> list[dict]:
             surprise=STRUCTURAL_SALIENCE + min(abs(v), 3.0)))
 
     # -- mid-tail (3-5c) underpriced vs realized -----------------------------------
-    if k == "oracle.tail.calib_err_mid_c" and v > 2.0:
+    if k == "oracle.tail30d.calib_err_mid_c" and v > 2.0:
         out.append(_obs("oracle.mid_tail_underpriced", metric,
             what=(f"Kalshi 3-5c tails resolved YES {c.get('actual_yes_pct','?')}% but charge only "
-                  f"{c.get('charge_c','?')}c — underpriced by {v:.1f}c (n={c.get('n','?')})."),
+                  f"{c.get('charge_c','?')}c over the last 30 days — underpriced by {v:.1f}c (n={c.get('n','?')})."),
             why=("Selling this band is a structural loser and the single worst pocket for a tail "
                  "seller — realized frequency runs well above the price."),
             nxt="Verify the sell gate excludes this band; quantify its share of blind-sell loss.",
@@ -58,19 +58,40 @@ def structural_rules(metric) -> list[dict]:
             surprise=STRUCTURAL_SALIENCE + min(v / 2, 3.0)))
 
     # -- blind tail selling is a net loser -----------------------------------------
-    if k == "oracle.tail.blind_sell_ev_c" and v < -0.5:
+    # Day-clustered: one big BTC/ETH move settles hundreds of tails YES together, so a
+    # single bad day used to fire this at -16c. Only a loss that survives the clustered
+    # SE (v + 2se < 0) is a statement about blind selling rather than about one move.
+    se = c.get("se_c")
+    if (k == "oracle.tail14d.blind_sell_ev_c" and v < -0.5
+            and (se is None or v + 2 * se < 0)):
         out.append(_obs("oracle.blind_sell_negative", metric,
-            what=f"Blind-selling every captured tail at bid returns {v:.2f}c/contract over the last {c.get('n','?')}.",
+            what=(f"Blind-selling every captured tail at bid returned {v:.2f}c/contract over the last "
+                  f"14 days (n={c.get('n','?')} over {c.get('n_days','?')} days, day-clustered SE {se}c)."),
             why="Confirms the crypto-tail edge is entirely in selection (the gate), not in tails broadly.",
-            nxt="Track gated-only EV separately to confirm selection still adds value.",
-            caveat="Short window; correlated outcomes.",
+            nxt="Compare against oracle.tail14d.gated_ev_c over the same window.",
+            caveat="Outcomes cluster by settlement day; the SE is clustered, but 14 days is still few clusters.",
+            surprise=STRUCTURAL_SALIENCE + min(abs(v), 2.0)))
+
+    # -- the oracle gate itself is not clearing ------------------------------------
+    if k == "oracle.tail14d.gated_ev_c" and v < 0 and c.get("n", 0) >= 30:
+        out.append(_obs("oracle.gate_not_clearing", metric,
+            what=(f"Tails the oracle gate would sell (entry bid >= Deribit fair + {c.get('min_edge_c','?')}c) "
+                  f"returned {v:.2f}c/contract over the last 14 days (n={c.get('n','?')}, "
+                  f"{c.get('yes_pct','?')}% YES, day-clustered SE {c.get('se_c')}c)."),
+            why=("The crypto-tail case rests on selection: blind selling loses, the gate is supposed "
+                 "to win. A negative gated EV means the selection isn't paying in the current regime."),
+            nxt=("Check persistence first. If it holds, split gated tails by OTM distance and hours-to-"
+                 "close — the 2026-07-10 loss was all near-money tails the OTM floor now excludes, and "
+                 "this proxy has no OTM floor."),
+            caveat=("Proxy, not the live arm: uses entry bid (stricter than the live mid test) and no "
+                    "OTM floor. Few independent days."),
             surprise=STRUCTURAL_SALIENCE + min(abs(v), 2.0)))
 
     # -- live longshot fills adversely selected vs paper twin -----------------------
-    if k == "longshot.adverse.paper_minus_live_hit" and v > 0.02:
+    if k == "longshot.adverse.paper_minus_live_hit_14d" and v > 0.02:
         out.append(_obs("longshot.adverse_selection", metric,
             what=(f"Live longshot fills resolve YES {c.get('live_yes_pct','?')}% vs the paper twin's "
-                  f"{c.get('paper_yes_pct','?')}% — live is getting the worse brackets."),
+                  f"{c.get('paper_yes_pct','?')}% over the last 14 days — live is getting the worse brackets."),
             why=("Classic adverse selection: we get filled disproportionately on brackets that go on "
                  "to resolve YES. This is the exact paper->live gap that killed the favorites strategy."),
             nxt="Break live YES-rate down by OI / time-of-day / quote-distance to localise the leak.",
@@ -78,13 +99,26 @@ def structural_rules(metric) -> list[dict]:
             surprise=STRUCTURAL_SALIENCE + min(v * 20, 3.0)))
 
     # -- live slippage creeping ----------------------------------------------------
-    if k == "longshot.live.avg_slippage_c" and v > 0.5:
+    if k == "longshot.live.slippage_14d_c" and v > 0.5:
         out.append(_obs("longshot.slippage_creep", metric,
-            what=f"Live avg slippage is {v:.2f}c over {c.get('orders','?')} orders.",
+            what=f"Live avg slippage is {v:.2f}c over the last 14 days ({c.get('orders','?')} orders).",
             why="Slippage eats the thin longshot edge directly; the clean-fill assumption is drifting.",
             nxt="Diff intended vs actual fills this week; check if it's size- or hour-driven.",
             caveat="Sign convention: negative = price improvement, positive = paying up.",
             surprise=STRUCTURAL_SALIENCE + min(v, 2.0)))
+
+    # -- live longshot net-negative over a month -------------------------------------
+    if k == "longshot.live.pnl_30d" and v < 0 and c.get("n", 0) >= 100:
+        out.append(_obs("longshot.live_pnl_negative", metric,
+            what=(f"Live longshot realized ${v:.2f} over the last 30 days on {c.get('n','?')} settled "
+                  f"positions (NO hit rate {c.get('hit_rate_no','?')}, ${c.get('per_trade','?')}/trade)."),
+            why=("The live edge was re-baselined at ~break-even (+0.22c/ct); a month net-negative is the "
+                 "edge sitting at or below zero, not one bad settlement day."),
+            nxt=("Do NOT retune live from this — take it to the scheduled longshot review. Split the window "
+                 "by category and by pre/post sizing changes; compare the paper twin over the same window."),
+            caveat=("Dollar P&L scales with position size, so windows straddling a sizing change aren't "
+                    "comparable; the hit rate is size-independent."),
+            surprise=STRUCTURAL_SALIENCE + min(abs(v) / 50, 2.0)))
 
     # -- data quality: bookrec is banking nulls ------------------------------------
     if k == "dq.bookrec.populated_frac" and v < 0.01:
